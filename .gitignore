@@ -1,0 +1,65 @@
+# Each pattern is for a file that turns up in this tree.
+
+### Built here
+/target/
+/dist/
+node_modules/
+/src-tauri/gen/schemas/
+__pycache__/
+
+### Written by a run, about one machine
+engine-probe.json
+*.log
+*.iso
+lyonoyl-vm-*/
+
+### Left by the system or an editor
+.DS_Store
+._*
+Thumbs.db
+[Dd]esktop.ini
+.directory
+*~
+
+### One developer's tools
+# CLAUDE.md, a one-line pointer, is the one vendor file kept.
+.vscode/
+.idea/
+.zed/
+.claude/
+CLAUDE.local.md
+.cursor/
+.cursorrules
+.windsurf/
+.windsurfrules
+.gemini/
+GEMINI.md
+.junie/
+.aider*
+
+### GitHub
+# No workflows: the checks run locally. Ignored so a tool cannot add one unasked.
+.github/
+
+### Anything that identifies anybody
+# Certificates, keys and provisioning. The boundary gate refuses them when tracked, too.
+*.p8
+*.certSigningRequest
+*.p12
+*.pfx
+*.cer
+*.crt
+*.der
+*.pem
+*.key
+*.mobileprovision
+*.provisionprofile
+*.keychain
+*.keychain-db
+
+# Environment files, the signing one among them.
+*.env
+.env.*
+
+# Local Cargo configuration: a signing runner names its identity.
+.cargo/
