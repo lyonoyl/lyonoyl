@@ -86,7 +86,7 @@ Found a vulnerability? Report it privately, the way the [security policy](SECURI
 
 ## Donations
 
-Every donation keeps the cat fed 👉👈. The [donation page](docs/donations/README.md) lists the ways to give.
+Every donation keeps the cat fed. The [donation page](docs/donations/README.md) lists the ways to give.
 
 <a href="docs/donations/README.md"><img src="docs/donations/images/feed-the-cat.svg" alt="Feed the cat: donate to Lyonoyl Mail, the open-source email client that respects your privacy" height="44"></a>
 
