@@ -1,0 +1,39 @@
+name: A problem
+description: Something does not work as it should.
+body:
+  - type: markdown
+    attributes:
+      value: Never paste a message, an address or a password here. The log holds none of them.
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings → Updates shows it.
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: macOS, Windows or Linux, and its version.
+    validations:
+      required: true
+  - type: input
+    id: installed
+    attributes:
+      label: How it was installed
+      description: The release's disk image, or built from source, and from which commit.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: "Attach the newest file from Settings → Storage → Show the log folder. If that folder holds a file named `detail`, the log also says when each message was opened: take out its `body.rendered` and `picture.` lines first."

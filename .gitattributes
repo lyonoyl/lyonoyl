@@ -1,0 +1,2 @@
+# cmd.exe is unreliable about labels in a file with bare newlines.
+*.cmd text eol=crlf

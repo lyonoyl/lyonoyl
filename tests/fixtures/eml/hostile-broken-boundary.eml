@@ -1,0 +1,15 @@
+From: Someone <someone@example.com>
+To: you@example.com
+Date: Tue, 18 Nov 2025 07:00:00 +0000
+Subject: A part that never ends
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="never-closed"
+
+--never-closed
+Content-Type: text/plain; charset=utf-8
+
+The text part.
+--never-closed
+Content-Type: text/html; charset=utf-8
+
+<p>The HTML part, and then the message simply stops.

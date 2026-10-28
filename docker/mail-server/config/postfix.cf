@@ -1,0 +1,62 @@
+# Postfix for development and tests: a submission server, and nothing else. Not a production
+# configuration.
+#
+# It takes a message from somebody who has signed in, and hands it to the Dovecot container beside
+# it, which files it in the inbox of the address it was sent to. It carries mail for the fixture
+# domains below and for nobody else: a message to any other address is refused while the client is
+# still naming recipients, and even a message that got past that would have nowhere to go, because
+# every route off this container is an error.
+
+compatibility_level = 3.9
+
+# A name for the greeting and for the messages it writes itself. Reserved for documentation, so it
+# can never be mistaken for a host anybody runs.
+myhostname = submission.lyonoyl.test
+mydomain = lyonoyl.test
+myorigin = $myhostname
+
+inet_interfaces = all
+inet_protocols = ipv4
+
+# The container's own loopback. Every client this fixture serves arrives from outside it and has to
+# sign in.
+mynetworks = 127.0.0.0/8
+
+# Nothing is delivered on this container, and nothing is looked up to find where to.
+mydestination =
+alias_maps =
+alias_database =
+local_transport = error:this fixture delivers nothing locally
+smtpd_peername_lookup = no
+lmtp_host_lookup = native
+
+# The domains this fixture accepts mail for: the documentation domains the tests write to, and the
+# ones the development accounts use. Every address in them exists, because Dovecot accepts any user
+# name, so a test can send to a mailbox nobody has opened yet.
+virtual_mailbox_domains = example.com example.net example.org lyonoyl.local first-domain.test
+    second-domain.test
+virtual_transport = lmtp:inet:imap:24
+
+# Relays nothing. Mail for any other domain has no route: the error transport bounces it rather than
+# looking for a server to hand it to.
+relay_domains =
+relay_transport = error:this fixture relays nowhere
+default_transport = error:this fixture relays nowhere
+
+# Signing in is asked of Dovecot, so this server and the IMAP one take the same password.
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = inet:imap:12345
+smtpd_tls_security_level = none
+
+# Nobody who has not signed in gets as far as naming a recipient, and nobody who has can name one
+# outside the fixture domains.
+smtpd_client_restrictions = permit_sasl_authenticated, reject
+smtpd_relay_restrictions = reject_unauth_destination
+smtpd_recipient_restrictions = permit_sasl_authenticated, reject
+
+# The size most submission servers take, so a message the application builds near the limit is
+# answered here the way it would be answered by one of them.
+message_size_limit = 26214400
+
+maillog_file = /dev/stdout

@@ -1,0 +1,24 @@
+From: Zeta <zeta@example.com>
+To: you@example.com
+Subject: The chart from the meeting
+Date: Wed, 19 Nov 2025 11:40:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="rel-1"; type="text/html"
+
+--rel-1
+Content-Type: text/html; charset=utf-8
+
+<html><body style="font-family:Helvetica,Arial,sans-serif">
+<p>Here is the chart we talked about — it travels inside the message, not on a server:</p>
+<p><img src="cid:chart@example.com" width="16" height="16" alt="The chart"></p>
+<p>Zeta</p>
+</body></html>
+
+--rel-1
+Content-Type: image/png
+Content-Transfer-Encoding: base64
+Content-ID: <chart@example.com>
+Content-Disposition: inline; filename="chart.png"
+
+iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAF0lEQVQoz2P8z8DwH4ooYBSMKgZiFAAA970K/2tqKx4AAAAASUVORK5CYII=
+--rel-1--

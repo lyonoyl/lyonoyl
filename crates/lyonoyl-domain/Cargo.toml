@@ -1,0 +1,20 @@
+[package]
+name = "lyonoyl-domain"
+version.workspace = true
+edition = "2021"
+description = "Pure domain rules for Lyonoyl Mail: concepts, invariants and decisions"
+license.workspace = true
+
+# This crate has no access to a database, the network, a serialization format or the desktop
+# shell. The restriction is enforced by the compiler through this manifest, so adding a dependency
+# here is an architectural change rather than a detail.
+[dependencies]
+thiserror = "2"
+
+[lints]
+workspace = true
+
+# Test-only: the sync rules are checked over generated inputs as well as listed cases.
+# A dev-dependency reaches no shipped binary.
+[dev-dependencies]
+proptest = "1.11.0"

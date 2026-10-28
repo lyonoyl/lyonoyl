@@ -1,0 +1,64 @@
+# A mail server for development and tests: Dovecot for reading, Postfix for sending.
+#
+#   docker compose -f docker/mail-server/compose.yml up -d --build --wait
+#   scripts/reset-mail-server.sh
+#
+# Reachable from this machine only, without encryption: IMAP at 127.0.0.1:1143 and submission at
+# 127.0.0.1:1587. Any user name works; the password is always `lyonoyl`. A message submitted to an
+# address at one of the fixture domains lands in the inbox that signs in as that address, and a
+# message to anywhere else is refused — nothing leaves these two containers.
+services:
+  imap:
+    build: .
+    # The tag moves whenever what the image holds does. Compose builds an image it does not have
+    # and runs one it does, so a tag left alone keeps an old image running under a configuration
+    # written for the new one — here, a Dovecot without LMTP told to speak it.
+    image: lyonoyl-mail-server:2.3.21-lmtp
+    container_name: lyonoyl-mail-server
+    # Loopback only: nothing on the network can reach it, and the client refuses plaintext to
+    # anything that is not loopback. LMTP and the authentication service listen too, and are not
+    # published: only the submission container reaches them.
+    ports:
+      - "127.0.0.1:1143:143"
+    volumes:
+      - ./config/dovecot.conf:/etc/dovecot/dovecot.conf:ro
+      - mail:/srv/mail
+    # Listening sockets are read from the kernel's table rather than knocked on: a probe every five
+    # seconds is a connection in the log every five seconds, burying the delivery somebody is
+    # watching for. 0018 is LMTP on 24, 3039 the authentication service on 12345.
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - >-
+          doveadm service status imap-login | grep -q imap-login
+          && grep -q ': 00000000:0018 00000000:0000 0A' /proc/net/tcp
+          && grep -q ': 00000000:3039 00000000:0000 0A' /proc/net/tcp
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  submission:
+    build:
+      context: .
+      dockerfile: submission.Dockerfile
+    image: lyonoyl-mail-submission:3.9.11
+    container_name: lyonoyl-mail-submission
+    # Loopback only, for the same reason as IMAP: the client sends a password in the clear to this
+    # port and to nothing that is not on this machine.
+    ports:
+      - "127.0.0.1:1587:587"
+    volumes:
+      - ./config/postfix.cf:/etc/postfix/main.cf:ro
+    # It signs people in and delivers through Dovecot, so it is not ready before Dovecot is.
+    depends_on:
+      imap:
+        condition: service_healthy
+    # The submission port listening, read the same quiet way: 024B is 587.
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q ': 00000000:024B 00000000:0000 0A' /proc/net/tcp"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mail:

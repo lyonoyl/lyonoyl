@@ -1,0 +1,232 @@
+{
+  "about": "Where the addresses are in text. The core links them in plain-text mail and the composer marks them as they are typed; the tests on both sides read these cases. `written` is the text an address takes up, `opens` what the core opens for it.",
+  "cases": [
+    {
+      "text": "See https://example.com/a.",
+      "links": [
+        {
+          "written": "https://example.com/a",
+          "opens": "https://example.com/a"
+        }
+      ]
+    },
+    {
+      "text": "Plain http://example.org works",
+      "links": [
+        {
+          "written": "http://example.org",
+          "opens": "http://example.org/"
+        }
+      ]
+    },
+    {
+      "text": "(see https://example.com/wiki/Thing_(word)) here",
+      "links": [
+        {
+          "written": "https://example.com/wiki/Thing_(word)",
+          "opens": "https://example.com/wiki/Thing_(word)"
+        }
+      ]
+    },
+    {
+      "text": "[https://example.net/x]",
+      "links": [
+        {
+          "written": "https://example.net/x",
+          "opens": "https://example.net/x"
+        }
+      ]
+    },
+    {
+      "text": "www.example.com, then",
+      "links": [
+        {
+          "written": "www.example.com",
+          "opens": "https://www.example.com/"
+        }
+      ]
+    },
+    {
+      "text": "Write to mailto:zeta@example.com!",
+      "links": [
+        {
+          "written": "mailto:zeta@example.com",
+          "opens": "mailto:zeta@example.com"
+        }
+      ]
+    },
+    {
+      "text": "HTTPS://EXAMPLE.ORG/Path",
+      "links": [
+        {
+          "written": "HTTPS://EXAMPLE.ORG/Path",
+          "opens": "https://example.org/Path"
+        }
+      ]
+    },
+    {
+      "text": "<https://example.net/x>",
+      "links": [
+        {
+          "written": "https://example.net/x",
+          "opens": "https://example.net/x"
+        }
+      ]
+    },
+    {
+      "text": "\"https://example.com/q?a=1&b=2\"",
+      "links": [
+        {
+          "written": "https://example.com/q?a=1&b=2",
+          "opens": "https://example.com/q?a=1&b=2"
+        }
+      ]
+    },
+    {
+      "text": "two https://example.com/one and https://example.org/two.",
+      "links": [
+        {
+          "written": "https://example.com/one",
+          "opens": "https://example.com/one"
+        },
+        {
+          "written": "https://example.org/two",
+          "opens": "https://example.org/two"
+        }
+      ]
+    },
+    {
+      "text": "line\nhttps://example.com/end\nnext",
+      "links": [
+        {
+          "written": "https://example.com/end",
+          "opens": "https://example.com/end"
+        }
+      ]
+    },
+    {
+      "text": "Not links: example.com, zeta@example.com, javascript:alert(1), file:///etc/hosts, ftp://example.com",
+      "links": []
+    },
+    {
+      "text": "Nothing after: https:// and www. and mailto: alone",
+      "links": []
+    },
+    {
+      "text": "Inside a word: xhttps://example.com and zeta.www.example.com",
+      "links": []
+    },
+    {
+      "text": "https://example.com。続き",
+      "links": [
+        {
+          "written": "https://example.com",
+          "opens": "https://example.com/"
+        }
+      ]
+    },
+    {
+      "text": "見てhttps://example.com/a、ね",
+      "links": [
+        {
+          "written": "https://example.com/a",
+          "opens": "https://example.com/a"
+        }
+      ]
+    },
+    {
+      "text": "https://ζήτα.example/",
+      "links": [
+        {
+          "written": "https://ζήτα.example/",
+          "opens": "https://xn--jxagn1d.example/"
+        }
+      ]
+    },
+    {
+      "text": "Go to https://example.com/path?!",
+      "links": [
+        {
+          "written": "https://example.com/path",
+          "opens": "https://example.com/path"
+        }
+      ]
+    },
+    {
+      "text": "Closed early https://example.com/a).",
+      "links": [
+        {
+          "written": "https://example.com/a",
+          "opens": "https://example.com/a"
+        }
+      ]
+    },
+    {
+      "text": "end with a quote 'https://example.com/x'",
+      "links": [
+        {
+          "written": "https://example.com/x",
+          "opens": "https://example.com/x"
+        }
+      ]
+    },
+    {
+      "text": "*https://example.com/bold*",
+      "links": [
+        {
+          "written": "https://example.com/bold",
+          "opens": "https://example.com/bold"
+        }
+      ]
+    },
+    {
+      "text": "www.example alone",
+      "links": []
+    },
+    {
+      "text": "https://example.com:8080/x",
+      "links": [
+        {
+          "written": "https://example.com:8080/x",
+          "opens": "https://example.com:8080/x"
+        }
+      ]
+    },
+    {
+      "text": "Smile https://example.com/😀 ok",
+      "links": [
+        {
+          "written": "https://example.com/😀",
+          "opens": "https://example.com/%F0%9F%98%80"
+        }
+      ]
+    },
+    {
+      "text": "mailto:zeta@example.com?subject=Hi",
+      "links": [
+        {
+          "written": "mailto:zeta@example.com?subject=Hi",
+          "opens": "mailto:zeta@example.com?subject=Hi"
+        }
+      ]
+    },
+    {
+      "text": "https://example.com\\@evil.example/",
+      "links": [
+        {
+          "written": "https://example.com",
+          "opens": "https://example.com/"
+        }
+      ]
+    },
+    {
+      "text": "Again www.example.org/path…",
+      "links": [
+        {
+          "written": "www.example.org/path",
+          "opens": "https://www.example.org/path"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Lyonoyl Mail",
+  "version": "1.0.0",
+  "identifier": "com.lyonoyl.mail",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; style-src-elem 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; media-src 'self'; worker-src 'self' blob:; frame-src lyomsg: http://lyomsg.localhost; object-src 'none'; base-uri 'none'; form-action 'none'",
+      "devCsp": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; style-src-elem 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1420 http://localhost:1420; media-src 'self'; worker-src 'self' blob:; frame-src lyomsg: http://lyomsg.localhost; object-src 'none'; base-uri 'none'; form-action 'none'",
+      "freezePrototype": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "licenseFile": "../LICENSE",
+    "copyright": "Lyonoyl Mail",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "skip"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "xdg-desktop-portal",
+          "xdg-desktop-portal-gtk | xdg-desktop-portal-kde",
+          "zenity"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "xdg-desktop-portal",
+          "zenity"
+        ]
+      }
+    }
+  }
+}

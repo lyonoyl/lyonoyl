@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Main window. It is granted the three things it asks the core for and nothing else: the application's version, listening for the core's events, and stopping. The application's own commands need no grant here. No default set is granted, because a default set is a list somebody else wrote and extends without asking: the core's own reaches menus, the home directory and the other paths, the windows and webviews, images and the tray, and this window uses none of them. The opener is not among the grants either: this window has no reason to open a URL. A link in a message is opened by the `open_link` command, which is given the name the link was held under rather than an address, checks the scheme again at the moment of handing it over, and calls the opener from Rust — where a window's own permissions do not reach. Granting the plugin here as well would leave the window able to open any http, https or mailto URL of its own accord: a way out of this application that nothing in it uses, that no content policy is involved in, and that a compromised renderer would need no bypass to reach.",
+  "windows": ["main"],
+  "permissions": [
+    "core:app:allow-version",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

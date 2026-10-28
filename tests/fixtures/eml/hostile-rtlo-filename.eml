@@ -1,0 +1,18 @@
+From: Someone <someone@example.com>
+To: you@example.com
+Date: Tue, 18 Nov 2025 07:00:00 +0000
+Subject: A file name that reads backwards
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="parts"
+
+--parts
+Content-Type: text/plain; charset=utf-8
+
+The attachment below is named to look like something it is not.
+--parts
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="holiday‮gnp.exe"
+Content-Transfer-Encoding: base64
+
+bm90IHJlYWxseSBhIHBpY3R1cmU=
+--parts--

@@ -1,0 +1,15 @@
+From: Someone <someone@example.com>
+To: you@example.com
+Date: Tue, 18 Nov 2025 07:00:00 +0000
+Subject: A message that reports back
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head>
+<link rel="stylesheet" href="https://tracker.example.net/style.css">
+</head><body>
+<p>Hello.</p>
+<img src="https://tracker.example.net/pixel.gif?who=you" width="1" height="1" alt="">
+<img src="http://tracker.example.net/second.gif" alt="a picture">
+<a href="https://tracker.example.net/click?who=you">Read more</a>
+</body></html>

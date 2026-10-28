@@ -38,8 +38,13 @@ GEMINI.md
 .aider*
 
 ### GitHub
-# No workflows: the checks run locally. Ignored so a tool cannot add one unasked.
-.github/
+# No workflows: the checks run locally. Everything in .github/ is ignored but the community files
+# GitHub reads, so a tool cannot add a workflow unasked.
+.github/*
+!.github/FUNDING.yml
+!.github/ISSUE_TEMPLATE/
+!.github/PULL_REQUEST_TEMPLATE.md
+!.github/VULNERABILITY_REPORT.yml
 
 ### Anything that identifies anybody
 # Certificates, keys and provisioning. The boundary gate refuses them when tracked, too.

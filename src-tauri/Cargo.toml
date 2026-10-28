@@ -1,0 +1,175 @@
+[package]
+name = "lyonoyl"
+version.workspace = true
+license.workspace = true
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "lyonoyl_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+# The build made for screenshots, and nothing else: `npm run app:screenshots` turns it on. It plays a
+# made-up scene into a profile of its own, keeps its secrets in memory, reads its mail from the scene
+# rather than from any server, and passes on to none what is done in it. No other build compiles any
+# of it in.
+screenshots = []
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+lyonoyl-domain = { path = "../crates/lyonoyl-domain" }
+tauri = { version = "2", features = [] }
+# Reads the picture a window wears on Windows, chosen in the settings, into the pixels Tauri takes.
+# Already in the tree at this version under Tauri's menus, so it adds an edge and not a package.
+png = "0.18"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# `bundled-sqlcipher-vendored-openssl` rather than `bundled`: every page of these files is
+# written encrypted. Vendored rather than the system OpenSSL, because a build that depends on
+# one is a build that works on whichever of the three systems happens to have it.
+rusqlite = { version = "0.40", features = [
+    "backup",
+    "bundled-sqlcipher-vendored-openssl",
+    "functions",
+    "hooks",
+    "limits",
+] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.35"
+rusqlite_migration = "2.6"
+thiserror = "2"
+ts-rs = "12"
+secrecy = "0.10"
+# Named here to be silenced, and for no other reason. Both are already in the graph -- `log` under
+# twenty-five crates, `tracing` under the HTTP stack -- and both compile a level check into every
+# call site from a constant these features set. With the constant at `off` the macro expands to
+# nothing at all: the arguments are never formatted, in a debug build, in a release build, in
+# `cargo test`, and no subscriber anybody installs can turn them back on.
+#
+# What that stops is not noise. `async-imap` writes the request line it is about to send at trace
+# level -- which is `LOGIN`, with the password on it -- and the raw response, which is the message.
+# The HTTP client Tauri brings writes the host of every connection it opens; nothing here calls it,
+# and it is compiled in either way.
+# Invariant 9 says a password never reaches a log, and until this the only thing keeping that true
+# was that nobody had yet installed a receiver. That is a race, and this is a fact.
+log = { version = "0.4", features = ["max_level_off", "release_max_level_off"] }
+tracing = { version = "0.1", features = ["max_level_off", "release_max_level_off"] }
+async-imap = { version = "0.11", default-features = false, features = ["runtime-tokio"] }
+# Already in the tree under tokio. Here for one call: how often the system asks whether the other
+# end of a quiet connection is still there, which tokio's own socket can only switch on or off.
+socket2 = "0.6"
+tokio = { version = "1", features = ["net", "time", "rt", "macros", "io-util", "sync"] }
+# ring rather than the default aws-lc-rs: that one needs cmake and NASM to build on Windows.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-platform-verifier = { version = "0.7", default-features = false }
+futures = "0.3"
+keyring = "4"
+# Argon2id, what turns a master password into a key on a system with no
+# credential store of its own. `default-features = false` keeps the string-encoding half out: what
+# is needed is the raw derivation. `ring` is already in the tree behind rustls and carries the AEAD
+# the same file needs, so nothing new is taken on for the encryption itself.
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+ring = "0.17"
+# Already in the tree through r2d2_sqlite and tauri-utils; named here for the v4 feature, which is
+# what mints opaque account identifiers.
+uuid = { version = "1", features = ["v4"] }
+# The message parser. Envelopes arrive MIME-encoded and addresses arrive as raw bytes; decoding
+# either by hand is writing a parser for hostile input. Used for bodies from 0.5 as well.
+mail-parser = { version = "0.11", features = ["full_encoding"] }
+
+# Sending. `default-features = false` on purpose, twice over: the default pulls `aws-lc-rs`, which
+# is the crypto backend this project deliberately does not use — it needs cmake and NASM to build
+# on Windows — and it pulls DKIM signing, which is a subsystem with its own DNS resolver and is not
+# part of what is being built. What is left is SMTP over the TLS stack already here.
+mail-send = { version = "0.6", default-features = false, features = ["builder", "tls12"] }
+mail-builder = "0.5"
+# The HTML sanitizer, at the version that fixed the three mXSS bypasses
+# (RUSTSEC-2025-0071, 2026-0193, 2026-0213) and the `URL(` that its CSS check read past
+# (RUSTSEC-2026-0373). It is one layer of four, never the boundary itself.
+# Its parser — html5ever and markup5ever — is already in the tree through Tauri, so what this adds
+# is two crates.
+ammonia = "4.1.8"
+# Turning a host back into the letters it stands for, so a confirmation shows what a person would
+# recognise rather than `xn--80ajf9b`. Already in the tree through `url`, which Tauri brings.
+idna = "1"
+url = "2"
+# Verifying the seal on an update: the hash it is taken over, and the base64 it is written in.
+# `ring` above already carries the signature check. All three already compile into this application
+# and all three are already in the committed licence list -- naming them here adds an edge and not a
+# package, which is the whole reason the seal is checked with these rather than with a crate that
+# does it in one call.
+blake2 = "0.10"
+digest = "0.10"
+base64 = "0.22"
+rfd = "0.17.2"
+tauri-plugin-single-instance = "2.4.3"
+# Telling the system that mail arrived. The only way to raise a desktop notification on all three
+# systems from one call; the alternative is three platform crates and their differences handled here.
+# It carries two strings this project wrote and can carry nothing else — see ports/notifier.rs.
+tauri-plugin-notification = { version = "2.4", default-features = false }
+# The languages a person set on their system, in their order, read the same way on all three. The
+# web view reports the first and nothing after it, so a person whose first language has no
+# catalogue here would be read English rather than their second. Reading the list is a system call
+# `std` does not have and `unsafe_code` is forbidden here; its one dependency, `libc`, is already in
+# the tree.
+sys-locale = "0.3.2"
+
+# macOS keeps a password behind an access list naming the applications allowed to read it, and
+# `keyring` writes through an API that attaches none — so every read asks the person, whatever the
+# application is signed with. The older keychain API records the creating application, which is the
+# whole point of storing a secret there. Already in the tree through keyring itself.
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3"
+# The moment a certificate is judged at, in the type the system takes it in. Already in the tree
+# through security-framework, and named at the version it uses: a second version would be a second
+# date type, and the evaluation takes only its own.
+core-foundation = "0.10"
+# The mark a browser puts on a download, put on a file saved out of a message. macOS keeps it as an
+# extended attribute, and setting one is a call `std` does not have; `unsafe_code` is forbidden
+# here, so it takes this safe wrapper. Its one dependency, `rustix`, is already in the tree; this
+# turns on its `fs` feature.
+xattr = "1.6"
+# Opening an update's archive in this process, so what it unpacks to is counted as it goes and the
+# `tar` it is handed to stops when the application does. Already in the tree, with the same
+# backend, through `png` under Tauri's menus: naming it here adds an edge and not a package.
+flate2 = "1"
+# The picture in the Dock while the application runs, chosen in the settings: AppKit's own
+# application and image, named at the versions and with the features Tauri already builds them with,
+# so they add edges and not packages.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSApplication",
+    "NSImage",
+    "NSResponder",
+] }
+
+# The number of files the process may hold open, raised before anything opens one: a launch from
+# Finder starts with 256, which the databases, the connections to servers and the system's own
+# libraries share. Changing it is a system call `std` does not have, and `unsafe_code` is forbidden
+# here. Already in the tree through `xattr` and `tempfile`; this turns on its `process` feature.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", default-features = false, features = ["std", "process"] }
+
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# `test-util` is what lets a test that waits out a backoff finish instantly: the clock advances when
+# nothing is left to run, instead of the test sleeping through it.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
+# A scripted conversation with a server: what the adapter sends is asserted byte for byte, and what
+# it is answered includes the failures a live server does not produce on request. Test-only, and the
+# tool AGENTS.md names for this.
+tokio-test = "0.4"

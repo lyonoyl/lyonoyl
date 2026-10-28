@@ -1,0 +1,33 @@
+# Which licences may travel inside this application.
+#
+# The list is the rule from AGENTS.md section 6, made mechanical: permissive licences and the
+# file-level copyleft of MPL-2.0, which nothing here modifies. GPL, LGPL, AGPL, SSPL, BUSL and
+# anything conditioned on approval or revenue sharing are absent on purpose — anybody may sell this
+# product, and a dependency that stands in the way of that is a dependency that does not ship.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "CC0-1.0",
+    "BSL-1.0",
+    "OFL-1.1",
+    "Unlicense",
+]
+
+# Only what ships. A crate compiled for a platform this application does not target is a crate
+# nobody receives, and listing it would be a notice about code that is not there.
+targets = [
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+]
+
+# Crates whose licence is stated in a way the collector cannot read on its own.
+workarounds = ["ring"]

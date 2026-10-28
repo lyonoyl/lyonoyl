@@ -1,0 +1,15 @@
+From: Someone <someone@example.com>
+To: you@example.com
+Date: Tue, 18 Nov 2025 07:00:00 +0000
+Subject: Markup that changes meaning when it is read again
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><body>
+<svg><style><!--</style><img src=x onerror=alert('svg-style')>--></svg>
+<noscript><p title="</noscript><img src=x onerror=alert('noscript')>"></p></noscript>
+<math><mtext><table><mglyph><style><!--</style><img src=x onerror=alert('mathml')>
+<xmp><p title="</xmp><img src=x onerror=alert('xmp')>"></p></xmp>
+<template><img src=x onerror=alert('template')></template>
+<p>The text between the vectors.</p>
+</body></html>

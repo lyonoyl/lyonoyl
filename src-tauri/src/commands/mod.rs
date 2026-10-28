@@ -1,0 +1,22 @@
+pub mod account_groups;
+pub mod accounts;
+pub mod act;
+pub mod activity;
+pub mod body;
+pub mod compose;
+pub mod error;
+pub mod licences;
+#[cfg(test)]
+mod licences_tests;
+pub mod list;
+pub mod mailboxes;
+pub mod menu;
+pub mod message;
+pub mod notify;
+mod now;
+pub mod recovery;
+pub mod secrets;
+pub mod settings;
+pub mod sync;
+pub mod updates;
+pub mod workspace;

@@ -1,0 +1,28 @@
+# What the secret scanner may pass over, and why.
+#
+# An allowlist is a hole in a gate, so each entry names the exact thing it lets through and the
+# reason it is not a secret. An entry that stops matching anything is itself a defect: it means the
+# thing it was written for is gone and nobody removed the hole.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "published-example-token"
+description = "Placeholder so the allowlist below has a rule to attach to; matches nothing."
+regex = '''$a'''
+
+[allowlist]
+description = """
+The XOAUTH2 access token in the tests is the example Google publishes in its own documentation.
+It is there precisely because it is theirs: a test that made up a token would be checking this
+build against itself rather than against the bytes the provider says to send. It authenticates
+nothing — it is a string in a manual.
+"""
+regexes = [
+  # Google's published example token, from
+  # https://developers.google.com/workspace/gmail/imap/xoauth2-protocol
+  '''ya29\.vF9dft4qmTc2Nvb3RlckBhdHRhdmlzdGEuY29tCg''',
+  # Microsoft's, from their IMAP/SMTP OAuth page. Same reason.
+  '''EwBAAl3BAAUFFpUAo7J3Ve0bjLBWZWCclRC3EoAA''',
+]

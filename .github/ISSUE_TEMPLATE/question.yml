@@ -1,0 +1,10 @@
+name: A question
+description: Something about Lyonoyl Mail you want to know.
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: The question
+      description: What you want to know, and what you have read or tried already.
+    validations:
+      required: true

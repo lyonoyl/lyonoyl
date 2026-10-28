@@ -1,0 +1,10 @@
+name: An idea
+description: Something Lyonoyl Mail could do.
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What you want to do, and what stands in the way now.
+    validations:
+      required: true

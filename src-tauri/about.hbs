@@ -1,0 +1,9 @@
+[
+{{#each licenses}}
+  {
+    "licence": {{json name}},
+    "text": {{json text}},
+    "used_by": [{{#each used_by}}{{json crate.name}}{{#unless @last}}, {{/unless}}{{/each}}]
+  }{{#unless @last}},{{/unless}}
+{{/each}}
+]

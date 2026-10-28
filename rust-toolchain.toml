@@ -1,0 +1,25 @@
+# The toolchain, pinned, and the same one on every machine this is built on.
+#
+# Unpinned, two machines a release apart disagree about `cargo clippy -D warnings`: a lint that
+# arrives with the newer release refuses lines the older one says nothing about, and the gate means
+# one thing on one machine and another thing on the next.
+#
+# `rustup` reads this and installs what it names, so a checkout on a machine that has never built
+# this gets the right compiler and the components the checks and the build need, clippy among them.
+#
+# Raising it is a change like any other: bump the version, run `scripts/preflight.sh`, and fix what
+# the new release has started refusing.
+#
+# `llvm-tools` is here because the release build strips debug information with `rust-objcopy`, which
+# comes from it and from nothing else. A toolchain without it strips nothing: the run aborts looking
+# for `libLLVM.dylib`, and the only sign is a warning in the middle of a build that succeeds and
+# ships a binary with its debug information still in it.
+#
+# This file only binds a build that reaches the compiler through `rustup`. A shell that puts a
+# toolchain's own `bin` directory on the PATH ahead of the `rustup` shims calls that compiler
+# directly, and nothing here is read at all -- so a machine where `which rustc` answers with a path
+# under `toolchains/` is building against whatever that one happens to be.
+#
+[toolchain]
+channel = "1.98.1"
+components = ["clippy", "rustfmt", "llvm-tools"]

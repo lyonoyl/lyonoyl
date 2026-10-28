@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc da16b18fe3c3b85fa50fa400ad03a6473855cdd9272687fb41bd954d0996005d # shrinks to first = MailOperation { target: OperationTarget { message: MessageId(2), folder: FolderId(2) }, kind: SetFlags { add: Flags(), remove: Flags(Seen) }, state: Pending }, second = MailOperation { target: OperationTarget { message: MessageId(1), folder: FolderId(2) }, kind: Delete { intent: ToTrash }, state: Pending }
+cc 2408e5d53a0bd77936b24f80d1da3bd27b28a97ea445a54078736a251d24fff3 # shrinks to first = MailOperation { target: OperationTarget { message: MessageId(2), folder: FolderId(3) }, kind: SetFlags { add: Flags(), remove: Flags(Seen) }, state: Pending }, second = MailOperation { target: OperationTarget { message: MessageId(2), folder: FolderId(3) }, kind: SetFlags { add: Flags(), remove: Flags(Seen) }, state: Pending }, reset = 3

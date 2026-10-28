@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = ["crates/lyonoyl-domain", "src-tauri"]
+
+# One version for the whole product, declared once. package.json and tauri.conf.json carry the
+# same number and a test refuses to pass when the three disagree.
+[workspace.package]
+version = "1.0.0"
+# The licence the project ships under, declared once. The text is in LICENSE.
+license = "Apache-2.0"
+
+[profile.release]
+# MANDATORY, do not "optimize" this to "abort".
+#
+# Tauri turns a panic inside a command into an IPC error, and message parsing is wrapped in
+# `catch_unwind`. With `abort`, one crafted message would kill the application together with unsaved
+# drafts. It lives here rather than in a member manifest because cargo reads profiles from the
+# workspace root and ignores them anywhere else — which it says out loud on every build, and which
+# is exactly how this setting spent a while not being set at all.
+panic = "unwind"
+
+[workspace.lints.rust]
+# No `unsafe` anywhere but one call: AppKit changes the picture of a running application in the Dock
+# only through a method Rust marks `unsafe`, and `src-tauri/src/infrastructure/app_icon/dock.rs`
+# allows it for that call alone. `forbid` would refuse that allow; `scripts/check-layering.sh`
+# refuses `unsafe` in any other file.
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+# One module layout, enforced rather than remembered: `foo/mod.rs`, never `foo.rs` beside `foo/`.
+# A restriction lint — `clippy::all` does not include it.
+self_named_module_files = "warn"
+all = { level = "deny", priority = -1 }
+# Holding a lock across an await is the exact defect the original Mutex<Database> had.
+await_holding_lock = "deny"
+unwrap_used = "warn"

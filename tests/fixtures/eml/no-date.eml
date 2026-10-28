@@ -1,0 +1,8 @@
+From: Broken Sender <broken@example.com>
+To: you@example.com
+Subject: A message with no Date header
+Message-ID: <no-date-1@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+This one never carried a Date header. The server's internal date is the only time available.

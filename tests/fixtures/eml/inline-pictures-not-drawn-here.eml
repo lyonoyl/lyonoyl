@@ -1,0 +1,35 @@
+From: Support <support@example.com>
+To: Reader <reader@example.com>
+Subject: Re: your application
+Date: Mon, 13 Jul 2026 18:03:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="rel"
+
+--rel
+Content-Type: text/html; charset=utf-8
+
+<p>Hi,</p>
+<p>Thank you for providing your details.</p>
+<div>Rate your conversation</div>
+<img src="cid:star1@example.com" width="20" height="20" alt="">
+<img src="cid:star2@example.com" width="20" height="20" alt="">
+<img src="cid:star3@example.com" width="20" height="20" alt="">
+--rel
+Content-Type: image/svg+xml
+Content-ID: <star1@example.com>
+Content-Transfer-Encoding: base64
+
+PHN2Zy8+
+--rel
+Content-Type: image/svg+xml
+Content-ID: <star2@example.com>
+Content-Transfer-Encoding: base64
+
+PHN2Zy8+
+--rel
+Content-Type: image/svg+xml
+Content-ID: <star3@example.com>
+Content-Transfer-Encoding: base64
+
+PHN2Zy8+
+--rel--

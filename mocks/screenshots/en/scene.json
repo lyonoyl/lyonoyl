@@ -1,0 +1,128 @@
+{
+  "language": "en",
+  "accounts": [
+    {
+      "address": "ozyab@lyonoyl.com",
+      "mail": [
+        {
+          "from": "Mira Holt <mira@holtstudio.example>",
+          "subject": "Moodboard for the spring issue",
+          "text": "Hi!\n\nI've pulled together a first moodboard for the spring issue: soft greens, a lot of paper texture, and the photos from the botanical garden shoot.\n\nCould you take a look before Thursday? I'd like to settle the palette before we brief the illustrators.\n\nMira",
+          "ago": "25m",
+          "unread": true,
+          "html": "moodboard.html",
+          "open": true
+        },
+        {
+          "from": "Tomas Lindqvist <tomas@lindqvist.example>",
+          "subject": "Flat viewing on Saturday",
+          "text": "The agent confirmed 11:30 on Saturday. It's the one with the big kitchen window and the balcony over the courtyard.\n\nCoffee nearby afterwards, to talk it over?\n\nT.",
+          "ago": "1h",
+          "unread": true,
+          "flagged": true
+        },
+        {
+          "from": "Jonah Pell <jonah@pell.example>",
+          "subject": "Re: Team offsite: three options",
+          "text": "The mill gets my vote: big tables, good light, and a path along the river for the lunch walk.\n\nThe observatory would make a great evening, though.\n\nJonah",
+          "ago": "2h",
+          "answers": "offsite"
+        },
+        {
+          "from": "Northvale Rail <tickets@northvale.example>",
+          "subject": "Your tickets for Friday, 18:40",
+          "text": "Your booking is confirmed.\n\nDeparture: Friday, 18:40, platform 4\nCoach C, seats 41 and 42\n\nShow the code in the app at the gate, or print this message.\n\nHave a good trip.",
+          "ago": "150m"
+        },
+        {
+          "from": "Lena Brandt <lena@brandtandco.example>",
+          "subject": "Team offsite: three options",
+          "text": "Hi all,\n\nI've shortlisted three places for the offsite: a farmhouse by the lake, a converted mill in the hills, and the old observatory in town.\n\nAll three take twelve people. Prices and photos are in the shared folder. Which one gets your vote?\n\nLena",
+          "ago": "3h",
+          "id": "offsite"
+        },
+        {
+          "from": "Lanternleaf Books <orders@lanternleaf.example>",
+          "subject": "Your order is on its way",
+          "text": "Good news: your order has left the shop.\n\n1 × A Field Guide to Clouds\n1 × The Little Book of Bread\n\nIt should be with you within two working days.",
+          "ago": "5h",
+          "unread": true
+        },
+        {
+          "from": "Priya Natarajan <priya@natarajan.example>",
+          "subject": "The cake you asked about",
+          "text": "Here's the lemon and thyme cake from Sunday.\n\n200 g flour, 180 g sugar, 3 eggs, the zest of two lemons and a spoonful of fresh thyme. About 40 minutes at 175 °C.\n\nThe secret is the syrup: lemon juice and honey, poured over while the cake is still warm.\n\nP.",
+          "ago": "8h"
+        },
+        {
+          "from": "Lena Brandt <lena@brandtandco.example>",
+          "subject": "Slides for Monday",
+          "text": "The slides for Monday's review are in the shared folder. The numbers on page 6 still need your eyes; the rest is ready.\n\nLena",
+          "ago": "1d",
+          "flagged": true
+        },
+        {
+          "from": "Wrenbridge Library <desk@wrenbridge-library.example>",
+          "subject": "A book you reserved is ready",
+          "text": "The book you reserved is waiting for you at the front desk:\n\nRivers of the North\n\nWe'll keep it for you for seven days.",
+          "ago": "1d"
+        },
+        {
+          "from": "Fernfold Weekly <letters@fernfold.example>",
+          "subject": "Night walks, slow bread and a map of quiet places",
+          "text": "This week:\n\n- Why a walk after dark feels twice as long\n- A loaf that takes two days and five minutes of work\n- Twelve quiet places to read in the city, on one map\n\nEnjoy the weekend.",
+          "ago": "2d"
+        },
+        {
+          "from": "Tomas Lindqvist <tomas@lindqvist.example>",
+          "subject": "Photos from the ridge walk",
+          "text": "Finally sorted the photos from the ridge walk. The one with the fog rolling over the valley is my favourite.\n\nThe whole album is in the shared folder.",
+          "ago": "3d"
+        },
+        {
+          "from": "Kilnhouse Pottery <hello@kilnhouse.example>",
+          "subject": "Welcome to the Thursday evening course",
+          "text": "Thank you for signing up for the Thursday evening course.\n\nWe start at seven. Aprons and clay are on us; bring something to carry your first bowl home in.\n\nSee you there.",
+          "ago": "4d"
+        }
+      ]
+    },
+    {
+      "address": "vad@lyonoyl.com",
+      "mail": [
+        {
+          "from": "Theo Marsh <theo@marshworks.example>",
+          "subject": "Numbers for the quarterly review",
+          "text": "Hi,\n\nThe first draft of the numbers is in the shared folder. Two of the charts still need your notes; the rest is ready for Monday.\n\nTheo",
+          "ago": "50m",
+          "unread": true
+        },
+        {
+          "from": "Hana Weller <hana@weller.example>",
+          "subject": "Moving our call to 3 pm?",
+          "text": "Something came up this morning. Could we move our call to 3 pm? Same link as before.\n\nHana",
+          "ago": "2h",
+          "unread": true
+        }
+      ]
+    },
+    {
+      "address": "support@lyonoyl.com",
+      "mail": [
+        {
+          "from": "Rowan Ellis <rowan@ellis.example>",
+          "subject": "Bringing my old mail along",
+          "text": "Hello,\n\nI'm moving over from another mail app and would like to bring my old mail with me. Is there a way to do that, or should I keep both for a while?\n\nThanks,\nRowan",
+          "ago": "1h",
+          "unread": true
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "name": "Nine to five",
+      "accounts": ["vad@lyonoyl.com", "support@lyonoyl.com"]
+    }
+  ]
+}

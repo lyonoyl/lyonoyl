@@ -1,0 +1,316 @@
+Return-Path: <p.sender@sender.example>
+Delivered-To: reader@example.com
+Received: from box.example.net ([203.0.113.253])
+	by mailserver with LMTP
+	id kCwqBaj2VWpWByIAfF/QIw
+	(envelope-from <p.sender@sender.example>)
+	for <reader@example.com>; Tue, 14 Jul 2026 10:43:20 +0200
+X-Original-To: reader@example.com
+Received: from LO3P265CU004.outbound.protection.mail.example (mail-uksouthazon11020140.outbound.protection.mail.example [192.0.2.140])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange ECDHE (secp384r1) server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	by box.example.net (Postcow) with ESMTPS id 928D7DF5F8
+	for <reader@example.com>; Tue, 14 Jul 2026 10:43:18 +0200 (CEST)
+Authentication-Results: box.example.net;
+	dkim=pass header.d=sender.example header.s=selector1 header.b=CqzLC6+v;
+	dmarc=pass (policy=reject) header.from=sender.example;
+	spf=pass (box.example.net: domain of p.sender@sender.example designates 192.0.2.140 as permitted sender) smtp.mailfrom=p.sender@sender.example;
+	arc=pass ("mail.example:s=arcselector10001:i=1")
+ARC-Message-Signature: i=2; a=rsa-sha256; c=relaxed/relaxed; d=example.com;
+	s=dkim; t=1784018599;
+	h=from:from:reply-to:subject:subject:date:date:message-id:message-id:
+	 to:to:cc:mime-version:mime-version:content-type:content-type:
+	 dkim-signature; bh=wtS6PRjYsG3uxQY+AbGDySJvm5IM4Q77rHfNkRsXswU=;
+	b= (removed)
+	TWf7eh4xURQRTvXkivOel/v8iLJPVF1ezHsGMBWY/EASatilNsjAzQFJ3MuvLbm+3tYVZw
+	p4wKJVGumuF+m3R8xTnWlti7rZZ2d62lnmeQ6Ny1vLEMx5GOnyLCGgsMEMipJdU1SH3nAb
+	z8qllgnd7C8rQ3ZyNL7q7JNHqi969ht05WFqfiRW3mCntkanmk16NqVTDfrfBiCTWw5rLJ
+	AHhKDLneG0Pb4Zh7c7Rnbgm4zt5qbWJIi39tVrQqQin4XWEVZPIS2lk7XU2tGw==
+ARC-Seal: i=2; a=rsa-sha256; d=example.com; s=dkim; cv=pass; t=1784018599;
+	b= (removed)
+	KrH4BszcPgFtBOVKiN5YvZEpWUVToB6PjclAMVsk4Hjj4XWLESZ0StY99bfk+59IbmAXuq
+	tAWFpsTo3O1d1bkyr2VYZbUPFP68Mj7jsHXi0atsaq0xeIZgninT7VoHi3T6OG1UufGaL/
+	u59aMcDKIuTynBwJQSL62VIwL29pEOG5QM/9RFDjDgQghWFVpc5IRyWMEDXQyKTBLOVDug
+	Vj+mZ3oSFOGEV84GluuVKqKihDT81lWPMmi2gApauIzEALURLen/Qawraf/QjA==
+ARC-Authentication-Results: i=2;
+	box.example.net;
+	dkim=pass header.d=sender.example header.s=selector1 header.b=CqzLC6+v;
+	dmarc=pass (policy=reject) header.from=sender.example;
+	spf=pass (box.example.net: domain of p.sender@sender.example designates 192.0.2.140 as permitted sender) smtp.mailfrom=p.sender@sender.example;
+	arc=pass ("mail.example:s=arcselector10001:i=1")
+ARC-Seal: i=1; a=rsa-sha256; s=arcselector10001; d=mail.example; cv=none;
+ b= (removed)
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=mail.example;
+ s=arcselector10001;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-AntiSpam-MessageData-ChunkCount:X-MS-Exchange-AntiSpam-MessageData-0:X-MS-Exchange-AntiSpam-MessageData-1;
+ bh= (removed)
+ b= (removed)
+ARC-Authentication-Results: i=1; mx.mail.example 1; spf=pass
+ smtp.mailfrom=sender.example; dmarc=pass action=none header.from=sender.example;
+ dkim=pass header.d=sender.example; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=sender.example;
+ s=selector1;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-SenderADCheck;
+ bh= (removed)
+ b= (removed)
+Received: from MAILBOX02.PROD.MAIL.EXAMPLE (2001:db8:1:1::6)
+ by MAILBOX01.PROD.MAIL.EXAMPLE (2001:db8:1:2::6) with
+ Microsoft SMTP Server (version=TLS1_2,
+ cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id 198.51.100.20; Tue, 14 Jul
+ 2026 08:43:11 +0000
+Received: from MAILBOX02.PROD.MAIL.EXAMPLE
+ ([fe80::5ce0:f50f:2c90:891e]) by MAILBOX02.PROD.MAIL.EXAMPLE
+ ([fe80::5ce0:f50f:2c90:891e%5]) with mapi id 15.21.0202.018; Tue, 14 Jul 2026
+ 08:43:11 +0000
+From: Sender Sender <p.sender@sender.example>
+To: "reader@example.com" <reader@example.com>
+Subject: Getting started with Sender
+Thread-Topic: Getting started with Sender
+Thread-Index: AQHdE2yqbTSsmcwRJEyKR6h9OMz+kg==
+Date: Tue, 14 Jul 2026 08:43:11 +0000
+Message-ID:
+ <MAILBOX02FAE75625A03D9C2BEA9386F92@MAILBOX02.PROD.MAIL.EXAMPLE>
+Accept-Language: en-US
+Content-Language: en-US
+X-MS-Has-Attach: yes
+X-MS-TNEF-Correlator:
+x-hs-fax-cid: (removed)
+ 1ck0w6i2wq8y0sxqu7iszoc5izvgnmcqzwtieej9ar6fbbsw7pg3nqqps075wp6cs4kvr3etdy4rc9uuxvrjkkzi37g2pwcgfu2oi16k5sw76fgyn42gp3ybrmuoeh8li
+x-ms-publictraffictype: Email
+x-ms-traffictypediagnostic: MAILBOX02:EE_|MAILBOX01:EE_
+x-ms-office365-filtering-correlation-id: 00000000-0000-4000-8000-000000000005
+x-ms-exchange-atpmessageproperties: SA
+x-ms-exchange-senderadcheck: 1
+x-ms-exchange-antispam-relay: 0
+x-microsoft-antispam:
+ BCL:0;ARA:13230040|69100299015|366016|6049299003|39142699007|31052699007|23010399003|376014|1800799024|38070700021|4053099003|8096899003|55112099003|18002099003|11063799006|56012099006;
+x-microsoft-antispam-message-info:
+ Jco917Nr4Js6JgTI1BEfIW5yhPOGE//oVD9+XimyAel5QJgedV3it/FuGRH5rnXUR7Gsh539FO8pmsnlgWh4Q7FfeY8nq13gNsfHVo8l3diwDx93Yg10AaAhZ+AlKpOldNEwuQx6aDq1zwXtQ/vpcp2kWLUhWlAJB0zC9NXzG8F+bWVoWYMjlRXtp7wA10gV1MW51cmJog2s+FT/Drw8kIl+2YtTnaFyJOQSCY6RtWRJPm8tgF/2+aEB0HFjpQhVhs5s9Kidp8OJqChgl5CJx9S6usxT2RWzpZn9rxLUTok8PDq66x4ZhLTEZBTZ9uUjnXhiKc36jSVkY76N3yu9Qrm8Zia+DtInZ6bD9L4Ku661JWU4epOl1TwjvqCtieZY/SN/dqHOzSYrrfIhhrpM5dVGPmudN6VLx80fZCN1lx0lhfKSzPUH5LRW5CFAaxxF+EJw/DrCvRlK0RYu/y7F8TGFb4nLHeIXaV5CVrp1rtD+NoGllvb/I82RQN0wZFL15tAZPyAV1i4Hq1to83G87Y+oMSsres1qPsNad+ral+bjlsgDGaQcI5zWl1wB9L9BIi+hhughWOiTZtD82SDjCOPaxdnWd/ZIxFwjgc7rpsAFagipRbRnjVmaid8045sE0AVbnxuQRTHV4P3MdbnyTEiQU1dKbV4Lqe3twGnRkns=
+x-forefront-antispam-report:
+ CIP:255.255.255.255;CTRY:;LANG:en;SCL:1;SRV:;IPV:NLI;SFV:NSPM;H:MAILBOX02.PROD.MAIL.EXAMPLE;PTR:;CAT:NONE;SFS:(13230040)(69100299015)(366016)(6049299003)(39142699007)(31052699007)(23010399003)(376014)(1800799024)(38070700021)(4053099003)(8096899003)(55112099003)(18002099003)(11063799006)(56012099006);DIR:OUT;SFP:1102;
+x-ms-exchange-antispam-messagedata-chunkcount: 1
+x-ms-exchange-antispam-messagedata-0:
+ =?us-ascii?Q?tg8xhDaPJMgvwZKvuDO5/bys07Er3p/HesYbymK932QSVN39NIUvq6iLL5rI?=
+ =?us-ascii?Q?ITtKcsqQbDdVkGX6h2ectoWQWaq553S5HxsWWfzD4tx53KYXcMjI4lCrLEW2?=
+ =?us-ascii?Q?V5rpUMb6rvar8idM+vah7d/rlfGy3CEuXapUUWuPk9L+rts1jTcrjGk6X2pr?=
+ =?us-ascii?Q?CPUzGMP+D1RiabKju7gfGBHY3xFRgJuVNcwEGKIaTJ67ZferhxBICW7/m+je?=
+ =?us-ascii?Q?N9JKLyDrJcRL/Cq5NvLUiY4xzOaH4AMoOxytWTRzmkExrjBhbT+EXHw/u6WT?=
+ =?us-ascii?Q?NncFDn1aYRyxijMtYm1yGJzrBneAORqfHfyJNfWf3z1FF6xxrv3dS9Zi5uNn?=
+ =?us-ascii?Q?0TmnIxgbNmvTg+zcMkCHn5v/TQTFChIrjX1MK8B2xC4fKp8+8JES0tCzQUDJ?=
+ =?us-ascii?Q?Kvac6Y/hdKTc1WSwuIN5w/GqxQCCFO7hF9DRIqbvYYH9GFYv8jICxNCGG5NP?=
+ =?us-ascii?Q?ticXqhZdqCnVqa1ntyITF7lSv+V3NvO1MzYSRgjZogHfDmbhGugbHVsFOMUX?=
+ =?us-ascii?Q?ynRzFAcWeyjQNeXblj3FZrR59eIEG72m0BDhB9SZUrFklOu05s/bAG9FoSmW?=
+ =?us-ascii?Q?40S0MgS06qQtXcyLf7zJHpQW6aHLGFpUlCtGvs/gjC1WWXDqaRZscl2Fmy44?=
+ =?us-ascii?Q?c8fDH4axab1TA6KbJpLwCOr3b0pT7jMNFHf2kw5PYC2169jP0tew7OalEpDp?=
+ =?us-ascii?Q?TYy0JkGo34U3dEZ9sunqllpysPewoMXOXepkiYCsjXn/4b21iDvOamqKDf4f?=
+ =?us-ascii?Q?1aklsFzG8vUe4PzC156kfDnEM48sSzG955Dy3oGgWuva/kcMlfIZJ0PmWrIF?=
+ =?us-ascii?Q?fyxyiK0Osl+gz27WiB7dxhPgmRFA11Wb+50z5pnuKjT/sR6w+OWiQiuirswP?=
+ =?us-ascii?Q?uEDa+whHLP2nlFrcaEKNjzoVqQtmcPm9WrEVMTzSRFAsw29ho3qevNRhm7TA?=
+ =?us-ascii?Q?sqDIIlU/XKahx4WOLjDcxEu+2C81P/A085xycP2R5lem3F6J1FlFQW6dlyxa?=
+ =?us-ascii?Q?mv+MqG/B8XVxsZ1FsXtUpwFQCeUeMd3AA8dg7KFKDJVl+gtVMwS8oz7+Wtlc?=
+ =?us-ascii?Q?KHREPD3jbY8NcUwePewN3zC5EC/+ncpTJvb3G275K6arnvSASwM6s+oRmz9M?=
+ =?us-ascii?Q?xGMfB/8eC3h9T9tiCF5yb/bF2oP/MYV8iRIYWTQ9TbRdDFBunlyfmY9JYYAa?=
+ =?us-ascii?Q?7R5sqq+BWorVaJUteRj1zJBUuylrIasufUaUkK1On0AhydgpRPLV8kezW3A7?=
+ =?us-ascii?Q?wklDSorGMZ+5+KApHEGIq47xff4FvqMMxQM/PLhON567Xl0lf1DF8rAnnPto?=
+ =?us-ascii?Q?4MsVfHGJErKQuUyMoDmYTMjDZfcdMDAERIC6ZLhslMwpHFCJFY4+7t0uQRI5?=
+ =?us-ascii?Q?1MSfjWSQiXYz/MhJWAeEDB/H+uv/SpucyGscNEAiKfupXvEESsc6Z9t7HEQK?=
+ =?us-ascii?Q?sO0Afhtl/IiTyeyAODMJH/iFeQ5Mt/Q6mwTJeDW4DZiFUrzUZQ9vVHGLzVfm?=
+ =?us-ascii?Q?Z9tfYwuf/AhMnYb0oKrZgXcJx6JanRWGZb+W0WVt3A8VnBz1GGEykcyDkJ/x?=
+ =?us-ascii?Q?U5+UN6zYCZDoNiv4IJYTt2aMq1a0VZ6M5SL75yT57n68aMwlFevTHJNbeSrR?=
+ =?us-ascii?Q?OQpGZ1OOJ4xVrELE/vJOSwDYjyX5udC9kvHr/Be0Nj0S0Xw8a43ehEQpG4ao?=
+ =?us-ascii?Q?5HE7jXkPRIfczz6BU0S2VbvyUb1VtbDPfSgU42LiwpeOPH5v/cwJAyPoc2X0?=
+ =?us-ascii?Q?xl7+aT7Arw=3D=3D?=
+Content-Type: multipart/related;
+	boundary="_004_MAILBOX02FAE75625A03D9C2BEA9386F92MAILBOX02GBRP_";
+	type="multipart/alternative"
+MIME-Version: 1.0
+X-OriginatorOrg: sender.example
+X-MS-Exchange-CrossTenant-AuthAs: Internal
+X-MS-Exchange-CrossTenant-AuthSource: MAILBOX02.PROD.MAIL.EXAMPLE
+X-MS-Exchange-CrossTenant-Network-Message-Id: 00000000-0000-4000-8000-000000000005
+X-MS-Exchange-CrossTenant-originalarrivaltime: 14 Jul 2026 08:43:11.0867
+ (UTC)
+X-MS-Exchange-CrossTenant-fromentityheader: Hosted
+X-MS-Exchange-CrossTenant-id: 00000000-0000-4000-8000-000000000006
+X-MS-Exchange-CrossTenant-mailboxtype: HOSTED
+X-MS-Exchange-CrossTenant-userprincipalname: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==
+X-MS-Exchange-Transport-CrossTenantHeadersStamped: MAILBOX01
+X-Last-TLS-Session-Version: TLSv1.3
+X-Rspamd-Queue-Id: 928D7DF5F8
+X-Spamd-Result: default: False [-1.99 / 15.00];
+	ARC_ALLOW(-1.00)[mail.example:s=arcselector10001:i=1];
+	DMARC_POLICY_ALLOW(-0.50)[sender.example,reject];
+	R_DKIM_ALLOW(-0.20)[sender.example:s=selector1];
+	R_SPF_ALLOW(-0.20)[+ip4:192.0.2.0/15];
+	MIME_GOOD(-0.10)[multipart/related,multipart/alternative,text/plain];
+	IP_REPUTATION_SPAM(0.02)[asn: 64498(0.00), country: US(0.00), ip: 192.0.2.140(0.00)];
+	MX_GOOD(-0.01)[];
+	RCVD_TLS_LAST(0.00)[];
+	ASN(0.00)[asn:64498, ipnet:192.0.2.96/12, country:US];
+	RCPT_COUNT_ONE(0.00)[1];
+	RBL_SENDERSCORE_REPUT_8(0.00)[192.0.2.140:from];
+	MISSING_XM_UA(0.00)[];
+	FROM_HAS_DN(0.00)[];
+	MIME_TRACE(0.00)[0:+,1:+,2:+,3:~,4:~];
+	TO_MATCH_ENVRCPT_ALL(0.00)[];
+	FROM_EQ_ENVFROM(0.00)[];
+	RWL_MAILSPIKE_POSSIBLE(0.00)[192.0.2.140:from];
+	RCVD_COUNT_TWO(0.00)[2];
+	TO_DN_EQ_ADDR_ALL(0.00)[];
+	REDIRECTOR_URL(0.00)[links.example];
+	ARC_SIGNED(0.00)[example.com:s=dkim:i=2];
+	RCPT_MAILCOW_DOMAIN(0.00)[example.com];
+	RCVD_IN_DNSWL_NONE(0.00)[192.0.2.140:from];
+	DKIM_TRACE(0.00)[sender.example:+]
+
+--_004_MAILBOX02FAE75625A03D9C2BEA9386F92MAILBOX02GBRP_
+Content-Type: multipart/alternative;
+	boundary="_000_MAILBOX02FAE75625A03D9C2BEA9386F92MAILBOX02GBRP_"
+
+--_000_MAILBOX02FAE75625A03D9C2BEA9386F92MAILBOX02GBRP_
+Content-Type: text/plain; charset="us-ascii"
+Content-Transfer-Encoding: quoted-printable
+
+Non Minima,
+
+
+Laborum illo aliquipa in Minima'a officiaa sed A dolor ad illo ut enim.
+
+
+Est quis nam ut in nisi ad illo ut a dolor quis id amet enim dolor quis off=
+iciaa sed ipsum.
+
+
+Est qui illo a commodoa nisi quis illo<https://bbbbbb02.eu1.sales-engage.ex=
+ample/Ctc/UC+23284/bbbbbb02/00000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000>.
+
+
+Aliquip commodo et laborum illo amet non!
+
+
+
+Est qui illo,
+
+Tempor Labore
+Minima Magna Officia
+[cid:38e7e64b91580f7c8882af90a58953dd]
+tempor.commodo<https://sender.example/> <https://bbbbbb02.eu1.links.example=
+/Ctc/UC+23284/bbbbbb02/0000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+00000000000>
+
+Minima ad id Aliquipa<https://bbbbbb02.eu1.links.example/Ctc/UC+23284/bbbbb=
+b02/00000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000> non A <https://bbbbbb02.eu1.links.example/Ctc/UC+23284/bbbbbb02/=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+00000000000000000000000000000000000000000000000000000000000000000>
+
+
+--_000_MAILBOX02FAE75625A03D9C2BEA9386F92MAILBOX02GBRP_
+Content-Type: text/html; charset="us-ascii"
+Content-Transfer-Encoding: quoted-printable
+
+<!doctype html>
+<html>
+<head>
+<meta http-equiv=3D"Content-Type" content=3D"text/html; charset=3Dus-ascii">
+</head>
+<body>
+<div style=3D"" dir=3D"auto" data-top-level=3D"true">
+<p style=3D"margin:0;">Qui Mollit,</p>
+<p style=3D"margin:0;"><br class=3D"hs-trailingbreak">
+</p>
+<p style=3D"margin:0;">Aliquip enim nostruda ad Mollit'a commodoa est A vel=
+it ut enim et quis.</p>
+<p style=3D"margin:0;"><br class=3D"hs-trailingbreak">
+</p>
+<p style=3D"margin:0;">Nam amet non et ad illo ut enim et a velit amet in n=
+isi quis velit amet commodoa est magna.</p>
+<p style=3D"margin:0;"><br class=3D"hs-trailingbreak">
+</p>
+<p style=3D"margin:0;">Nam sed enim a laboruma illo amet <a href=3D"https:/=
+/bbbbbb02.eu1.links.example/Ctc/UC+23284/bbbbbb02/0000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+0000000000000000000000000000000000000000000000000000000000" title=3D"enim" =
+target=3D"_blank">
+nisi</a>.</p>
+<p style=3D"margin:0;"><br class=3D"hs-trailingbreak">
+</p>
+<p style=3D"margin:0;">Laborum officia ut commodo nisi quis nam!</p>
+<p style=3D"margin:0;"><br class=3D"hs-trailingbreak">
+</p>
+<p style=3D"margin:0;"><br class=3D"hs-trailingbreak">
+</p>
+<div data-hs-signature=3D"true" class=3D"hs_signature">
+<div>Sed non nisi, </div>
+<br>
+<div><strong>Fugiat Mollit</strong> </div>
+<div>Tempor Ipsum Nostrud </div>
+<figure style=3D"margin:0"><img width=3D"160" height=3D"160" data-outlook-t=
+race=3D"F:0|T:1" src=3D"cid:38e7e64b91580f7c8882af90a58953dd">
+</figure><br>
+<div><a href=3D"https://sender.example/" target=3D"_blank" rel=3D"nofollow =
+noopener noreferrer">fugiat.officia</a>
+<a href=3D"https://bbbbbb02.eu1.links.example/Ctc/UC+23284/bbbbbb02/0000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+00000000000000000000000000000000000000000000000000000000" target=3D"_blank"=
+ rel=3D"nofollow noopener noreferrer">
+</a></div>
+<br>
+<div>Tempor in et <a href=3D"https://bbbbbb02.eu1.links.example/Ctc/UC+2328=
+4/bbbbbb02/0000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+0000000000000000" target=3D"_blank" rel=3D"nofollow noopener noreferrer">
+Laboruma</a> nam <a href=3D"https://bbbbbb02.eu1.links.example/Ctc/UC+23284=
+/bbbbbb02/00000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+" target=3D"_blank" rel=3D"nofollow noopener noreferrer">
+A </a></div>
+</div>
+</div>
+<img width=3D"1" height=3D"1" style=3D"display:none" alt=3D"" src=3D"https:=
+//bbbbbb02.eu1.links.example/Cto/UC+23284/bbbbbb02/000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+00">
+</body>
+</html>
+
+--_000_MAILBOX02FAE75625A03D9C2BEA9386F92MAILBOX02GBRP_--
+
+--_004_MAILBOX02FAE75625A03D9C2BEA9386F92MAILBOX02GBRP_
+Content-Type: image/png; name="sender_sign_black.png"
+Content-Description: sender_sign_black.png
+Content-Disposition: inline; filename="sender_sign_black.png"; size=57321;
+	creation-date="Tue, 14 Jul 2026 08:42:31 GMT";
+	modification-date="Tue, 14 Jul 2026 08:42:31 GMT"
+Content-ID: <38e7e64b91580f7c8882af90a58953dd>
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAA0klEQVR4nO3QQREAIAzAsPnAv08c
+rE94JAp6ncNqXgf8zqBgUDAoGBQMCgYFg4JBwaBgUDAoGBQMCgYFg4JBwaBgUDAoGBQMCgYFg4JB
+waBgUDAoGBQMCgYFg4JBwaBgUDAoGBQMCgYFg4JBwaBgUDAoGBQMCgYFg4JBwaBgUDAoGBQMCgYF
+g4JBwaBgUDAoGBQMCgYFg4JBwaBgUDAoGBQMCgYFg4JBwaBgUDAoGBQMCgYFg4JBwaBgUDAoGBQM
+CgYFg4JBwaBgUDAoGBQMCgaFC1jxZKZzUBBQAAAAAElFTkSuQmCC
+AAAAAAAAAAAAAAAATMb/BRAfUeZv7muRAAAAAElFTkSuQmCC
+
+--_004_MAILBOX02FAE75625A03D9C2BEA9386F92MAILBOX02GBRP_--

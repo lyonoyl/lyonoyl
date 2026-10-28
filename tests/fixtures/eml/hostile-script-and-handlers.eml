@@ -1,0 +1,22 @@
+From: Someone <someone@example.com>
+To: you@example.com
+Date: Tue, 18 Nov 2025 07:00:00 +0000
+Subject: Everything that runs
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><body>
+<p>Ordinary text before it.</p>
+<script>alert('script tag')</script>
+<img src="x" onerror="alert('handler')" alt="broken">
+<a href="javascript:alert('scheme')">a link</a>
+<iframe src="https://example.net/frame"></iframe>
+<object data="https://example.net/thing"></object>
+<embed src="https://example.net/thing">
+<form action="https://example.net/post"><input name="a"></form>
+<style>body { background: url('https://example.net/css.png'); }</style>
+<div style="background:url('https://example.net/attr.png')">styled</div>
+<base href="https://example.net/">
+<!--[if IE]><script>alert('conditional')</script><![endif]-->
+<p>Ordinary text after it.</p>
+</body></html>

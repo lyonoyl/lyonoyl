@@ -1,0 +1,70 @@
+From: The Weekly <news@example.com>
+To: you@example.com
+Subject: News of the week — issue 214
+Date: Wed, 19 Nov 2025 09:12:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="alt-214"
+
+--alt-214
+Content-Type: text/plain; charset=utf-8
+
+The Weekly, issue 214. Read it in a client that shows HTML.
+
+--alt-214
+Content-Type: text/html; charset=utf-8
+
+<!doctype html>
+<html><head>
+<meta name="viewport" content="width=device-width">
+<link rel="stylesheet" href="https://fonts.example.net/css?family=Inter">
+<style>
+  @media (max-width: 600px) { .column { width: 100% !important; display: block !important; } }
+  @media (prefers-color-scheme: dark) { .card { background: #16181d !important; color: #e8e8ea !important; } }
+  .button:hover { background: #1b4dd8 !important; }
+</style>
+</head>
+<body style="margin:0;padding:0;background:#f2f3f5">
+<div style="display:none;max-height:0;overflow:hidden">Five things worth reading, and one worth building.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f2f3f5">
+<tr><td align="center" style="padding:24px 12px">
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="card" style="width:600px;max-width:600px;background:#ffffff;border-radius:12px;font-family:Inter,Helvetica,Arial,sans-serif">
+    <tr><td style="padding:24px 28px 8px" align="center">
+      <img src="https://cdn.example.net/weekly/logo@2x.png" width="132" height="28" alt="The Weekly">
+    </td></tr>
+    <tr><td style="padding:0 28px">
+      <img src="https://cdn.example.net/weekly/214/hero.jpg" width="544" height="240" alt="A photograph of a desk" style="display:block;width:100%;border-radius:8px">
+    </td></tr>
+    <tr><td style="padding:20px 28px 0;font-size:22px;line-height:1.25;font-weight:600;color:#111318">
+      Five reads of the week
+    </td></tr>
+    <tr><td style="padding:12px 28px 0;font-size:15px;line-height:1.6;color:#3a3f4b">
+      <p style="margin:0 0 12px">Hello! This week: how <b>not</b> to write parsers by hand, a long link without a single space: https://example.net/a/very/long/path/that/never/breaks/anywhere/at/all/2026/11/19/index.html and a table wider than the screen.</p>
+      <ul style="margin:0 0 12px;padding-left:20px">
+        <li style="margin:0 0 6px">The first item, with <a href="https://example.net/one" style="color:#1b4dd8">a link inside</a>.</li>
+        <li style="margin:0 0 6px">The second, with <code style="background:#eef0f4;padding:1px 4px;border-radius:4px">code</code>.</li>
+        <li>The third, quite short.</li>
+      </ul>
+    </td></tr>
+    <tr><td style="padding:4px 28px 0">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e3e6ec;border-radius:8px">
+        <tr style="background:#f7f8fa"><th align="left" style="padding:8px 10px;font-size:13px">What</th><th align="left" style="padding:8px 10px;font-size:13px">Where</th><th align="left" style="padding:8px 10px;font-size:13px">How long</th><th align="left" style="padding:8px 10px;font-size:13px">A longer comment</th></tr>
+        <tr><td style="padding:8px 10px;font-size:13px">Parsing MIME</td><td style="padding:8px 10px;font-size:13px">Rust</td><td style="padding:8px 10px;font-size:13px">12 min</td><td style="padding:8px 10px;font-size:13px">The column that makes the table wider than the message</td></tr>
+        <tr><td style="padding:8px 10px;font-size:13px">Sanitizing</td><td style="padding:8px 10px;font-size:13px">ammonia</td><td style="padding:8px 10px;font-size:13px">8 min</td><td style="padding:8px 10px;font-size:13px">And a little more text for width</td></tr>
+      </table>
+    </td></tr>
+    <tr><td align="center" style="padding:20px 28px 4px">
+      <a href="https://example.net/weekly/214?who=you" class="button" style="display:inline-block;background:#1b4dd8;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:15px;font-weight:600">Read the issue</a>
+    </td></tr>
+    <tr><td style="padding:16px 28px 0">
+      <blockquote style="margin:0;padding:10px 14px;border-left:3px solid #cfd4de;color:#5b616e;font-size:14px">“A message is a file somebody else wrote.”</blockquote>
+    </td></tr>
+    <tr><td style="padding:20px 28px 28px;font-size:12px;line-height:1.5;color:#8a90a0" align="center">
+      You received this because you subscribed. <a href="https://example.net/unsubscribe?who=you" style="color:#8a90a0">Unsubscribe</a>.
+      <img src="https://tracker.example.net/open.gif?id=214&who=you" width="1" height="1" alt="" style="display:block">
+    </td></tr>
+  </table>
+</td></tr>
+</table>
+</body></html>
+
+--alt-214--
