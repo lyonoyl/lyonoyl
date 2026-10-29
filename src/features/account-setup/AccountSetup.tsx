@@ -13,7 +13,7 @@ import {
   type TranslationKey,
   type Translator,
 } from "@/shared/i18n";
-import { AccountStart } from "./AccountStart";
+import { AddAccount } from "./AddAccount";
 import { secretStoreName } from "@/shared/platform";
 import { Field } from "./Field";
 import { Button } from "@/shared/ui/primitives/button";
@@ -297,7 +297,7 @@ export function AccountSetup({
 
   if (step === "start") {
     return (
-      <AccountStart
+      <AddAccount
         secretsInAFile={secretsInAFile}
         draft={draft}
         onEdit={(field, value) => edit(field)(value)}

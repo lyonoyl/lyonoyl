@@ -23,7 +23,7 @@ export type Working = null | "looking" | "adding";
  * mail is a person who closes the window at the fourth; the twelve are still there, on the screen
  * behind this one, for the mailbox nobody can answer for.
  */
-export function AccountStart({
+export function AddAccount({
   secretsInAFile,
   draft,
   onEdit,

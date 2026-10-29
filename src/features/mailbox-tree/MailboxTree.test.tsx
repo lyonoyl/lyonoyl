@@ -32,6 +32,8 @@ vi.mock("@/shared/ipc/client", async () => {
     reorderAccounts: vi.fn(),
     arrangeSidebar: vi.fn(),
     syncAccount: vi.fn(),
+    createAccountGroup: vi.fn(),
+    removeAccountGroup: vi.fn(),
   };
 });
 
@@ -44,6 +46,8 @@ const sync = vi.mocked(client.syncAccount);
 const regroup = vi.mocked(client.placeAccountInGroup);
 const reorder = vi.mocked(client.reorderAccounts);
 const arrangeTop = vi.mocked(client.arrangeSidebar);
+const makeGroup = vi.mocked(client.createAccountGroup);
+const dropGroup = vi.mocked(client.removeAccountGroup);
 
 /** The sidebar as the core answers it, read before anything was asked for. */
 function sidebar(accounts: AccountNodeDto[]): MailboxTreeDto {
@@ -148,6 +152,10 @@ beforeEach(() => {
   reorder.mockResolvedValue(undefined);
   arrangeTop.mockReset();
   arrangeTop.mockResolvedValue(undefined);
+  makeGroup.mockReset();
+  makeGroup.mockResolvedValue("g1");
+  dropGroup.mockReset();
+  dropGroup.mockResolvedValue(undefined);
   sync.mockReset();
   sync.mockResolvedValue({
     folders: 0,
@@ -451,17 +459,60 @@ describe("MailboxTree", () => {
     );
   });
 
-  it("offers to add an account", async () => {
+  it("offers to add an account from the plus", async () => {
     tree.mockResolvedValue(
       sidebar([account("acc-1", "user@example.com", [INBOX])]),
     );
     const { onAddAccount } = renderTree({ kind: "everything" });
 
+    fireEvent.pointerDown(
+      await screen.findByRole("button", { name: "Add an account or a group" }),
+      { button: 0, ctrlKey: false },
+    );
     fireEvent.click(
-      await screen.findByRole("button", { name: "Connect an email account" }),
+      await screen.findByRole("menuitem", { name: "Add account" }),
     );
 
-    expect(onAddAccount).toHaveBeenCalled();
+    await waitFor(() => expect(onAddAccount).toHaveBeenCalled());
+  });
+
+  it("reads its groups again once one is made from the plus, and tells the window", async () => {
+    tree.mockResolvedValue(
+      sidebar([account("acc-1", "user@example.com", [INBOX])]),
+    );
+    const onArrangementChanged = vi.fn();
+    render(
+      <I18nProvider initial="en">
+        <MailboxTree
+          selected={null}
+          onSelect={vi.fn()}
+          onAddAccount={vi.fn()}
+          onReconnect={vi.fn()}
+          onArrangementChanged={onArrangementChanged}
+        />
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(arrangement).toHaveBeenCalled());
+    const readBefore = arrangement.mock.calls.length;
+    arrangement.mockResolvedValue([
+      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: [] },
+    ]);
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Add an account or a group" }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Add group" }));
+    const field = await screen.findByRole("textbox", { name: "Group name" });
+    fireEvent.change(field, { target: { value: "Work" } });
+    fireEvent.submit(field.closest("form")!);
+
+    await waitFor(() =>
+      expect(arrangement.mock.calls.length).toBeGreaterThan(readBefore),
+    );
+    expect(makeGroup).toHaveBeenCalledWith("Work");
+    expect(onArrangementChanged).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Work")).toBeTruthy();
   });
 
   it("names folders with a role in the reader's language", async () => {
@@ -548,7 +599,7 @@ describe("MailboxTree", () => {
       "a failure nobody can attribute is a failure nobody can act on",
     ).toContain("fresh@example.com");
     expect(
-      screen.getByRole("button", { name: "Connect an email account" }),
+      screen.getByRole("button", { name: "Add an account or a group" }),
     ).toBeTruthy();
   });
 
@@ -714,7 +765,7 @@ describe("MailboxTree", () => {
       path: null,
     });
     renderTree();
-    const add = { name: "Connect an email account" };
+    const add = { name: "Add an account or a group" };
     expect(screen.getByRole("button", add)).toBeTruthy();
 
     // Gone in the render that takes the failure in, which is the render to look at.
@@ -1739,6 +1790,61 @@ describe("MailboxTree, when a group stops existing", () => {
     );
   });
 
+  it("removes a group from its row's menu once its name is typed, and its mailboxes stay", async () => {
+    tree.mockResolvedValue(
+      sidebar([
+        account("acc-1", "one@example.com", [INBOX]),
+        account("acc-2", "two@example.com", [OTHER_INBOX]),
+      ]),
+    );
+    arrangement.mockResolvedValue([
+      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: ["acc-1"] },
+    ]);
+    const onArrangementChanged = vi.fn();
+    render(
+      <I18nProvider initial="en">
+        <MailboxTree
+          selected={null}
+          onSelect={vi.fn()}
+          onAddAccount={vi.fn()}
+          onReconnect={vi.fn()}
+          onArrangementChanged={onArrangementChanged}
+        />
+      </I18nProvider>,
+    );
+
+    fireEvent.contextMenu(await screen.findByRole("button", { name: /Work/ }));
+    expect(
+      await screen.findByRole("menu", { name: "Actions for the group Work" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove" }));
+    const field = await screen.findByRole("textbox", { name: "Group name" });
+    // The menu takes the focus back on its way out, a moment after it closes. Opened at the press,
+    // the panel lost its field's focus to it.
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(document.activeElement).toBe(field);
+    const remove = screen.getByRole("button", { name: "Remove" }) as HTMLButtonElement;
+    expect(remove.disabled).toBe(true);
+    // The group holds a mailbox, so the panel says where it goes.
+    expect(
+      screen.getByText("The mailboxes in this group stay in the sidebar where the group was, with all their mail"),
+    ).toBeTruthy();
+    expect(dropGroup).not.toHaveBeenCalled();
+    arrangement.mockResolvedValue([]);
+
+    fireEvent.change(field, { target: { value: "Work" } });
+    fireEvent.click(remove);
+
+    await waitFor(() => expect(dropGroup).toHaveBeenCalledWith("g1"));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /Work/ })).toBeNull(),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTitle("one@example.com")).toBeTruthy();
+    expect(onArrangementChanged).toHaveBeenCalledTimes(1);
+  });
+
   it("stays on a group that is still there", async () => {
     tree.mockResolvedValue(
       sidebar([account("acc-1", "one@example.com", [INBOX])]),
@@ -1880,7 +1986,7 @@ describe("MailboxTree, folded into a rail", () => {
       screen.getByRole("button", { name: "Get new mail" }),
     );
     expect(
-      screen.queryByRole("button", { name: "Connect an email account" }),
+      screen.queryByRole("button", { name: "Add an account or a group" }),
     ).toBeNull();
     expect(screen.queryByText("Mailboxes")).toBeNull();
   });

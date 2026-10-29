@@ -866,6 +866,117 @@ describe("SettingsScreen, arranging mailboxes into groups", () => {
     await waitFor(() => expect(rearranged).toHaveBeenCalled());
   });
 
+  it("removes a group only once its name is typed, never on a near miss", async () => {
+    arrangement.mockResolvedValue([
+      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: [] },
+    ]);
+    const { rearranged } = renderSettings();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Remove the group Work" }),
+    );
+    const panel = await screen.findByRole("dialog", { name: "Remove group" });
+    const field = within(panel).getByRole("textbox", { name: "Group name" });
+    const remove = within(panel).getByRole("button", {
+      name: "Remove",
+    }) as HTMLButtonElement;
+
+    fireEvent.change(field, { target: { value: "work" } });
+    expect(remove.disabled).toBe(true);
+    fireEvent.submit(field.closest("form")!);
+    expect(dropGroup).not.toHaveBeenCalled();
+
+    arrangement.mockResolvedValue([]);
+    fireEvent.change(field, { target: { value: "Work" } });
+    fireEvent.click(remove);
+
+    await waitFor(() => expect(dropGroup).toHaveBeenCalledWith("g1"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByDisplayValue("Work")).toBeNull();
+    expect(rearranged).toHaveBeenCalled();
+  });
+
+  it("says where the mailboxes go only for a group holding some of this device's", async () => {
+    arrangement.mockResolvedValue([
+      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: ["acc-1"] },
+      // Names only a mailbox this device no longer holds, so there is nothing to move.
+      { id: "g2", name: "Old", place: 1, collapsed: false, accounts: ["gone"] },
+    ]);
+    renderSettings(STORED, [
+      {
+        id: "acc-1",
+        email: "only@example.com",
+        displayName: "Only",
+        provider: "imap",
+        canSend: false,
+      },
+    ]);
+    const moving = "The mailboxes in this group stay in the sidebar where the group was, with all their mail";
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Remove the group Work" }),
+    );
+    expect(
+      within(await screen.findByRole("dialog")).getByText(moving),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove the group Old" }));
+    const panel = await screen.findByRole("dialog");
+    expect(within(panel).queryByText(moving)).toBeNull();
+    expect(within(panel).getByText("To remove the group, type its name")).toBeTruthy();
+  });
+
+  it("keeps a group the panel was left without removing, back on its Remove", async () => {
+    arrangement.mockResolvedValue([
+      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: [] },
+    ]);
+    renderSettings();
+    const asked = await screen.findByRole("button", {
+      name: "Remove the group Work",
+    });
+    asked.focus();
+
+    fireEvent.click(asked);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(dropGroup).not.toHaveBeenCalled();
+    expect(screen.getByDisplayValue("Work")).toBeTruthy();
+    expect(document.activeElement).toBe(asked);
+  });
+
+  it("reads the groups again when one was made from the sidebar", async () => {
+    const shown = (madeInTheSidebar: number) => (
+      <I18nProvider initial="en">
+        <ScreenPane
+          paneRef={{ current: null }}
+          closeLabel="Close this screen"
+          onClose={vi.fn()}
+        >
+          <SettingsScreen
+            preferences={STORED}
+            onChanged={vi.fn()}
+            accounts={[]}
+            onOpenAccount={vi.fn()}
+            arrangedElsewhere={madeInTheSidebar}
+          />
+        </ScreenPane>
+      </I18nProvider>
+    );
+    const { rerender } = render(shown(0));
+    await waitFor(() => expect(arrangement).toHaveBeenCalled());
+    const readBefore = arrangement.mock.calls.length;
+    arrangement.mockResolvedValue([
+      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: [] },
+    ]);
+
+    rerender(shown(1));
+
+    expect(await screen.findByDisplayValue("Work")).toBeTruthy();
+    expect(arrangement.mock.calls.length).toBe(readBefore + 1);
+  });
+
   it("empties the field once the group is made, so the next one starts blank", async () => {
     renderSettings();
 

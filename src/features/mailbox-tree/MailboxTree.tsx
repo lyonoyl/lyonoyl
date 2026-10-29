@@ -1,4 +1,4 @@
-import { CircleAlert, Plus, RefreshCw } from "lucide-react";
+import { CircleAlert, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -26,6 +26,8 @@ import {
 } from "@/shared/ipc/client";
 import { ColumnHeading } from "@/shared/ui/ColumnHeading";
 import { AccountMenu, movedWithin, type AccountActions } from "./AccountMenu";
+import { AddMenu } from "./AddMenu";
+import { GroupMenu } from "./GroupMenu";
 import { Folding, FOLDER, INDENT, Rail, RailRule, Row } from "./Row";
 import { Button } from "@/shared/ui/primitives/button";
 import { RailButton } from "@/shared/ui/RailButton";
@@ -69,6 +71,7 @@ export function MailboxTree({
   selected,
   onSelect,
   onAddAccount,
+  onArrangementChanged,
   onReconnect,
   openInboxOf = null,
   onInboxOpened,
@@ -97,6 +100,8 @@ export function MailboxTree({
   selected: Mailbox | null;
   onSelect: (mailbox: Mailbox) => void;
   onAddAccount: () => void;
+  /** Called when the groups change here, so the settings beside this read them again. */
+  onArrangementChanged?: () => void;
   /** Asked for an account whose password is no longer in the store this device keeps it in. */
   onReconnect: (accountId: string) => void;
   /**
@@ -563,7 +568,10 @@ export function MailboxTree({
     groups: groups ?? [],
     sync: (account) => void sync([account], true),
     settings: onReconnect,
-    regrouped: () => setReloads((count) => count + 1),
+    regrouped: () => {
+      setReloads((count) => count + 1);
+      onArrangementChanged?.();
+    },
     move: (accountId, by) => {
       const { run, ordered } = reordered(accountId, by);
       if (ordered !== null) settle(run, ordered);
@@ -615,7 +623,7 @@ export function MailboxTree({
     >
       {folded ? (
         // Under Compose, where the heading stood: the heading is words, and the plus beside it
-        // adds an account, which is something done with the sidebar open.
+        // adds a mailbox or a group, which is something done with the sidebar open.
         accounts.length > 0 && (
           <>
             <RailButton
@@ -653,16 +661,7 @@ export function MailboxTree({
                 <RefreshCw className={syncing ? "animate-spin" : undefined} />
               </Button>
             )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label={t("workspace.connectAction")}
-              title={t("workspace.connectAction")}
-              onClick={onAddAccount}
-            >
-              <Plus />
-            </Button>
+            <AddMenu onAddAccount={onAddAccount} onGroupAdded={actions.regrouped} />
           </div>
         </ColumnHeading>
       )}
@@ -1109,29 +1108,31 @@ function GroupBranch({
             : undefined
         }
       >
-        <Folding
-          depth={0}
-          // Not the account's label: what a group hides is mailboxes, and "Hide folders" over a
-          // list of mailboxes names the wrong thing.
-          label={
-            group.collapsed ? t("shell.showMailboxes") : t("shell.hideMailboxes")
-          }
-          expanded={!group.collapsed}
-          onFold={() => onFold(group.id, !group.collapsed)}
-        >
-          <Row
-            label={group.name}
-            badge={unreadBadge(
-              accounts.reduce((sum, account) => sum + account.unread, 0),
-            )}
-            selected={
-              selected !== null &&
-              isSameMailbox(selected, { kind: "group", groupId: group.id })
+        <GroupMenu group={group} mailboxes={accounts.length} onGroupRemoved={actions.regrouped}>
+          <Folding
+            depth={0}
+            // Not the account's label: what a group hides is mailboxes, and "Hide folders" over a
+            // list of mailboxes names the wrong thing.
+            label={
+              group.collapsed ? t("shell.showMailboxes") : t("shell.hideMailboxes")
             }
-            onSelect={() => onSelect({ kind: "group", groupId: group.id })}
-            t={t}
-          />
-        </Folding>
+            expanded={!group.collapsed}
+            onFold={() => onFold(group.id, !group.collapsed)}
+          >
+            <Row
+              label={group.name}
+              badge={unreadBadge(
+                accounts.reduce((sum, account) => sum + account.unread, 0),
+              )}
+              selected={
+                selected !== null &&
+                isSameMailbox(selected, { kind: "group", groupId: group.id })
+              }
+              onSelect={() => onSelect({ kind: "group", groupId: group.id })}
+              t={t}
+            />
+          </Folding>
+        </GroupMenu>
       </div>
 
       {/* A group somebody made and has not filled yet. Said rather than drawn as a blank, which
