@@ -51,6 +51,7 @@ import type { PreferencesDto } from "@/shared/ipc/generated/PreferencesDto";
 import type { ShowPicturesDto } from "@/shared/ipc/generated/ShowPicturesDto";
 import type { ThemeDto } from "@/shared/ipc/generated/ThemeDto";
 import { typedDirection } from "@/shared/ui/direction";
+import { RemoveGroup } from "@/shared/ui/RemoveGroup";
 
 /**
  * Everything this application lets a person decide about how it looks and reads.
@@ -165,6 +166,7 @@ export function SettingsScreen({
   accounts,
   onOpenAccount,
   onArrangementChanged,
+  arrangedElsewhere,
 }: {
   preferences: PreferencesDto;
   /** Called with the whole of the settings as the core stored them. */
@@ -175,6 +177,8 @@ export function SettingsScreen({
   onOpenAccount: (accountId: string) => void;
   /** Called whenever the sidebar's arrangement changed, so it is drawn again. */
   onArrangementChanged?: () => void;
+  /** Changes when the groups changed in the sidebar, which is when they are read here again. */
+  arrangedElsewhere?: number;
 }) {
   const { t, language } = useI18n();
   /**
@@ -250,9 +254,11 @@ export function SettingsScreen({
     [],
   );
 
+  // Read again when the groups changed in the sidebar: the screen stands beside it, and a group
+  // made or removed there would be wrong here and in every mailbox's choice of groups below.
   useEffect(() => {
     void reload();
-  }, [reload]);
+  }, [reload, arrangedElsewhere]);
 
   // Read once when the screen opens. Not kept fresh: the number moves as mail arrives, and a
   // figure that ticked upward while somebody read it would be harder to act on than one taken at
@@ -320,9 +326,8 @@ export function SettingsScreen({
         </p>
       </header>
 
-      {/* Groups are made here rather than in the sidebar: the sidebar draws a group only once one
-          exists, so the first one would have had nowhere to be made from. Above the mailboxes,
-          because every mailbox row below offers the groups made here. */}
+      {/* Groups are made here, or from the plus in the sidebar's heading. Above the mailboxes,
+          because every mailbox row below offers the groups there are. */}
       <Section id="groups" title={t("settings.groups")}>
         <p className="text-xs text-muted-foreground">
           {t("settings.groupsHint")}
@@ -346,6 +351,12 @@ export function SettingsScreen({
               <GroupRow
                 key={group.id}
                 group={group}
+                // Only the mailboxes this device holds: a group can still name one removed since.
+                mailboxes={
+                  group.accounts.filter((id) =>
+                    accounts.some((account) => account.id === id),
+                  ).length
+                }
                 onRename={(name) => change(renameAccountGroup(group.id, name))}
                 onRemove={() => change(removeAccountGroup(group.id))}
                 t={t}
@@ -817,23 +828,28 @@ function NewGroup({
 }
 
 /**
- * One group: its name, editable in place, and the button that removes it.
+ * One group: its name, editable in place, and the button that removes it once its name is typed.
  *
  * The name is written down when the field is left or Enter is pressed, rather than on every
  * keystroke: a rename per letter would be a row of half-typed names in the sidebar beside it.
  */
 function GroupRow({
   group,
+  mailboxes,
   onRename,
   onRemove,
   t,
 }: {
   group: AccountGroupDto;
+  /** How many of this device's mailboxes are in the group. */
+  mailboxes: number;
   onRename: (name: string) => void;
-  onRemove: () => void;
+  /** Removes the group, and answers whether it is gone. */
+  onRemove: () => Promise<boolean>;
   t: (key: TranslationKey, values?: Record<string, string | number>) => string;
 }) {
   const [typed, setTyped] = useState(group.name);
+  const [removingGroup, setRemovingGroup] = useState(false);
 
   // The stored name wins when it changes underneath — a rename that the core refused must not
   // leave the field showing what was refused.
@@ -889,10 +905,18 @@ function GroupRow({
         size="sm"
         // Which group. A column of buttons all called "Remove" is a list a reader cannot choose in.
         aria-label={t("settings.removeGroupNamed", { group: group.name })}
-        onClick={onRemove}
+        onClick={() => setRemovingGroup(true)}
       >
         {t("settings.removeGroup")}
       </Button>
+      {removingGroup && (
+        <RemoveGroup
+          name={group.name}
+          mailboxes={mailboxes}
+          onRemove={onRemove}
+          onClose={() => setRemovingGroup(false)}
+        />
+      )}
     </li>
   );
 }

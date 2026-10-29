@@ -179,6 +179,22 @@ function renderApp() {
   );
 }
 
+/** Opens the menu of the plus over the mailboxes, the way a pointer does. */
+async function openThePlus() {
+  fireEvent.pointerDown(
+    await screen.findByRole("button", { name: "Add an account or a group" }),
+    { button: 0, ctrlKey: false },
+  );
+}
+
+/** Starts connecting a mailbox the way the sidebar offers it: the plus, then the line saying so. */
+async function connectFromThePlus() {
+  await openThePlus();
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: "Add account" }),
+  );
+}
+
 /** What the engine on each system says it is, as far as the window can tell. */
 const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)";
 const WINDOWS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
@@ -286,10 +302,11 @@ describe("application shell", () => {
     // then has no way to add a second account.
     renderApp();
 
-    const connect = await screen.findByRole("button", {
-      name: "Connect an email account",
-    });
-    expect(connect).toBeTruthy();
+    await openThePlus();
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Add account" }),
+    ).toBeTruthy();
   });
 
   it("keeps offering it once messages are in the list", async () => {
@@ -316,8 +333,10 @@ describe("application shell", () => {
     });
     renderApp();
 
+    await openThePlus();
+
     expect(
-      await screen.findByRole("button", { name: "Connect an email account" }),
+      await screen.findByRole("menuitem", { name: "Add account" }),
     ).toBeTruthy();
   });
 
@@ -369,9 +388,7 @@ describe("application shell", () => {
   it("opens the account form when it is pressed", async () => {
     renderApp();
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Connect an email account" }),
-    );
+    await connectFromThePlus();
 
     await waitFor(() =>
       expect(
@@ -1082,9 +1099,7 @@ describe("application shell", () => {
     // for. Opened straight onto twelve fields, it is a window people close at the fourth.
     renderApp();
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: /connect|add/i }),
-    );
+    await connectFromThePlus();
 
     expect(await screen.findByLabelText(/^Email address$/)).toBeTruthy();
     expect(screen.queryByLabelText(/^Server address$/)).toBeNull();
@@ -1287,11 +1302,11 @@ describe("App, the sidebar folded into a rail", () => {
     await waitFor(() => expect(keptFolded).toHaveBeenCalled());
     const compose = await composeIsReady(/^compose$/i);
 
-    // Compose in words, the heading over the mailboxes, and the plus that adds one.
+    // Compose in words, the heading over the mailboxes, and the plus that adds one, or a group.
     expect(compose.querySelector("svg")).toBeNull();
     expect(screen.getByText("Mailboxes")).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Connect an email account" }),
+      screen.getByRole("button", { name: "Add an account or a group" }),
     ).toBeTruthy();
     expect(screen.getByRole("separator", { name: "Resize Mailboxes" })).toBeTruthy();
   });
@@ -1325,7 +1340,7 @@ describe("App, the sidebar folded into a rail", () => {
 
     // The plus goes, and the heading in words with it.
     expect(
-      screen.queryByRole("button", { name: "Connect an email account" }),
+      screen.queryByRole("button", { name: "Add an account or a group" }),
     ).toBeNull();
     expect(screen.queryByText("Mailboxes")).toBeNull();
 

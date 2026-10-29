@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { useI18n } from "@/shared/i18n";
-import { Input } from "@/shared/ui/primitives/input";
+import { ClearableInput } from "@/shared/ui/ClearableInput";
 import { Button } from "@/shared/ui/primitives/button";
 import { typedDirection } from "@/shared/ui/direction";
 
@@ -54,12 +54,11 @@ export function SearchBox({
 
   return (
     <div className="flex h-[var(--search-row)] items-center gap-1 border-b border-border px-2">
-      <Input
+      <ClearableInput
         // How the window's "/" finds this field. A marker rather than an id, because an id is
         // a promise that there is one of these, and a second list would break it quietly.
         data-search
         ref={field}
-        type="search"
         role="searchbox"
         dir={typedDirection(typed)}
         value={typed}

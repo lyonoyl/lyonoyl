@@ -88,6 +88,8 @@ function App() {
   const [state, setState] = useState<State>({ status: "loading" });
   /** Bumped after seeding, to make the folders and the list read the index again. */
   const [listGeneration, setListGeneration] = useState(0);
+  /** Bumped when the groups change in the sidebar, so the settings read them again. */
+  const [regroupedInSidebar, setRegroupedInSidebar] = useState(0);
   /**
    * Bumped when a person's change is written down, to make the counts beside the folders read
    * again. The list already shows the change.
@@ -834,6 +836,8 @@ function App() {
               setOpenedHere(null);
             },
             onAddAccount: () => connectAccount(),
+            onArrangementChanged: () =>
+              setRegroupedInSidebar((times) => times + 1),
             onReconnect: (accountId) => connectAccount(accountId),
             openInboxOf,
             onInboxOpened: () => setOpenInboxOf(null),
@@ -930,6 +934,8 @@ function App() {
               onArrangementChanged={() =>
                 setListGeneration((generation) => generation + 1)
               }
+              // And the other way: groups changed in the sidebar are read here again.
+              arrangedElsewhere={regroupedInSidebar}
             />
           </ScreenPane>
         )}
