@@ -39,11 +39,13 @@ Mail is the one thing on your computer that strangers send files to every day, w
 
 How each of these works is in [the threat model](docs/security/threat-model.md). Behind them stands layer upon layer of [defenses](docs/security/defenses.md) against everything from a hostile message to a forged update, each with a check that fails without it, and no change lands until every check passes.
 
-## Sponsors
+## Corporate Sponsors
 
-Your logo and a link to your product can stand here. Be the cat's patron: [patron@lyonoyl.com](mailto:patron@lyonoyl.com)
+Support independent, open-source software and help make privacy-respecting email accessible to everyone. Your company logo and a link to your product can be featured here.
 
-<a href="mailto:patron@lyonoyl.com?subject=Sponsoring%20Lyonoyl%20Mail"><img src="docs/sponsors/be-the-cats-patron.svg" alt="Be the cat's patron: become a sponsor of Lyonoyl Mail, the open-source email client that respects your privacy" height="44"></a>
+Be the cat's patron: [patron@lyonoyl.com](mailto:patron@lyonoyl.com)
+
+<a href="mailto:patron@lyonoyl.com?subject=Sponsoring%20Lyonoyl%20Mail"><img src="docs/sponsors/be-the-cats-patron.svg" alt="Become a corporate sponsor of Lyonoyl Mail, the open-source email client that respects your privacy" height="44"></a>
 
 ## Install and build
 
@@ -84,7 +86,7 @@ Pull requests are welcome: [the contributing guide](CONTRIBUTING.md) says what o
 
 Found a vulnerability? Report it privately, the way the [security policy](SECURITY.md) describes, rather than in a public issue. An idea that would make Lyonoyl Mail safer is an issue, opened as [getting help](SUPPORT.md) describes.
 
-## Donations
+## Support the Project
 
 Every donation keeps the cat fed. The [donation page](docs/donations/README.md) lists the ways to give.
 
