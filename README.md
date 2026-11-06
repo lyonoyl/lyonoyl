@@ -41,11 +41,19 @@ How each of these works is in [the threat model](docs/security/threat-model.md).
 
 ## Corporate Sponsors
 
-Support independent, open-source software and help make privacy-respecting email accessible to everyone. Your company logo and a link to your product can be featured here.
+<p align="center"><a href="https://fotg.net?utm_source=github&utm_medium=readme&utm_campaign=lyonoyl"><img src="docs/sponsors/logos/fotg_logo.svg" alt="FORGE OF THE GODS" width="96"></a></p>
 
-Be the cat's patron: [patron@lyonoyl.com](mailto:patron@lyonoyl.com)
+<p align="center"><a href="https://fotg.net?utm_source=github&utm_medium=readme&utm_campaign=lyonoyl"><strong>FORGE OF THE GODS</strong></a><br>
+Independent software house building products across software, finance, and technology.</p>
 
-<a href="mailto:patron@lyonoyl.com?subject=Sponsoring%20Lyonoyl%20Mail"><img src="docs/sponsors/be-the-cats-patron.svg" alt="Become a corporate sponsor of Lyonoyl Mail, the open-source email client that respects your privacy" height="44"></a>
+<p align="center"><a href="https://fotg.net?utm_source=github&utm_medium=readme&utm_campaign=lyonoyl"><img src="docs/sponsors/badges/supporting-organization.svg" alt="Supporting Organization" height="20"></a>
+<a href="https://fotg.net?utm_source=github&utm_medium=readme&utm_campaign=lyonoyl"><img src="docs/sponsors/badges/founding-sponsor.svg" alt="Founding Sponsor" height="20"></a></p>
+
+<p>Support independent, open-source software and help make privacy-respecting email accessible to everyone. Your company logo and a link to your product can be featured here.</p>
+
+<p>Be the cat's patron: <a href="mailto:patron@lyonoyl.com">patron@lyonoyl.com</a></p>
+
+<p><a href="mailto:patron@lyonoyl.com?subject=Sponsoring%20Lyonoyl%20Mail"><img src="docs/sponsors/be-the-cats-patron.svg" alt="Become a corporate sponsor of Lyonoyl Mail, the open-source email client that respects your privacy" height="44"></a></p>
 
 ## Install and build
 
