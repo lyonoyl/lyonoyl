@@ -20,12 +20,12 @@ MOST_WORDS_IN_A_LEAD = 5
 
 SECTIONS = [
     "What it protects you from",
-    "Sponsors",
+    "Corporate Sponsors",
     "Install and build",
     "Documentation",
     "Contributing",
     "Security",
-    "Donations",
+    "Support the Project",
     "License",
 ]
 
@@ -242,8 +242,8 @@ def main() -> int:
         if named(rows) != sorted(named(rows), key=str.lower):
             say(f"the documents are not in alphabetical order -> {named(rows)}")
 
-    # The donation page Donations points to: its networks in alphabetical order, and every QR code it
-    # shows a file beside it.
+    # The donation page Support the Project points to: its networks in alphabetical order, and every
+    # QR code it shows a file beside it.
     donations = Path("docs/donations/README.md")
     if not donations.is_file():
         say(f"the donation page {donations} is missing")
