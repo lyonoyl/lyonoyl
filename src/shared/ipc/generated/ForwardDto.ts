@@ -26,4 +26,10 @@ files: Array<AttachingDto>,
  * The names of the files it carries that would make it heavier than a message may be beside
  * the ones before them, which it goes without.
  */
-leftBehind: Array<string>, };
+leftBehind: Array<string>, 
+/**
+ * The message itself in its own form, held here under this token for the composer to draw
+ * beneath what is written and to pass on: its markup never crosses. Nothing for a message
+ * passed on as text, and then `text` is what it says.
+ */
+original: string | null, };

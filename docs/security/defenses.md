@@ -9,7 +9,7 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | A message's HTML is cleaned in Rust, and the window parses none of it | `scripts/check-layering.sh`, `no_message_in_the_corpus_produces_anything_that_runs`, `a_message_written_only_in_html_still_gets_a_preview_and_it_is_text` |
 | The body reaches the frame only through the application's own scheme, never as text across IPC and never through `srcdoc` | `scripts/check-layering.sh`, `every_answer_carries_the_headers_that_make_it_safe_to_look_at` |
 | Every answer of that scheme carries its own policy: no script, no network, no frame, nothing but its own pictures | `the_policy_says_no_to_everything_and_spells_out_the_three_style_directives`, `what_is_not_a_document_is_served_under_a_policy_that_permits_nothing` |
-| The message sits in `<iframe sandbox="" referrerpolicy="no-referrer">`, with no `allow-*` | `src/features/message-reader/MessageBody.test.tsx`, `scripts/check-layering.sh` |
+| Every message is drawn in one frame, `<iframe sandbox="" referrerpolicy="no-referrer">` with no `allow-*`, in the reader and beneath a message being forwarded alike | `src/features/message-reader/MessageBody.test.tsx`, `src/features/composer/ForwardedOriginal.test.tsx`, `scripts/check-layering.sh` |
 | The application's own policy is never `null`, in development too, and lets no frame or picture from the web in | `scripts/check-layering.sh` |
 | Each render answers to a name of its own, 32 random bytes, only while its message is open | `names_are_never_shared_between_renders`, `a_name_answers_while_the_message_is_open_and_not_after` |
 | A script cannot be put into every frame, under any of the names Tauri ships that ability under | `scripts/check-layering.sh` |
@@ -61,7 +61,7 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | An IPv4 address carried inside an IPv6 one is judged as what it carries | `an_ipv4_address_carried_inside_an_ipv6_one_is_judged_as_what_it_carries` |
 | On macOS, checking a certificate fetches nothing the certificate names | `the_evaluation_is_made_to_fetch_nothing_before_it_runs` |
 | Other people's addresses never cross into the window to decide what it draws | `the_addresses_themselves_do_not_cross_the_boundary` |
-| A reply carries a bounded chain of references, and a message's boundary says nothing about anybody | `a_chain_that_fits_is_kept_whole_and_one_more_costs_the_name_after_the_oldest`, `a_message_with_a_file_is_cut_by_a_boundary_that_says_nothing_about_anybody` |
+| A reply carries a bounded chain of references, and a message's boundary says nothing about anybody | `a_chain_that_fits_is_kept_whole_and_one_more_costs_the_name_after_the_oldest`, `a_message_with_a_file_is_cut_by_a_boundary_that_says_nothing_about_anybody`, `every_boundary_of_a_message_passed_on_says_nothing_about_anybody` |
 | A sent message leaves nothing of itself on this device once its copy is filed | `a_message_whose_copy_is_filed_leaves_nothing_of_itself_behind_once_read_back` |
 | A copy looks for an update only after a yes, at most once a day, and its request carries no version | `a_fresh_install_looks_for_no_update_until_somebody_says_it_may`, `a_copy_that_asked_recently_waits`, `the_manifest_and_its_seal_are_asked_for_naming_the_product_alone` |
 | A server is greeted as `[127.0.0.1]`, and a message is named after its sender's domain, never the machine | `the_server_is_greeted_with_a_name_that_says_nothing_about_this_machine`, `a_message_is_named_after_the_sender_rather_than_the_machine` |
@@ -86,6 +86,7 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | A message larger than this build reads is refused before it is parsed | `a_message_larger_than_this_build_reads_is_refused_rather_than_parsed` |
 | Nesting is measured before parsing, and a document deeper than an engine builds is not drawn | `a_document_as_deep_as_an_engine_builds_is_drawn_and_one_level_deeper_is_not` |
 | A message of more than 8,000 elements is shown as text | `a_message_of_tens_of_thousands_of_elements_is_shown_as_text` |
+| A message forwarded in its own form is read within the bounds a body is drawn within, and is forwarded as text past them | `markup_past_what_a_body_is_drawn_within_is_not_cut_down` |
 | A message the parser panics on costs only itself, and the pass goes on | `a_message_the_parser_panics_on_is_read_once_and_whoever_asked_goes_on`, `scripts/check-layering.sh` |
 | An answer from a mail server is bounded in what it makes the application hold | `an_answer_past_what_it_may_hold_is_refused` |
 | A host that trickles is given up on, and so is a server that never greets | `a_host_that_keeps_trickling_is_given_up_on_all_the_same`, `a_server_that_takes_the_connection_and_never_greets_is_given_up_on` |
@@ -95,6 +96,8 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | Defense | Held by |
 | --- | --- |
 | Nothing a caller supplies can become a second header | `nothing_a_caller_supplies_can_become_a_second_header` |
+| A picture a forwarded message draws goes inside it only when its markup draws it, once, and under a name and a label that cannot write a header | `a_picture_its_markup_does_not_draw_stays_a_file`, `a_picture_a_style_draws_goes_inside`, `a_name_drawn_twice_takes_the_last_picture_inside`, `a_picture_whose_name_cannot_be_written_back_as_it_was_stays_a_file`, `a_picture_whose_label_or_name_could_write_a_header_is_left_out` |
+| A message forwarded in its own form counts toward what a message and its draft may weigh | `what_a_message_passes_on_counts_towards_what_it_weighs`, `files_and_what_a_draft_passes_on_together_are_held_to_what_a_message_may_weigh`, `what_a_draft_passes_on_counts_towards_what_its_account_may_keep`, `src/features/composer/Composer.test.tsx` |
 | A message goes only as an account on this device, from an address that account owns | `a_message_from_one_account_cannot_be_sent_under_another`, `a_message_claiming_an_address_the_account_does_not_own_is_refused` |
 | A message is bounded in size and in recipients before anything is committed | `a_message_too_large_to_write_down_is_refused_before_anything_is_committed`, `a_message_addressed_to_more_people_than_this_build_writes_is_refused` |
 | A kept draft is bounded, and so are an account's drafts together, in number and in weight | `the_three_lines_of_addresses_are_bounded_together`, `an_account_keeps_as_many_drafts_as_it_may_and_writes_no_more`, `a_draft_that_would_take_the_drafts_past_what_they_may_weigh_is_refused_whole` |

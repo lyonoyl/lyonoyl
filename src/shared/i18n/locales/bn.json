@@ -129,6 +129,7 @@
   "compose.noRecipientYet": "এখনো কোনো প্রাপক নেই",
   "compose.nowhereToSend": "এখনো কোনো অ্যাকাউন্ট থেকে পাঠানো যায় না",
   "compose.nowhereToSendBody": "মেল আসে এক সার্ভার থেকে, আর যায় অন্য সার্ভার দিয়ে। কোনো অ্যাকাউন্টের সেটিংস খুলে তার পাঠানোর সার্ভারের তথ্য দিন",
+  "compose.original": "ফরোয়ার্ড করা বার্তা",
   "compose.removeAttachment": "{name} সরিয়ে দিন",
   "compose.send": "পাঠান",
   "compose.sending": "পাঠানো হচ্ছে…",

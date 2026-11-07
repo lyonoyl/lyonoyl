@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use crate::ports::drafts::DraftFile;
-use lyonoyl_domain::outgoing::{fit_in_one_message, OutgoingFile};
+use lyonoyl_domain::outgoing::{fit_in_one_message, Original, OutgoingFile};
 
 /// Files chosen for a message that has not been sent yet.
 ///
@@ -10,6 +10,9 @@ use lyonoyl_domain::outgoing::{fit_in_one_message, OutgoingFile};
 /// megabytes, and megabytes crossing the boundary twice — out to be listed and back to be sent —
 /// is a copy of somebody's file in a webview for no reason at all. What the window gets is a name,
 /// a size and a token; what it sends back is the token.
+///
+/// A message passed on in its own form is held here the same way, under a token of its own: its
+/// markup never crosses into the window, which draws it through the frame a message is drawn in.
 ///
 /// In memory, and in the draft the message is kept as. Every keep names the tokens of what is
 /// attached at that moment, and the draft takes the bytes from here once; until the message is
@@ -25,6 +28,8 @@ pub struct FilesBeingAttached {
 struct Held {
     /// The files, by token. Shared rather than copied with a draft being kept.
     files: HashMap<String, Arc<OutgoingFile>>,
+    /// The messages passed on in their own form, by token, shared the same way.
+    originals: HashMap<String, Arc<Original>>,
     /// What a draft knows a file by, for a token that is not that name itself: one a draft opened
     /// again was given. Outlives the file being taken for sending, so a message refused and given
     /// its files back is kept under the same names, and goes when the token is forgotten.
@@ -39,7 +44,8 @@ impl FilesBeingAttached {
         }
     }
 
-    /// Keeps one chosen to go beside the files `beside` names, and answers whether it was kept.
+    /// Keeps one chosen to go beside the files `beside` names, and the message passed on in its own
+    /// form it may name, and answers whether it was kept.
     ///
     /// Not kept when together they would weigh more than one message may. A file that makes them
     /// so could never go with the message, and a draft carrying it is one no keep writes down,
@@ -52,12 +58,17 @@ impl FilesBeingAttached {
         };
 
         let named: HashSet<&String> = beside.iter().collect();
+        let original = named
+            .iter()
+            .find_map(|one| held.originals.get(*one))
+            .map(|one| &**one);
         let fits = fit_in_one_message(
             named
-                .into_iter()
-                .filter_map(|one| held.files.get(one))
+                .iter()
+                .filter_map(|one| held.files.get(*one))
                 .map(|one| &**one)
                 .chain([&file]),
+            original,
         );
         if fits {
             held.files.insert(token, Arc::new(file));
@@ -139,12 +150,31 @@ impl FilesBeingAttached {
     }
 
     /// Forgets one, for somebody who attached a file and changed their mind, and for a composer
-    /// that closed.
+    /// that closed. A message passed on in its own form is forgotten the same way.
     pub fn forget(&self, token: &str) {
         if let Ok(mut held) = self.held.lock() {
             held.files.remove(token);
+            held.originals.remove(token);
             held.kept_as.remove(token);
         }
+    }
+
+    /// Keeps a message passed on in its own form under `token`.
+    pub fn hold_original(&self, token: String, original: Original) {
+        if let Ok(mut held) = self.held.lock() {
+            held.originals.insert(token, Arc::new(original));
+        }
+    }
+
+    /// The message passed on under `token`, as it is to be drawn: shared, and not taken.
+    pub fn original_of(&self, token: &str) -> Option<Arc<Original>> {
+        self.held.lock().ok()?.originals.get(token).cloned()
+    }
+
+    /// Takes the message passed on under `token` and forgets it, as a file is taken for sending.
+    pub fn take_original(&self, token: &str) -> Option<Original> {
+        let mut held = self.held.lock().ok()?;
+        held.originals.remove(token).map(Arc::unwrap_or_clone)
     }
 }
 

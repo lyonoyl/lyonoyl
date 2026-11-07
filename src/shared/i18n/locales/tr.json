@@ -129,6 +129,7 @@
   "compose.noRecipientYet": "Henüz alıcı yok",
   "compose.nowhereToSend": "Henüz posta gönderebilecek bir hesap yok",
   "compose.nowhereToSendBody": "Posta bir sunucudan alınır, başka bir sunucu üzerinden gönderilir. Bir hesabın ayarlarını açıp giden posta sunucusunu girin",
+  "compose.original": "İletilen ileti",
   "compose.removeAttachment": "{name} dosyasını kaldır",
   "compose.send": "Gönder",
   "compose.sending": "Gönderiliyor…",

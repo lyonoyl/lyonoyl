@@ -121,6 +121,7 @@ beforeEach(() => {
     text: "The figures for the quarter.",
     files: [{ token: "t1", name: "report.pdf", bytes: "2048" }],
     leftBehind: [],
+    original: null,
   });
   lettingGo.mockReset();
   lettingGo.mockResolvedValue(undefined);
@@ -679,6 +680,7 @@ describe("MessageReader", () => {
       fromAccount: "acc-1",
       files: [{ token: "t1", name: "report.pdf", bytes: "2048" }],
       leftBehind: [],
+      original: null,
     });
     expect(forward.body).toContain(
       "---------- Forwarded message ----------\nFrom: Zeta Quorin <zeta@example.com>",
@@ -860,6 +862,7 @@ describe("MessageReader", () => {
         { token: "t2", name: "chart.png", bytes: "512" },
       ],
       leftBehind: [],
+      original: "t-original",
     });
     message.mockResolvedValue(DETAILS);
     render(
@@ -871,9 +874,11 @@ describe("MessageReader", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Forward" }));
 
-    await waitFor(() => expect(lettingGo).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(lettingGo).toHaveBeenCalledTimes(3));
     expect(lettingGo).toHaveBeenCalledWith("t1");
     expect(lettingGo).toHaveBeenCalledWith("t2");
+    // And the message passed on in its own form, which the core holds the same way.
+    expect(lettingGo).toHaveBeenCalledWith("t-original");
   });
 
   it("lets go of the files when the reader has gone by the time they are held", async () => {
@@ -902,6 +907,7 @@ describe("MessageReader", () => {
         text: "",
         files: [{ token: "t1", name: "report.pdf", bytes: "2048" }],
         leftBehind: [],
+        original: null,
       }),
     );
 
@@ -924,6 +930,7 @@ describe("MessageReader", () => {
       text: "",
       files: [{ token: "t9", name: "Quarterly report.eml", bytes: "4096" }],
       leftBehind: [],
+      original: null,
     });
     message.mockResolvedValue(DETAILS);
     const onForward = vi.fn();

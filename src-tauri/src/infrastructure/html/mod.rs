@@ -23,6 +23,7 @@ mod guards;
 mod links_in_text;
 pub use links_in_text::links_in;
 pub(crate) mod nesting;
+pub mod original;
 mod styling;
 mod text_instead;
 mod words;

@@ -725,6 +725,61 @@ fn profile_migrations() -> Migrations<'static> {
              DROP TABLE placed;",
         )
         .down(""),
+        // 029: a message passed on in its own form, beside the draft or the queued message that
+        // passes it on.
+        //
+        // Its markup as the two pieces it was written from, its text, and the pictures it draws,
+        // in order. In the profile beside the row it belongs to, for the reason a file is:
+        // a draft or a message on its way and what it passes on survive the same crash or neither
+        // is worth keeping. `ON DELETE CASCADE` down both pairs, so a draft thrown away or a
+        // message let go of takes what it passed on with it.
+        M::up(
+            "CREATE TABLE draft_originals (
+                 draft_id  INTEGER PRIMARY KEY REFERENCES drafts(id) ON DELETE CASCADE,
+                 opening   TEXT    NOT NULL,
+                 drawing   TEXT    NOT NULL,
+                 text      TEXT    NOT NULL
+             ) STRICT;
+
+             CREATE TABLE draft_original_pictures (
+                 id           INTEGER PRIMARY KEY,
+                 draft_id     INTEGER NOT NULL
+                              REFERENCES draft_originals(draft_id) ON DELETE CASCADE,
+                 named        TEXT    NOT NULL,
+                 content_type TEXT    NOT NULL,
+                 bytes        BLOB    NOT NULL,
+                 position     INTEGER NOT NULL
+             ) STRICT;
+
+             CREATE INDEX idx_draft_original_pictures_by_draft
+                 ON draft_original_pictures (draft_id, position);
+
+             CREATE TABLE outbox_originals (
+                 outbox_id INTEGER PRIMARY KEY REFERENCES outbox(id) ON DELETE CASCADE,
+                 opening   TEXT    NOT NULL,
+                 drawing   TEXT    NOT NULL,
+                 text      TEXT    NOT NULL
+             ) STRICT;
+
+             CREATE TABLE outbox_original_pictures (
+                 id           INTEGER PRIMARY KEY,
+                 outbox_id    INTEGER NOT NULL
+                              REFERENCES outbox_originals(outbox_id) ON DELETE CASCADE,
+                 named        TEXT    NOT NULL,
+                 content_type TEXT    NOT NULL,
+                 bytes        BLOB    NOT NULL,
+                 position     INTEGER NOT NULL
+             ) STRICT;
+
+             CREATE INDEX idx_outbox_original_pictures_by_message
+                 ON outbox_original_pictures (outbox_id, position);",
+        )
+        .down(
+            "DROP TABLE outbox_original_pictures;
+             DROP TABLE outbox_originals;
+             DROP TABLE draft_original_pictures;
+             DROP TABLE draft_originals;",
+        ),
     ])
 }
 

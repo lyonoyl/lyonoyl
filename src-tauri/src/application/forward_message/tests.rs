@@ -228,6 +228,7 @@ impl MessageParts for &Parts {
                 ("invoice.pdf".to_owned(), b"%PDF".to_vec()),
                 ("photo.jpg".to_owned(), b"\xff\xd8".to_vec()),
             ],
+            original: None,
         })
     }
 }

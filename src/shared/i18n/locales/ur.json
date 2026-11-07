@@ -129,6 +129,7 @@
   "compose.noRecipientYet": "ابھی کوئی وصول کنندہ نہیں",
   "compose.nowhereToSend": "ابھی کوئی اکاؤنٹ میل نہیں بھیج سکتا",
   "compose.nowhereToSendBody": "میل ایک سرور سے وصول کی جاتی ہے اور دوسرے کے ذریعے بھیجی جاتی ہے۔ کسی اکاؤنٹ کی ترتیبات کھولیں اور اس کا بھیجنے کا سرور درج کریں",
+  "compose.original": "آگے بھیجا گیا پیغام",
   "compose.removeAttachment": "{name} ہٹائیں",
   "compose.send": "بھیجیں",
   "compose.sending": "بھیجا جا رہا ہے…",

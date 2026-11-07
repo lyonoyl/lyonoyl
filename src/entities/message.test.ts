@@ -217,7 +217,15 @@ describe("what a message passed on is called", () => {
 
 /** What the core read of the message to pass it on, with nothing in it unless asked. */
 function passedOn(over: Partial<ForwardDto> = {}): ForwardDto {
-  return { to: [], cc: [], text: "", files: [], leftBehind: [], ...over };
+  return {
+    to: [],
+    cc: [],
+    text: "",
+    files: [],
+    leftBehind: [],
+    original: null,
+    ...over,
+  };
 }
 
 describe("what a message passed on carries", () => {
@@ -254,13 +262,14 @@ describe("what a message passed on carries", () => {
 
     const forward = forwardOf(
       details(),
-      passedOn({ files, leftBehind: ["video.mov"] }),
+      passedOn({ files, leftBehind: ["video.mov"], original: "t-original" }),
       english,
       utc,
     );
 
     expect(forward.files).toEqual(files);
     expect(forward.leftBehind).toEqual(["video.mov"]);
+    expect(forward.original).toBe("t-original");
   });
 
   it("starts with room to write, then whose message it is, then the message", () => {

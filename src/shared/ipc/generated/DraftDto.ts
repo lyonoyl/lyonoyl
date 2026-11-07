@@ -17,6 +17,12 @@ export type DraftDto = { recipients: string, copies: string, blind: string, subj
  */
 files: Array<string>, 
 /**
+ * The message it passes on in its own form, by its token, and nothing for one that passes none
+ * on. Named at every keep as the files are; the draft takes it at the first keep that names
+ * it and keeps it until the draft goes.
+ */
+original: string | null, 
+/**
  * Which composer it comes from: a name the window makes at random as the composer opens, the
  * same in every keep and note that composer sends.
  *

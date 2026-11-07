@@ -1076,7 +1076,7 @@ fn records_the_schema_version_in_user_version() {
     // seen, so a migration quietly dropped from the list would leave older installations
     // reading a schema this build no longer writes. Adding one: bump this by one.
     assert_eq!(
-        version, 28,
+        version, 29,
         "the applied migration count is tracked in user_version"
     );
 }
@@ -2838,6 +2838,95 @@ fn the_upgrade_that_says_when_a_server_took_a_message_can_be_rolled_back() {
         .query_row("SELECT count(*) FROM outbox", [], |row| row.get(0))
         .expect("readable");
     assert_eq!(rows, 1, "the message itself survives the rollback");
+}
+
+/// The version the profile was at while nothing was passed on in its own form.
+const WHILE_NOTHING_WAS_PASSED_ON_IN_ITS_OWN_FORM: usize = 28;
+
+/// A draft and a message in the outbox, as the previous version wrote them.
+fn a_draft_and_a_message_on_its_way(connection: &Connection) {
+    connection
+        .execute_batch(
+            "INSERT INTO drafts (id, account_id, recipients, subject, body, written_at)
+                 VALUES (1, 'acc-1', 'kappa@example.net', 'Fwd: The chart', 'Look:', 0);
+             INSERT INTO outbox (id, account_id, message_id, sender, subject, body, written_at)
+                 VALUES (1, 'acc-1', '<m@example.com>', 'user@example.com', 'Fwd: The chart',
+                         'Look:', 0);",
+        )
+        .expect("what the previous version wrote");
+}
+
+/// What a draft and a message on its way pass on, written beside them.
+fn passed_on_beside_both(connection: &Connection) {
+    connection
+        .execute_batch(
+            "INSERT INTO draft_originals (draft_id, opening, drawing, text)
+                 VALUES (1, '<html><body>', '<p>Theirs</p></body></html>', 'Theirs');
+             INSERT INTO draft_original_pictures
+                 (draft_id, named, content_type, bytes, position)
+                 VALUES (1, 'chart@example.com', 'image/png', X'89504E47', 0);
+             INSERT INTO outbox_originals (outbox_id, opening, drawing, text)
+                 VALUES (1, '<html><body>', '<p>Theirs</p></body></html>', 'Theirs');
+             INSERT INTO outbox_original_pictures
+                 (outbox_id, named, content_type, bytes, position)
+                 VALUES (1, 'chart@example.com', 'image/png', X'89504E47', 0);",
+        )
+        .expect("this build writes what it passes on beside them");
+}
+
+/// A draft and a message on their way written before the upgrade keep what they held, and pass
+/// nothing on.
+#[test]
+fn what_was_kept_before_the_upgrade_survives_it_passing_nothing_on() {
+    let mut connection = Connection::open_in_memory().expect("in-memory database opens");
+    profile_migrations()
+        .to_version(&mut connection, WHILE_NOTHING_WAS_PASSED_ON_IN_ITS_OWN_FORM)
+        .expect("the previous schema applies");
+    an_account(&connection);
+    a_draft_and_a_message_on_its_way(&connection);
+
+    migrate_profile(&mut connection, ":memory:").expect("upgrade applies");
+
+    let count = |table: &str| -> i64 {
+        connection
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .expect("readable")
+    };
+    assert_eq!(count("drafts"), 1, "the draft survives the upgrade");
+    assert_eq!(count("outbox"), 1, "the message survives the upgrade");
+    assert_eq!(count("draft_originals") + count("outbox_originals"), 0);
+}
+
+#[test]
+fn going_back_takes_away_what_was_passed_on_and_leaves_the_drafts_and_the_outbox() {
+    let mut connection = Connection::open_in_memory().expect("in-memory database opens");
+    migrate_profile(&mut connection, ":memory:").expect("schema applies");
+    an_account(&connection);
+    a_draft_and_a_message_on_its_way(&connection);
+    passed_on_beside_both(&connection);
+
+    profile_migrations()
+        .to_version(&mut connection, WHILE_NOTHING_WAS_PASSED_ON_IN_ITS_OWN_FORM)
+        .expect("the down migration runs");
+
+    let tables: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name LIKE '%original%'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("readable");
+    assert_eq!(tables, 0);
+    let (drafts, outbox): (i64, i64) = connection
+        .query_row(
+            "SELECT (SELECT count(*) FROM drafts), (SELECT count(*) FROM outbox)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("readable");
+    assert_eq!((drafts, outbox), (1, 1));
 }
 
 /// The version the profile was at while a draft held text and nothing else.

@@ -11,8 +11,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NOTHING_TO_ANSWER, type Answer } from "@/entities/message";
 import { ScreenPane } from "@/app/ScreenPane";
 import { I18nProvider } from "@/shared/i18n";
-import type { AttachingDto } from "@/shared/ipc/generated/AttachingDto";
 import type { MailAccountSummaryDto } from "@/shared/ipc/generated/MailAccountSummaryDto";
+import type { ReopenedDraftDto } from "@/shared/ipc/generated/ReopenedDraftDto";
 import { Composer } from "./Composer";
 
 vi.mock("@/shared/ipc/client", async () => {
@@ -30,6 +30,9 @@ vi.mock("@/shared/ipc/client", async () => {
     reopenDraft: vi.fn(),
     noteDraft: vi.fn(),
     forgetNotedDraft: vi.fn(),
+    openOriginalBody: vi.fn(),
+    closeMessageBody: vi.fn(),
+    onMessageLink: vi.fn(),
   };
 });
 
@@ -43,6 +46,9 @@ const {
   reopenDraft,
   noteDraft,
   forgetNotedDraft,
+  openOriginalBody,
+  closeMessageBody,
+  onMessageLink,
 } = await import("@/shared/ipc/client");
 const sending = vi.mocked(sendMessage);
 const keeping = vi.mocked(keepDraft);
@@ -53,6 +59,9 @@ const forget = vi.mocked(forgetAttachment);
 const reopening = vi.mocked(reopenDraft);
 const noting = vi.mocked(noteDraft);
 const forgetting = vi.mocked(forgetNotedDraft);
+const drawing = vi.mocked(openOriginalBody);
+const closingBody = vi.mocked(closeMessageBody);
+const listening = vi.mocked(onMessageLink);
 /** The name a composer goes by in the core: made at random as it opens, for nobody to predict. */
 const A_COMPOSER = expect.stringMatching(/^[0-9a-f]{32}$/);
 
@@ -141,11 +150,26 @@ beforeEach(() => {
   sending.mockReset();
   sending.mockResolvedValue("<one@example.com>");
   reopening.mockReset();
-  reopening.mockResolvedValue([]);
+  reopening.mockResolvedValue({ files: [], original: null });
   noting.mockReset();
   noting.mockResolvedValue(undefined);
   forgetting.mockReset();
   forgetting.mockResolvedValue(undefined);
+  drawing.mockReset();
+  drawing.mockImplementation(async (token: string) => ({
+    name: `b-${token}`,
+    url: `lyomsg://localhost/b-${token}`,
+    kind: "html",
+    remoteBlocked: 0,
+    remoteNotShown: 0,
+    remoteNotHad: 0,
+    truncated: false,
+    attachments: [],
+  }));
+  closingBody.mockReset();
+  closingBody.mockResolvedValue(undefined);
+  listening.mockReset();
+  listening.mockResolvedValue(() => {});
 });
 
 describe("writing a message", () => {
@@ -170,6 +194,7 @@ describe("writing a message", () => {
       answering: null,
       chain: [],
       files: [],
+      original: null,
       writing: A_COMPOSER,
       kept: null,
     });
@@ -344,6 +369,7 @@ describe("writing a message", () => {
       answering: "first@example.com",
       chain: ["older@example.com", "first@example.com"],
       files: [],
+      original: null,
       writing: A_COMPOSER,
       kept: null,
     });
@@ -401,6 +427,7 @@ describe("writing a message", () => {
       answering: "first@example.com",
       chain: ["first@example.com"],
       files: [],
+      original: null,
       writing: A_COMPOSER,
       kept: null,
     });
@@ -1447,6 +1474,117 @@ describe("Composer, a message passed on", () => {
   });
 });
 
+describe("Composer, a message passed on in its own form", () => {
+  /** A message passed on with its look, as the reader opens the composer with it. */
+  const IN_ITS_OWN_FORM: Answer = {
+    ...NOTHING_TO_ANSWER,
+    subject: "Fwd: The chart",
+    body: "\n\n---------- Forwarded message ----------\n\n",
+    fromAccount: "acc-1",
+    files: [],
+    leftBehind: [],
+    original: "t-original",
+  };
+
+  const open = (answer: Answer = IN_ITS_OWN_FORM) =>
+    renderComposer([account("acc-1", "zeta@example.com", true)], answer);
+
+  it("sends the message it passes on by its token", async () => {
+    open();
+    type(/^To$/, "kappa@example.net");
+    fireEvent.click(screen.getByRole("button", { name: /^Send$/ }));
+
+    await waitFor(() =>
+      expect(sending).toHaveBeenCalledWith(
+        "acc-1",
+        expect.objectContaining({ original: "t-original", files: [] }),
+      ),
+    );
+  });
+
+  it("keeps the message it passes on with the draft", async () => {
+    open();
+    type(/^Message$/, "Kappa, look at this");
+
+    await waitFor(
+      () =>
+        expect(keeping).toHaveBeenCalledWith(
+          "acc-1",
+          null,
+          expect.objectContaining({ original: "t-original" }),
+        ),
+      { timeout: 2000 },
+    );
+  });
+
+  it("brings back what a draft opened again passes on, and draws it", async () => {
+    reopening.mockResolvedValue({ files: [], original: "r-original" });
+    open({ ...NOTHING_TO_ANSWER, fromAccount: "acc-1", draftId: 4 });
+
+    const frame = (await screen.findByTitle(
+      "Forwarded message",
+    )) as HTMLIFrameElement;
+    await waitFor(() =>
+      expect(frame.getAttribute("src")).toBe("lyomsg://localhost/b-r-original"),
+    );
+    type(/^To$/, "kappa@example.net");
+    fireEvent.click(screen.getByRole("button", { name: /^Send$/ }));
+    await waitFor(() =>
+      expect(sending).toHaveBeenCalledWith(
+        "acc-1",
+        expect.objectContaining({ original: "r-original", kept: 4 }),
+      ),
+    );
+  });
+
+  it("draws nothing beneath a message that passes nothing on", async () => {
+    open({ ...IN_ITS_OWN_FORM, original: null });
+    await screen.findByLabelText(/^Message$/);
+    await act(async () => {});
+
+    expect(screen.queryByTitle("Forwarded message")).toBeNull();
+    expect(drawing).not.toHaveBeenCalled();
+  });
+
+  it("weighs a file chosen beside the message it passes on", async () => {
+    open();
+    fireEvent.click(
+      await screen.findByRole("button", { name: /attach a file/i }),
+    );
+
+    await waitFor(() => expect(attach).toHaveBeenCalledWith(["t-original"]));
+  });
+
+  it("asks before leaving a draft opened again that holds nothing but the message it passes on", async () => {
+    reopening.mockResolvedValue({ files: [], original: "r-original" });
+    open({ ...NOTHING_TO_ANSWER, fromAccount: "acc-1", draftId: 9 });
+    await screen.findByTitle("Forwarded message");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close this screen" }));
+
+    expect(
+      screen.queryByRole("button", { name: "Save as draft" }),
+      "it left without asking",
+    ).not.toBeNull();
+    await act(async () => {});
+    expect(
+      throwingAway,
+      "the draft was thrown away unasked",
+    ).not.toHaveBeenCalled();
+  });
+
+  it("lets go of what it passes on once it is gone", async () => {
+    const { unmount } = open();
+    await screen.findByTitle("Forwarded message");
+    await waitFor(() => expect(drawing).toHaveBeenCalled());
+    await act(async () => {});
+
+    unmount();
+
+    await waitFor(() => expect(forget).toHaveBeenCalledWith("t-original"));
+  });
+});
+
 describe("Composer, the files a draft carries", () => {
   const INVOICE = { token: "r1", name: "invoice.pdf", bytes: "2500000" };
   const PHOTO = { token: "r2", name: "photo.jpg", bytes: "900" };
@@ -1492,7 +1630,7 @@ describe("Composer, the files a draft carries", () => {
   });
 
   it("lists the files a draft opened again carried, and sends them by their tokens", async () => {
-    reopening.mockResolvedValue([INVOICE]);
+    reopening.mockResolvedValue({ files: [INVOICE], original: null });
     open();
 
     expect(await screen.findByText("invoice.pdf")).toBeTruthy();
@@ -1512,7 +1650,7 @@ describe("Composer, the files a draft carries", () => {
 
   it("keeps a draft opened again without a file taken off it", async () => {
     keeping.mockResolvedValue(4);
-    reopening.mockResolvedValue([INVOICE, PHOTO]);
+    reopening.mockResolvedValue({ files: [INVOICE, PHOTO], original: null });
     open();
 
     fireEvent.click(
@@ -1533,7 +1671,7 @@ describe("Composer, the files a draft carries", () => {
 
   it("writes nothing over a draft opened again until its files are back", async () => {
     // A keep naming none of them takes every one of them off the draft.
-    let back: (files: (typeof INVOICE)[]) => void = () => {};
+    let back: (reopened: ReopenedDraftDto) => void = () => {};
     reopening.mockReturnValue(
       new Promise((resolve) => {
         back = resolve;
@@ -1551,7 +1689,7 @@ describe("Composer, the files a draft carries", () => {
       "a message could be sent without the files its draft carries",
     ).toBe(true);
 
-    await act(async () => back([INVOICE]));
+    await act(async () => back({ files: [INVOICE], original: null }));
     type(/^Message$/, "half a thought, continued");
 
     await waitFor(
@@ -1570,7 +1708,7 @@ describe("Composer, the files a draft carries", () => {
 
   it("takes nothing typed until a draft opened again has its files back", async () => {
     // Typed before then, it could not be written down, and leaving would lose it without a word.
-    let back: (files: (typeof INVOICE)[]) => void = () => {};
+    let back: (reopened: ReopenedDraftDto) => void = () => {};
     reopening.mockReturnValue(
       new Promise((resolve) => {
         back = resolve;
@@ -1589,7 +1727,7 @@ describe("Composer, the files a draft carries", () => {
       "the window took changes it could not keep",
     ).toEqual([true, true, true, true]);
 
-    await act(async () => back([INVOICE]));
+    await act(async () => back({ files: [INVOICE], original: null }));
 
     expect(
       [...fields, attaching].map((control) => control.disabled),
@@ -1660,7 +1798,7 @@ describe("Composer, the files a draft carries", () => {
     // What the compose button hands a window open on a draft with no address and no subject. Taken
     // as a new message, the window would keep under the draft's number with none of its files, and
     // take every one of them off it.
-    let back: (files: (typeof INVOICE)[]) => void = () => {};
+    let back: (reopened: ReopenedDraftDto) => void = () => {};
     reopening.mockReturnValue(
       new Promise((resolve) => {
         back = resolve;
@@ -1674,7 +1812,7 @@ describe("Composer, the files a draft carries", () => {
     });
 
     handedAnother(NOTHING_TO_ANSWER);
-    await act(async () => back([INVOICE]));
+    await act(async () => back({ files: [INVOICE], original: null }));
 
     expect(await screen.findByText("invoice.pdf")).toBeTruthy();
     await waitFor(
@@ -1720,7 +1858,7 @@ describe("Composer, the files a draft carries", () => {
   it("names every file on screen when it asks for another, the draft's own among them", async () => {
     // What one message may carry is weighed in the core, which holds the files; the window says
     // which of them go with this message.
-    reopening.mockResolvedValue([INVOICE]);
+    reopening.mockResolvedValue({ files: [INVOICE], original: null });
     attach
       .mockResolvedValueOnce({ token: "t1", name: "notes.txt", bytes: "40" })
       .mockResolvedValueOnce(null);
@@ -1736,7 +1874,7 @@ describe("Composer, the files a draft carries", () => {
   });
 
   it("leaves a draft as it was when it is closed before its files are back, and lets go of them when they come", async () => {
-    let back: (files: (typeof INVOICE)[]) => void = () => {};
+    let back: (reopened: ReopenedDraftDto) => void = () => {};
     reopening.mockReturnValue(
       new Promise((resolve) => {
         back = resolve;
@@ -1754,7 +1892,7 @@ describe("Composer, the files a draft carries", () => {
       "the draft was written over without its files",
     ).not.toHaveBeenCalled();
 
-    await act(async () => back([INVOICE]));
+    await act(async () => back({ files: [INVOICE], original: null }));
     await waitFor(() => expect(forget).toHaveBeenCalledWith("r1"));
   });
 
@@ -1787,7 +1925,7 @@ describe("Composer, the files a draft carries", () => {
           letItFinish = settle;
         }),
     );
-    reopening.mockResolvedValue([INVOICE]);
+    reopening.mockResolvedValue({ files: [INVOICE], original: null });
     const { unmount } = open();
     await screen.findByText("invoice.pdf");
     await waitFor(() => expect(keeping).toHaveBeenCalled(), { timeout: 2000 });
@@ -1826,7 +1964,7 @@ describe("Composer, the files a draft carries", () => {
   it("asks before leaving a draft opened again that carries nothing but files", async () => {
     // Nothing typed, and a file in it: leaving it unasked throws the draft away, and the file with
     // it.
-    reopening.mockResolvedValue([INVOICE]);
+    reopening.mockResolvedValue({ files: [INVOICE], original: null });
     open({ ...NOTHING_TO_ANSWER, draftId: 9 });
     expect(await screen.findByText("invoice.pdf")).toBeTruthy();
 
@@ -1907,7 +2045,7 @@ describe("Composer, the files a draft carries", () => {
   it("writes nothing down when the files of a draft being thrown away come back meanwhile", async () => {
     // Back while the draft is being thrown away, they would start the wait before a keep, and the
     // keep would write the draft down again as one of its own, every file with it.
-    let back: (files: (typeof INVOICE)[]) => void = () => {};
+    let back: (reopened: ReopenedDraftDto) => void = () => {};
     reopening.mockReturnValue(
       new Promise((resolve) => {
         back = resolve;
@@ -1920,7 +2058,7 @@ describe("Composer, the files a draft carries", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close this screen" }));
     fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
     await waitFor(() => expect(throwingAway).toHaveBeenCalledWith(9));
-    await act(async () => back([INVOICE]));
+    await act(async () => back({ files: [INVOICE], original: null }));
     await longerThanAKeepWaits();
 
     expect(
@@ -2281,7 +2419,7 @@ describe("Composer, what the core holds for when the application ends", () => {
   it("notes a draft opened again under its own number, and only once its files are back", async () => {
     // Before then nothing can be kept over it: a keep naming none of its files takes every one of
     // them off it, and so would the end.
-    let back: (files: AttachingDto[]) => void = () => {};
+    let back: (reopened: ReopenedDraftDto) => void = () => {};
     reopening.mockReturnValue(
       new Promise((resolve) => {
         back = resolve;
@@ -2299,7 +2437,7 @@ describe("Composer, what the core holds for when the application ends", () => {
     expect(noting, "noted before its files were back").not.toHaveBeenCalled();
 
     await act(async () =>
-      back([{ token: "r1", name: "invoice.pdf", bytes: "2500000" }]),
+      back({ files: [{ token: "r1", name: "invoice.pdf", bytes: "2500000" }], original: null }),
     );
 
     expect(noting).toHaveBeenLastCalledWith(

@@ -123,6 +123,7 @@
   "compose.noRecipientYet": "ยังไม่มีผู้รับ",
   "compose.nowhereToSend": "ยังไม่มีบัญชีที่ส่งอีเมลได้",
   "compose.nowhereToSendBody": "การรับและการส่งอีเมลใช้เซิร์ฟเวอร์คนละตัว เปิดการตั้งค่าบัญชีแล้วกรอกเซิร์ฟเวอร์ขาออก",
+  "compose.original": "อีเมลที่ส่งต่อ",
   "compose.removeAttachment": "นำ {name} ออก",
   "compose.send": "ส่ง",
   "compose.sending": "กำลังส่ง…",

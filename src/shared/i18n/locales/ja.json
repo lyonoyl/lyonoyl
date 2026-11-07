@@ -123,6 +123,7 @@
   "compose.noRecipientYet": "宛先未入力",
   "compose.nowhereToSend": "送信できるアカウントがまだありません",
   "compose.nowhereToSendBody": "メールの受信と送信には別々のサーバーを使います。アカウント設定を開いて、送信サーバーを入力してください",
+  "compose.original": "転送メッセージ",
   "compose.removeAttachment": "「{name}」を添付から削除",
   "compose.send": "送信",
   "compose.sending": "送信中…",

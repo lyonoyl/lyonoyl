@@ -33,6 +33,7 @@ import { typedDirection } from "@/shared/ui/direction";
 import { linksIn } from "@/shared/ui/links";
 
 import { addressesIn, everyOneAnAddress } from "./addresses";
+import { ForwardedOriginal } from "./ForwardedOriginal";
 
 /** Where the message is in its life, from the writer's side. */
 type Writing =
@@ -160,6 +161,15 @@ export function Composer({
    */
   const [leftBehind] = useState(() => answer.leftBehind ?? []);
   /**
+   * The message passed on in its own form, by the token the core holds it under, drawn beneath
+   * what is written and sent with it. Nothing for a message that passes none on.
+   */
+  const [original, setOriginal] = useState<string | null>(
+    () => answer.original ?? null,
+  );
+  /** The same token, for the way out to let go of, as `holding` is for the files. */
+  const holdingOriginal = useRef(original);
+  /**
    * Whether a file is being asked for, or read once it is chosen.
    *
    * One at a time. Each is weighed beside the files on screen when it is asked for, so a second
@@ -282,15 +292,17 @@ export function Composer({
     // the same way, under tokens of their own.
     let opening = true;
     reopenDraft(draftId)
-      .then((files) => {
+      .then(({ files, original: passedOn }) => {
         if (!opening) {
           // Asked for by a window that has gone: nothing will ever show these, and what the core
           // holds for them is let go of rather than kept until the application quits.
-          for (const file of files)
-            void forgetAttachment(file.token).catch(() => {});
+          for (const token of [...files.map((file) => file.token), passedOn])
+            if (token !== null) void forgetAttachment(token).catch(() => {});
           return;
         }
         changeAttached((so_far) => [...files, ...so_far]);
+        holdingOriginal.current = passedOn;
+        setOriginal(passedOn);
         setSettled(true);
       })
       .catch((reason: unknown) => {
@@ -318,7 +330,8 @@ export function Composer({
     bcc === "" &&
     subject === "" &&
     body === "" &&
-    attached.length === 0;
+    attached.length === 0 &&
+    original === null;
   /** What is on screen, as a keep and a note both write it down. */
   const onScreen = useMemo<DraftDto>(
     () => ({
@@ -333,9 +346,12 @@ export function Composer({
       // so a file taken off leaves it at this keep. The core writes a file into it once and knows
       // it by its token after that, so naming a photograph again costs nothing.
       files: attached.map((file) => file.token),
+      // Named at every keep, as the files are: the draft takes it at the first and keeps it until
+      // it goes.
+      original,
       writing,
     }),
-    [to, cc, bcc, subject, body, answering, chain, attached, writing],
+    [to, cc, bcc, subject, body, answering, chain, attached, original, writing],
   );
 
   /**
@@ -443,7 +459,10 @@ export function Composer({
       // Off the screen, the message is not being written here, and what it leaves behind is what
       // its last keep wrote.
       letGoOfTheNote();
-      const tokens = holding.current.map((file) => file.token);
+      const tokens = [
+        ...holding.current.map((file) => file.token),
+        ...(holdingOriginal.current === null ? [] : [holdingOriginal.current]),
+      ];
       void keeping.current
         .catch(() => {
           /* A keep that failed kept nothing; the files are let go of all the same. */
@@ -466,7 +485,8 @@ export function Composer({
    * Whether anything has been written that would be lost by leaving.
    *
    * A draft still waiting for its files counts whatever is on screen: they are not on screen, and
-   * leaving it unasked would throw it away with every one of them.
+   * leaving it unasked would throw it away with every one of them. The message a draft passes on
+   * in its own form counts as its files do.
    */
   const written =
     !settled ||
@@ -475,7 +495,8 @@ export function Composer({
     bcc.trim() !== "" ||
     subject.trim() !== "" ||
     body.trim() !== "" ||
-    attached.length > 0;
+    attached.length > 0 ||
+    original !== null;
 
   /**
    * Leaving.
@@ -623,6 +644,7 @@ export function Composer({
           answering,
           chain,
           files: attached.map((file) => file.token),
+          original,
           writing,
           kept: wasKept,
         });
@@ -854,10 +876,13 @@ export function Composer({
             if (choosing) return;
             setAttachFailed(null);
             setChoosing(true);
-            // Every file on screen goes with the question, so a file too heavy to go beside them
-            // is refused as it is chosen, while somebody can choose another, rather than at every
-            // keep that follows.
-            void attachFile(attached.map((file) => file.token))
+            // Every file on screen goes with the question, and the message passed on beneath them,
+            // so a file too heavy to go beside them is refused as it is chosen, while somebody can
+            // choose another, rather than at every keep that follows.
+            void attachFile([
+              ...attached.map((file) => file.token),
+              ...(original === null ? [] : [original]),
+            ])
               .then((chosen) => {
                 // `null` is the person closing the dialog, which is an answer and not a failure.
                 if (!chosen) return;
@@ -932,6 +957,7 @@ export function Composer({
           value={body}
           onChange={setBody}
         />
+        {original !== null && <ForwardedOriginal token={original} />}
       </div>
 
       {state.status === "failed" && (

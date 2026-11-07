@@ -141,6 +141,7 @@
   "compose.noRecipientYet": "Получатель не указан",
   "compose.nowhereToSend": "Пока ни один ящик не может отправлять почту",
   "compose.nowhereToSendBody": "Почта приходит с одного сервера, а отправляется через другой. Откройте настройки ящика и укажите сервер отправки",
+  "compose.original": "Пересылаемое письмо",
   "compose.removeAttachment": "Убрать {name}",
   "compose.send": "Отправить",
   "compose.sending": "Отправка…",

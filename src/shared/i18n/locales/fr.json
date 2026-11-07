@@ -135,6 +135,7 @@
   "compose.noRecipientYet": "Pas encore de destinataire",
   "compose.nowhereToSend": "Aucun compte ne peut encore envoyer de messages",
   "compose.nowhereToSendBody": "Le courrier est reçu par un serveur et envoyé par un autre. Ouvrez les réglages d’un compte et indiquez son serveur d’envoi",
+  "compose.original": "Message transféré",
   "compose.removeAttachment": "Retirer {name}",
   "compose.send": "Envoyer",
   "compose.sending": "Envoi…",

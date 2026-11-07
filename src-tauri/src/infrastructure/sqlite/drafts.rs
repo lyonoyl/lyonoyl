@@ -9,8 +9,9 @@ use std::sync::Arc;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior};
 
 use crate::infrastructure::sqlite::connection::SqlitePool;
+use crate::infrastructure::sqlite::originals::{self, Beside};
 use crate::ports::drafts::{Draft, DraftError, DraftFile, Drafts, Kept};
-use lyonoyl_domain::outgoing::{OutgoingFile, HEAVIEST_DRAFTS, MOST_DRAFTS};
+use lyonoyl_domain::outgoing::{Original, OutgoingFile, HEAVIEST_DRAFTS, MOST_DRAFTS};
 
 pub struct SqliteDrafts {
     pool: SqlitePool,
@@ -38,7 +39,7 @@ impl SqliteDrafts {
 
     /// Drafts held to a room of a test's own, which it can fill without writing gigabytes.
     #[cfg(test)]
-    fn holding(pool: SqlitePool, drafts: i64, weight: i64) -> Self {
+    pub(super) fn holding(pool: SqlitePool, drafts: i64, weight: i64) -> Self {
         Self {
             pool,
             room: Room { drafts, weight },
@@ -53,12 +54,13 @@ impl SqliteDrafts {
 }
 
 impl Drafts for SqliteDrafts {
-    fn keep(
+    fn keep_passing_on(
         &self,
         account_id: &str,
         under: Option<i64>,
         draft: &Draft,
         files: &[DraftFile],
+        original: Option<&Original>,
     ) -> Result<i64, DraftError> {
         let mut connection = self.open()?;
 
@@ -101,6 +103,7 @@ impl Drafts for SqliteDrafts {
         };
 
         carrying(&writing, id, files).map_err(|_| DraftError::Unavailable)?;
+        passing_on(&writing, id, original).map_err(|_| DraftError::Unavailable)?;
 
         // Heavier than it was, with the drafts of its account heavier together than they may be:
         // refused whole, and the change rolls back with everything above it. Measured on the
@@ -149,6 +152,11 @@ impl Drafts for SqliteDrafts {
         Ok(files)
     }
 
+    fn original(&self, id: i64) -> Result<Option<Original>, DraftError> {
+        let connection = self.open()?;
+        originals::read_beside(&connection, Beside::Draft, id).map_err(|_| DraftError::Unavailable)
+    }
+
     fn came_back(
         &self,
         account_id: &str,
@@ -190,6 +198,28 @@ impl Drafts for SqliteDrafts {
                 "INSERT INTO draft_files (draft_id, kept_as, name, content_type, bytes, position)
                  SELECT ?1, lower(hex(randomblob(16))), name, content_type, bytes, position
                  FROM outbox_files
+                 WHERE outbox_id = ?2
+                 ORDER BY position, id",
+                rusqlite::params![id, from_outbox],
+            )
+            .map_err(|_| DraftError::Unavailable)?;
+
+        // The message it passes on in its own form goes the same way and in the same change.
+        writing
+            .execute(
+                "INSERT INTO draft_originals (draft_id, opening, drawing, text)
+                 SELECT ?1, opening, drawing, text
+                 FROM outbox_originals
+                 WHERE outbox_id = ?2",
+                rusqlite::params![id, from_outbox],
+            )
+            .map_err(|_| DraftError::Unavailable)?;
+        writing
+            .execute(
+                "INSERT INTO draft_original_pictures
+                     (draft_id, named, content_type, bytes, position)
+                 SELECT ?1, named, content_type, bytes, position
+                 FROM outbox_original_pictures
                  WHERE outbox_id = ?2
                  ORDER BY position, id",
                 rusqlite::params![id, from_outbox],
@@ -315,14 +345,19 @@ fn room_for_another(
     )
 }
 
-/// What one row of `drafts` weighs, in bytes: its text, and the files it carries.
+/// What one row of `drafts` weighs, in bytes: its text, the files it carries, and the message it
+/// passes on in its own form, with the pictures that message draws.
 ///
 /// Read from the lengths SQLite keeps beside each value rather than from the values, so a field
 /// or a file that spills onto pages of its own is weighed without those pages being read.
 const WEIGHS: &str = "octet_length(recipients) + octet_length(copies) + octet_length(blind)
      + octet_length(subject) + octet_length(body)
      + coalesce(octet_length(answering), 0) + coalesce(octet_length(chain), 0)
-     + coalesce((SELECT sum(length(bytes)) FROM draft_files WHERE draft_id = drafts.id), 0)";
+     + coalesce((SELECT sum(length(bytes)) FROM draft_files WHERE draft_id = drafts.id), 0)
+     + coalesce((SELECT octet_length(opening) + octet_length(drawing) + octet_length(text)
+                 FROM draft_originals WHERE draft_id = drafts.id), 0)
+     + coalesce((SELECT sum(length(bytes)) FROM draft_original_pictures
+                 WHERE draft_id = drafts.id), 0)";
 
 /// What the draft kept under `id` weighs, and nothing for one that is not there.
 fn weight_of(writing: &Transaction, id: i64) -> rusqlite::Result<Option<i64>> {
@@ -426,6 +461,32 @@ fn carrying(writing: &Transaction, draft_id: i64, files: &[DraftFile]) -> rusqli
     }
 
     Ok(())
+}
+
+/// Writes the message a draft passes on in its own form with the keep that first names it, once.
+///
+/// The composer names it at every keep, and its markup and pictures are what a keep would
+/// otherwise write again every second of typing. A keep naming none leaves it, since nothing in the
+/// window takes it off or puts another in its place, and it goes with the draft by the cascade the
+/// schema declares.
+fn passing_on(
+    writing: &Transaction,
+    draft_id: i64,
+    original: Option<&Original>,
+) -> rusqlite::Result<()> {
+    let Some(original) = original else {
+        return Ok(());
+    };
+    let held: bool = writing.query_row(
+        "SELECT EXISTS (SELECT 1 FROM draft_originals WHERE draft_id = ?1)",
+        [draft_id],
+        |row| row.get(0),
+    )?;
+    if held {
+        return Ok(());
+    }
+
+    originals::written_beside(writing, Beside::Draft, draft_id, original)
 }
 
 /// One row of the drafts table, in the shape the port answers with.
@@ -731,6 +792,7 @@ mod tests {
                 subject: Subject::parse("About Tuesday").expect("a subject"),
                 body: "Shall we?".to_owned(),
                 thread: Default::default(),
+                original: None,
             };
             SqliteOutbox::new(self.pool.clone())
                 .queue("acc-1", message_id, &message)

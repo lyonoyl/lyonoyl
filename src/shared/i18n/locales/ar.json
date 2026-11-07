@@ -153,6 +153,7 @@
   "compose.noRecipientYet": "لم يُحدَّد مستلم بعد",
   "compose.nowhereToSend": "لا يوجد حساب يمكنه الإرسال بعد",
   "compose.nowhereToSendBody": "يُستلم البريد من خادم ويُرسَل عبر خادم آخر. يكفي فتح إعدادات أحد الحسابات وإدخال خادم الإرسال الخاص به",
+  "compose.original": "الرسالة المُعاد توجيهها",
   "compose.removeAttachment": "إزالة المرفق {name}",
   "compose.send": "إرسال",
   "compose.sending": "جارٍ الإرسال…",

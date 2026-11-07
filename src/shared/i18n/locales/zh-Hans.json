@@ -123,6 +123,7 @@
   "compose.noRecipientYet": "尚无收件人",
   "compose.nowhereToSend": "还没有可以发信的邮箱",
   "compose.nowhereToSendBody": "邮件从一台服务器收取，经由另一台服务器发出。打开邮箱设置，填写发信服务器",
+  "compose.original": "转发的邮件",
   "compose.removeAttachment": "移除附件“{name}”",
   "compose.send": "发送",
   "compose.sending": "正在发送…",

@@ -9,6 +9,7 @@ use rusqlite::{Connection, TransactionBehavior};
 use std::time::Duration;
 
 use crate::infrastructure::sqlite::connection::SqlitePool;
+use crate::infrastructure::sqlite::originals::{self, Beside};
 use crate::ports::outbox::{Held, Outbox, OutboxError, WhyHeld};
 use lyonoyl_domain::message::Rfc822MessageId;
 use lyonoyl_domain::outgoing::{EmailAddress, InThread, Outgoing, OutgoingFile, Subject};
@@ -83,6 +84,8 @@ fn held_from(connection: &rusqlite::Connection, row: Row) -> Result<Held, Outbox
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|_| OutboxError::Corrupted)?,
             },
+            original: originals::read_beside(connection, Beside::Outbox, id)
+                .map_err(|_| OutboxError::Unavailable)?,
         },
         attempts: attempts.max(0) as u32,
     })
@@ -246,6 +249,13 @@ impl Outbox for SqliteOutbox {
                         position as i64
                     ],
                 )
+                .map_err(|_| OutboxError::Unavailable)?;
+        }
+
+        // And the message it passes on in its own form, for the same reason: sent without it, it
+        // is a note saying "see below" with nothing below.
+        if let Some(original) = &message.original {
+            originals::written_beside(&writing, Beside::Outbox, id, original)
                 .map_err(|_| OutboxError::Unavailable)?;
         }
 
@@ -616,6 +626,7 @@ mod tests {
             subject: Subject::parse("About Tuesday").expect("a subject"),
             body: "Shall we?".to_owned(),
             thread: Default::default(),
+            original: None,
         }
     }
 

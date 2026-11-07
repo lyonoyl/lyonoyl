@@ -129,6 +129,7 @@
   "compose.noRecipientYet": "Noch kein Empfänger",
   "compose.nowhereToSend": "Noch kein Postfach zum Senden eingerichtet",
   "compose.nowhereToSendBody": "E-Mails werden von einem Server empfangen und über einen anderen gesendet. Öffnen Sie die Einstellungen eines Postfachs und tragen Sie dessen Postausgangsserver ein",
+  "compose.original": "Weitergeleitete Nachricht",
   "compose.removeAttachment": "{name} entfernen",
   "compose.send": "Senden",
   "compose.sending": "Wird gesendet…",

@@ -148,6 +148,7 @@ fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         commands::activity::how_things_are,
         commands::activity::what_is_being_read,
         commands::body::open_message_body,
+        commands::body::open_original_body,
         commands::body::close_message_body,
         commands::body::open_link,
         commands::body::ask_about_a_written_link,

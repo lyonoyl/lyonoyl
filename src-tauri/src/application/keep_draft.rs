@@ -8,7 +8,7 @@
 use crate::application::error::UseCaseError;
 use crate::ports::drafts::{Draft, DraftFile, Drafts};
 use lyonoyl_domain::message::LONGEST_MESSAGE_ID;
-use lyonoyl_domain::outgoing::{fit_in_one_message, LONGEST_BODY};
+use lyonoyl_domain::outgoing::{fit_in_one_message, Original, LONGEST_BODY};
 use lyonoyl_domain::thread::{both_ends, NAMES_CONSULTED};
 
 /// How long one name in a conversation may be as the window holds it: an identifier, and the angle
@@ -43,12 +43,12 @@ impl<D: Drafts> KeepDraft<D> {
     /// answered, out of somebody else's header, so it is cut to the names a reply carries rather
     /// than refused, and a name too long for any reply to carry is left out.
     ///
-    /// The files it carries are everything attached to it now, and together they may weigh what a
-    /// message may and no more: past that it is refused whole, because files no message could carry
-    /// make a draft that can never be sent, written into the database that nothing clears. The text
-    /// is held to its own bound and not to the room the files leave it. Refused for that, a keep
-    /// would lose what somebody typed beside a photograph rather than tell them anything, and
-    /// sending is what refuses a message too heavy to go.
+    /// The files it carries are everything attached to it now, and with the message it passes on in
+    /// its own form they may weigh what a message may and no more: past that it is refused whole,
+    /// because files no message could carry make a draft that can never be sent, written into the
+    /// database that nothing clears. The text is held to its own bound and not to the room the
+    /// files leave it. Refused for that, a keep would lose what somebody typed beside a photograph
+    /// rather than tell them anything, and sending is what refuses a message too heavy to go.
     ///
     /// And an account's drafts are bounded together, at figures no person's own use reaches
     /// (`MOST_DRAFTS`, `HEAVIEST_DRAFTS`): a draft of its own past how many there may be, or a keep
@@ -61,20 +61,27 @@ impl<D: Drafts> KeepDraft<D> {
         under: Option<i64>,
         draft: Draft,
         files: &[DraftFile],
+        original: Option<&Original>,
     ) -> Result<i64, UseCaseError> {
-        let draft = bounded(draft, files)?;
+        let draft = bounded(draft, files, original)?;
 
-        Ok(self.drafts.keep(account_id, under, &draft, files)?)
+        Ok(self
+            .drafts
+            .keep_passing_on(account_id, under, &draft, files, original)?)
     }
 }
 
-/// What a keep writes of `draft` carrying `files`, or the refusal it answers with, and nothing
-/// written either way.
+/// What a keep writes of `draft` carrying `files` and passing `original` on, or the refusal it
+/// answers with, and nothing written either way.
 ///
 /// The bounds `KeepDraft::execute` describes, asked on their own: a note of what is on screen is
 /// held to them before it is held at all (`keep_at_the_end`), so the core keeps in memory no more
 /// than it would write down.
-pub fn bounded(draft: Draft, files: &[DraftFile]) -> Result<Draft, UseCaseError> {
+pub fn bounded(
+    draft: Draft,
+    files: &[DraftFile],
+    original: Option<&Original>,
+) -> Result<Draft, UseCaseError> {
     // Saturating: an overflow would wrap round to a small number and pass.
     let addresses = [&draft.recipients, &draft.copies, &draft.blind]
         .iter()
@@ -84,7 +91,7 @@ pub fn bounded(draft: Draft, files: &[DraftFile]) -> Result<Draft, UseCaseError>
     if addresses > LONGEST_BODY
         || draft.subject.len() > LONGEST_BODY
         || draft.body.len() > LONGEST_BODY
-        || !fit_in_one_message(files.iter().map(|one| &*one.file))
+        || !fit_in_one_message(files.iter().map(|one| &*one.file), original)
         || draft
             .answering
             .as_ref()
@@ -124,15 +131,18 @@ mod tests {
         broken: bool,
         /// Holding as much as an account's drafts may.
         full: bool,
+        /// What the message each keep was handed to pass on says.
+        originals: Mutex<Vec<Option<String>>>,
     }
 
     impl Drafts for &Drawer {
-        fn keep(
+        fn keep_passing_on(
             &self,
             _account_id: &str,
             _under: Option<i64>,
             draft: &Draft,
             files: &[DraftFile],
+            original: Option<&Original>,
         ) -> Result<i64, DraftError> {
             if self.broken {
                 return Err(DraftError::Unavailable);
@@ -144,6 +154,10 @@ mod tests {
                 .lock()
                 .expect("test lock")
                 .push(files.iter().map(|one| one.kept_as.clone()).collect());
+            self.originals
+                .lock()
+                .expect("test lock")
+                .push(original.map(|one| one.text.clone()));
             let mut kept = self.kept.lock().expect("test lock");
             kept.push(draft.clone());
             Ok(kept.len() as i64)
@@ -151,6 +165,10 @@ mod tests {
 
         fn files(&self, _id: i64) -> Result<Vec<DraftFile>, DraftError> {
             unreachable!("keeping a draft reads none of its files")
+        }
+
+        fn original(&self, _id: i64) -> Result<Option<Original>, DraftError> {
+            unreachable!("keeping a draft reads nothing it passes on")
         }
 
         fn came_back(
@@ -185,7 +203,7 @@ mod tests {
     }
 
     fn kept(drawer: &Drawer, draft: Draft) -> Result<i64, UseCaseError> {
-        KeepDraft::new(drawer).execute("acc-1", None, draft, &[])
+        KeepDraft::new(drawer).execute("acc-1", None, draft, &[], None)
     }
 
     /// A file of `size` bytes, kept as `kept_as`.
@@ -205,7 +223,7 @@ mod tests {
         draft: Draft,
         files: &[DraftFile],
     ) -> Result<i64, UseCaseError> {
-        KeepDraft::new(drawer).execute("acc-1", None, draft, files)
+        KeepDraft::new(drawer).execute("acc-1", None, draft, files, None)
     }
 
     /// Kept with `fill` making one field `limit` long, and refused one past it with nothing
@@ -319,6 +337,7 @@ mod tests {
             subject: Subject::parse("Re: All of us").expect("a subject"),
             body: answer.body.clone(),
             thread: Default::default(),
+            original: None,
         };
         assert!(
             !as_sent.is_within_bounds(),
@@ -506,5 +525,70 @@ mod tests {
 
         assert!(matches!(outcome, Err(UseCaseError::MessageIsTooLarge)));
         assert!(drawer.kept.lock().expect("test lock").is_empty());
+    }
+
+    /// A message passed on in its own form, saying "Theirs", whose one picture weighs `size`
+    /// bytes.
+    fn passing_on(size: usize) -> Original {
+        Original {
+            opening: String::new(),
+            drawing: String::new(),
+            text: "Theirs".to_owned(),
+            pictures: vec![lyonoyl_domain::outgoing::OriginalPicture {
+                named: "chart@example.com".to_owned(),
+                content_type: "image/png".to_owned(),
+                bytes: vec![0; size],
+            }],
+        }
+    }
+
+    #[test]
+    fn what_a_draft_passes_on_is_handed_to_the_drafts_with_it() {
+        let drawer = Drawer::default();
+        let original = passing_on(10);
+
+        KeepDraft::new(&drawer)
+            .execute("acc-1", None, half_written(), &[], Some(&original))
+            .expect("kept");
+
+        assert_eq!(
+            *drawer.originals.lock().expect("test lock"),
+            vec![Some("Theirs".to_owned())]
+        );
+    }
+
+    #[test]
+    fn files_and_what_a_draft_passes_on_together_are_held_to_what_a_message_may_weigh() {
+        // A newsletter's pictures travel with the message that passes it on: beside a file that
+        // fits alone, they make a draft no message could carry.
+        let drawer = Drawer::default();
+        let half = HEAVIEST_MESSAGE / 2;
+
+        KeepDraft::new(&drawer)
+            .execute(
+                "acc-1",
+                None,
+                half_written(),
+                &[a_file("t1", half)],
+                Some(&passing_on(HEAVIEST_MESSAGE - half - "Theirs".len())),
+            )
+            .expect("together as heavy as a message may be, it is kept");
+        let past = KeepDraft::new(&drawer).execute(
+            "acc-1",
+            None,
+            half_written(),
+            &[a_file("t1", half)],
+            Some(&passing_on(HEAVIEST_MESSAGE - half - "Theirs".len() + 1)),
+        );
+
+        assert!(
+            matches!(past, Err(UseCaseError::MessageIsTooLarge)),
+            "{past:?}"
+        );
+        assert_eq!(
+            drawer.kept.lock().expect("test lock").len(),
+            1,
+            "what was refused was written all the same"
+        );
     }
 }

@@ -314,6 +314,52 @@ pub struct Outgoing {
     pub thread: InThread,
     /// The files going with it.
     pub files: Vec<OutgoingFile>,
+    /// The message it passes on in its own form, drawn beneath its text. Nothing for one that passes
+    /// nothing on, or passes one on as text or as a file.
+    pub original: Option<Original>,
+}
+
+/// A message passed on in its own form, beneath what its writer adds.
+///
+/// The message cut down to what draws it: its markup, what it says as text, and the pictures its
+/// markup draws. The domain reads no markup. What it knows of a message passed on is where what its
+/// writer adds goes, between the two pieces of its markup, and what it weighs, which counts towards
+/// the message it goes with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Original {
+    /// The document as it opens, up to just inside its body: what its writer adds goes after it.
+    pub opening: String,
+    /// What it draws, with the tags that close the document.
+    pub drawing: String,
+    /// What it says as text, for whoever reads no markup.
+    pub text: String,
+    /// The pictures its markup draws, in the order it carries them.
+    pub pictures: Vec<OriginalPicture>,
+}
+
+/// A picture a message passed on in its own form draws.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OriginalPicture {
+    /// The name its markup draws it by: what follows `cid:`.
+    pub named: String,
+    /// What it is labelled as: a kind of picture this build draws, never the one the message
+    /// claimed for it.
+    pub content_type: String,
+    pub bytes: Vec<u8>,
+}
+
+impl Original {
+    /// What it weighs before encoding: its markup, its text and its pictures. Saturating, as a
+    /// message's weight is.
+    pub fn weighs(&self) -> usize {
+        self.pictures.iter().fold(
+            self.opening
+                .len()
+                .saturating_add(self.drawing.len())
+                .saturating_add(self.text.len()),
+            |so_far, picture| so_far.saturating_add(picture.bytes.len()),
+        )
+    }
 }
 
 /// A file being sent with a message.
@@ -387,14 +433,18 @@ pub fn weight_of<'a>(body: &str, files: impl IntoIterator<Item = &'a OutgoingFil
     })
 }
 
-/// Whether these files could go with one message at all: together, and with nothing written beside
-/// them, they weigh no more than a message may.
+/// Whether these files, and the message passed on in its own form beside them, could go with one
+/// message at all: together, and with nothing written beside them, they weigh no more than a
+/// message may.
 ///
 /// Files past it are a message nobody can send whatever is taken out of its text, so they are
 /// refused as they are chosen and wherever they are kept. Files within it and text that together
 /// are too heavy are a message being written, and only sending refuses that.
-pub fn fit_in_one_message<'a>(files: impl IntoIterator<Item = &'a OutgoingFile>) -> bool {
-    weight_of("", files) <= HEAVIEST_MESSAGE
+pub fn fit_in_one_message<'a>(
+    files: impl IntoIterator<Item = &'a OutgoingFile>,
+    original: Option<&Original>,
+) -> bool {
+    weight_of("", files).saturating_add(original.map_or(0, Original::weighs)) <= HEAVIEST_MESSAGE
 }
 
 impl Outgoing {
@@ -412,9 +462,13 @@ impl Outgoing {
             && self.thread.chain.len() <= NAMES_CONSULTED
     }
 
-    /// What it weighs before encoding: the text, and everything attached to it.
+    /// What it weighs before encoding: the text, everything attached to it, and the message it
+    /// passes on, beside which the text goes twice, as text and inside the markup.
     pub fn weighs(&self) -> usize {
-        weight_of(&self.body, &self.files)
+        let passed_on = self.original.as_ref().map_or(0, |original| {
+            original.weighs().saturating_add(self.body.len())
+        });
+        weight_of(&self.body, &self.files).saturating_add(passed_on)
     }
 
     /// Whether this is a message that can be sent at all.
@@ -635,6 +689,7 @@ mod tests {
             subject: Subject::parse("").expect("empty is a subject"),
             body: String::new(),
             thread: Default::default(),
+            original: None,
         }
     }
 
@@ -658,6 +713,36 @@ mod tests {
         message.body = "x".repeat(500);
 
         assert_eq!(message.weighs(), 1_500);
+    }
+
+    /// A message passed on in its own form, of markup, text and one picture of these sizes.
+    fn passing_on(markup: usize, text: usize, picture: usize) -> Original {
+        Original {
+            opening: String::new(),
+            drawing: "m".repeat(markup),
+            text: "t".repeat(text),
+            pictures: vec![OriginalPicture {
+                named: "chart@example.com".to_owned(),
+                content_type: "image/png".to_owned(),
+                bytes: vec![0; picture],
+            }],
+        }
+    }
+
+    #[test]
+    fn what_a_message_passes_on_counts_towards_what_it_weighs() {
+        // Passed on in its own form, a newsletter's pictures travel with the message, and a limit
+        // that left them out would let a message past what a server takes.
+        let mut message = carrying(1_000);
+        message.body = "x".repeat(500);
+        message.original = Some(passing_on(300, 20, 1_000));
+
+        assert_eq!(message.weighs(), 3_320);
+
+        let mut heavy = carrying(HEAVIEST_MESSAGE - 1_000);
+        assert!(heavy.is_within_bounds());
+        heavy.original = Some(passing_on(0, 0, 1_001));
+        assert!(!heavy.is_within_bounds());
     }
 
     #[test]
@@ -700,9 +785,12 @@ mod tests {
         let half = HEAVIEST_MESSAGE / 2;
         let rest = HEAVIEST_MESSAGE - half;
 
-        assert!(fit_in_one_message(&[file(half), file(rest)]));
-        assert!(!fit_in_one_message(&[file(half), file(rest + 1)]));
-        assert!(fit_in_one_message(&[]), "no file at all is a message too");
+        assert!(fit_in_one_message(&[file(half), file(rest)], None));
+        assert!(!fit_in_one_message(&[file(half), file(rest + 1)], None));
+        assert!(
+            fit_in_one_message(&[], None),
+            "no file at all is a message too"
+        );
     }
 
     #[test]
@@ -814,6 +902,7 @@ mod where_a_reply_belongs {
             subject: Subject::parse("").expect("empty is a subject"),
             body: String::new(),
             thread: InThread::default(),
+            original: None,
         }
     }
 

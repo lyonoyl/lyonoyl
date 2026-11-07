@@ -123,6 +123,7 @@
   "compose.noRecipientYet": "Chưa có người nhận",
   "compose.nowhereToSend": "Chưa có tài khoản nào gửi được thư",
   "compose.nowhereToSendBody": "Thư được nhận từ một máy chủ và gửi đi qua một máy chủ khác. Hãy mở phần cài đặt của tài khoản và điền máy chủ gửi thư",
+  "compose.original": "Thư chuyển tiếp",
   "compose.removeAttachment": "Bỏ đính kèm {name}",
   "compose.send": "Gửi",
   "compose.sending": "Đang gửi…",
