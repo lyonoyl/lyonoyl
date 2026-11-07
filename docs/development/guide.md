@@ -251,7 +251,7 @@ That runner is a shell script and the keychain it exists for is macOS's, so `scr
 
 **`npm run app:dev-build` is for running the real bundle**, signed the same way. Notarization is what lets *other* machines open the application; this build is for this machine, so there is no App Store Connect key, no network, and no waiting on Apple.
 
-**`npm run app:release` is for a build somebody else opens.** Gatekeeper refuses an application that is not notarized on every machine that did not build it, so this one signs, notarizes, staples, and then asks Gatekeeper what it made.
+**`npm run app:release` is for a build somebody else opens.** Gatekeeper refuses an application, and a signed disk image, that is not notarized on every machine that did not build it, so this one signs, notarizes, and staples both, and then asks Gatekeeper what it made.
 
 **Nothing about the identity is in this repository, and that is invariant 21 rather than an oversight.** No certificate, no team, no account, no key. `tauri.conf.json` names no signing identity, so a plain checkout builds unsigned and says so. What the build needs it reads from a file kept outside the tree:
 
@@ -289,6 +289,8 @@ The notary is asked with an App Store Connect key: one file, carrying no account
 8. **It opens what it made and asks Gatekeeper about that**, rather than assuming: the disk image is found wherever the build put it, its own signature verifies, and then it is mounted so every question is asked of the application a person would drag out of it—named by the certificate rather than by a hash, signed, carrying no path of the machine that built it, hardened runtime on, a notarization ticket stapled to it, and accepted by `spctl`. Any of those failing fails the run.
 
    The stapled ticket is the one that earns its place. Tauri skips notarization with a warning and exits zero when the credentials are missing, so a forgotten secret otherwise produces a green build and an application every other Mac refuses to open.
+
+   **Then the disk image goes to the notary itself**, has its own ticket stapled to it, and is asked about by its own signature, the way a Mac that downloaded it asks before opening it. Gatekeeper there refuses a signed image the notary never saw, whatever the application inside carries. The Mac that built the image never asks, because nothing marked it as downloaded, so an image that opens there proves nothing about this.
 
 A *Developer ID Installer* certificate is for `.pkg` files and is needed for neither—a `.dmg` is signed with the Application one.
 

@@ -3,9 +3,10 @@
 # A macOS build somebody else can open.
 #
 # An unsigned application is refused by Gatekeeper on every machine that did not build it, so a
-# release is signed with a Developer ID certificate and notarized by Apple. Neither the certificate
-# nor the account is named anywhere in this repository — AGENTS.md invariant 21 — so this script
-# reads them from a file the developer keeps outside the tree, and says plainly when there is none.
+# release, and the disk image it comes in, is signed with a Developer ID certificate and notarized
+# by Apple. Neither the certificate nor the account is named anywhere in this repository — AGENTS.md
+# invariant 21 — so this script reads them from a file the developer keeps outside the tree, and
+# says plainly when there is none.
 #
 # **The other half of what signing buys is the keychain.** macOS keeps a password behind a list of
 # the applications allowed to read it, and that list names an application by its signature. An
@@ -81,9 +82,9 @@ fi
 
 echo "$image"
 
-# The image itself is signed, and that is all it is: Tauri signs the disk image and does not notarize
-# it. What carries the notarization is the application inside, which is why the image is opened
-# below rather than taken at its word. A signed image can carry an unsigned application.
+# Tauri signs the disk image and does not notarize it, so the image is notarized below, once the
+# application inside has answered everything. Until then it is opened rather than taken at its word:
+# a signed image can carry an unsigned application.
 codesign --verify --strict --verbose=2 "$image"
 
 mounted=$(mktemp -d)
@@ -135,6 +136,41 @@ esac
 xcrun stapler validate "$app"
 
 spctl --assess --type execute --verbose=4 "$app"
+
+say "Notarizing the disk image"
+
+# The image goes to the notary as well. A Mac that downloaded the image asks Gatekeeper about the
+# image's own signature before it opens it, and refuses a signed image the notary never saw,
+# whatever the application inside carries: "Unnotarized Developer ID". The machine that built the
+# image never asks, because nothing marked it as downloaded, so it opens here whatever it is.
+#
+# Stapling writes into the image, so it is let go of first.
+hdiutil detach -quiet "$mounted"
+rmdir "$mounted"
+trap - EXIT
+
+notary=(--key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER")
+# The status the notary gives the image is what decides, so it is read from the answer, and anything
+# but Accepted stops the release with the notary's own account of why. A submission that fails on
+# the way falls through to the same refusal rather than stopping before it, which would swallow the
+# answer it was given.
+answer=$(xcrun notarytool submit "$image" "${notary[@]}" --wait --output-format json) || true
+status=$(plutil -extract status raw -o - - <<<"$answer" 2>/dev/null || true)
+if [ "$status" != "Accepted" ]; then
+  printf '\033[31m%s\033[0m\n' "The notary did not accept the disk image: ${status:-no answer}." >&2
+  submission=$(plutil -extract id raw -o - - <<<"$answer" 2>/dev/null || true)
+  [ -z "$submission" ] || xcrun notarytool log "$submission" "${notary[@]}" >&2 || true
+  exit 1
+fi
+echo "accepted by the notary"
+xcrun stapler staple -q "$image"
+
+# Asked the way a Mac that downloaded it asks, by the image's own signature, rather than taken from
+# the ticket having been written. Verbose enough to say it was accepted and why, and no more: one
+# more level names the certificate's holder.
+codesign --verify --strict "$image"
+xcrun stapler validate -q "$image"
+spctl --assess --type open --context context:primary-signature --verbose "$image"
 
 # What this build will and will not do about updates, said out loud rather than discovered later.
 #
