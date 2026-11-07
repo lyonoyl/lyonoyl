@@ -27,6 +27,7 @@ fn message(subject: &str) -> Outgoing {
         body: "Shall we?".to_owned(),
         thread: Default::default(),
         files: Vec::new(),
+        original: None,
     }
 }
 

@@ -123,6 +123,7 @@
   "compose.noRecipientYet": "받는 사람 없음",
   "compose.nowhereToSend": "메일을 보낼 수 있는 계정 없음",
   "compose.nowhereToSendBody": "메일은 한 서버에서 받고 다른 서버를 통해 보냅니다. 계정 설정을 열어 발신 서버를 입력하세요",
+  "compose.original": "전달된 메일",
   "compose.removeAttachment": "{name} 제거",
   "compose.send": "보내기",
   "compose.sending": "보내는 중…",

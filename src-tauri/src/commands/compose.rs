@@ -44,6 +44,10 @@ pub struct OutgoingDto {
     /// file in a webview for no reason at all.
     #[serde(default)]
     pub files: Vec<String>,
+    /// The message it passes on in its own form, by the token `forward_message` or `reopen_draft`
+    /// answered with, and nothing for one that passes none on.
+    #[serde(default)]
+    pub original: Option<String>,
     /// Which composer it comes from, by the name its keeps and notes carry.
     ///
     /// What lets the outbox take the message in turn with the end of the application, and let go
@@ -89,7 +93,8 @@ fn told_about(token: String, name: &str, size: usize) -> AttachingDto {
 ///
 /// The window never names a file and never sees one. It says "let me attach something", the
 /// system's own panel asks, and what comes back is a name and a size. `beside` is the files already
-/// on screen, by their tokens: one that would make them heavier than a message may be is refused.
+/// on screen and the message passed on in its own form, by their tokens: one that would make them
+/// heavier than a message may be is refused.
 #[tauri::command]
 pub async fn attach_file(
     app: tauri::AppHandle,
@@ -228,7 +233,7 @@ pub async fn send_message(
     let profile = match state.storage.profile() {
         Ok(profile) => profile,
         Err(why) => {
-            state.attaching.give_back(&message.files, outgoing.files);
+            given_back(&message, outgoing, &state.attaching);
             return Err(why);
         }
     };
@@ -260,7 +265,7 @@ pub async fn send_message(
     let named = match sent {
         Ok(named) => named,
         Err(why) => {
-            state.attaching.give_back(&message.files, outgoing.files);
+            given_back(&message, outgoing, &state.attaching);
             return Err(why);
         }
     };
@@ -394,6 +399,10 @@ pub struct ForwardDto {
     /// The names of the files it carries that would make it heavier than a message may be beside
     /// the ones before them, which it goes without.
     pub left_behind: Vec<String>,
+    /// The message itself in its own form, held here under this token for the composer to draw
+    /// beneath what is written and to pass on: its markup never crosses. Nothing for a message
+    /// passed on as text, and then `text` is what it says.
+    pub original: Option<String>,
 }
 
 /// What passing a message on starts with.
@@ -483,7 +492,8 @@ pub async fn forward_message(
                     details.subject.as_deref(),
                 )
                 .map_err(CommandError::from)?;
-            let (files, left_behind) = held_to_pass_on(vec![itself], &attaching, a_fresh_token);
+            let (files, left_behind) =
+                held_to_pass_on(vec![itself], &attaching, a_fresh_token, None);
 
             return Ok(ForwardDto {
                 to: Vec::new(),
@@ -491,6 +501,7 @@ pub async fn forward_message(
                 text: String::new(),
                 files,
                 left_behind,
+                original: None,
             });
         }
 
@@ -504,7 +515,14 @@ pub async fn forward_message(
             )
             .map_err(CommandError::from)?;
 
-        let (files, left_behind) = held_to_pass_on(passed.files, &attaching, a_fresh_token);
+        // Held first, so the files are held beside it: its pictures travel with the message too.
+        let original = passed.original.map(|original| {
+            let token = a_fresh_token();
+            attaching.hold_original(token.clone(), original);
+            token
+        });
+        let (files, left_behind) =
+            held_to_pass_on(passed.files, &attaching, a_fresh_token, original.as_deref());
 
         Ok(ForwardDto {
             to: details.to,
@@ -512,6 +530,7 @@ pub async fn forward_message(
             text: passed.text,
             files,
             left_behind,
+            original,
         })
     })
     .await
@@ -521,14 +540,16 @@ pub async fn forward_message(
 /// The files of a message passed on, held under fresh tokens in the order it carries them, and the
 /// names of those left behind.
 ///
-/// Each is held beside the ones held before it, by the rule a file chosen from the disk is: one
-/// that would make them heavier than a message may be is left behind, and a smaller one after it
-/// still goes. Held all the same, it would be a message that could never be sent and a draft no
-/// keep could write down, with everything typed into it.
+/// Each is held beside the ones held before it, and beside the message passed on in its own form
+/// under `original`, by the rule a file chosen from the disk is: one that would make them heavier
+/// than a message may be is left behind, and a smaller one after it still goes. Held all the same,
+/// it would be a message that could never be sent and a draft no keep could write down, with
+/// everything typed into it.
 fn held_to_pass_on(
     files: Vec<(String, Vec<u8>)>,
     attaching: &FilesBeingAttached,
     mut fresh: impl FnMut() -> String,
+    original: Option<&str>,
 ) -> (Vec<AttachingDto>, Vec<String>) {
     let mut held: Vec<AttachingDto> = Vec::new();
     let mut left_behind = Vec::new();
@@ -536,7 +557,11 @@ fn held_to_pass_on(
     for (name, bytes) in files {
         let token = fresh();
         let told = told_about(token.clone(), &name, bytes.len());
-        let beside: Vec<String> = held.iter().map(|one| one.token.clone()).collect();
+        let beside: Vec<String> = held
+            .iter()
+            .map(|one| one.token.clone())
+            .chain(original.map(str::to_owned))
+            .collect();
         let file = lyonoyl_domain::outgoing::OutgoingFile {
             // Guessed from the name, as a file chosen from the disk is: what the message said a
             // file was is written by whoever sent it, and goes no further than here.
@@ -577,6 +602,10 @@ pub struct DraftDto {
     /// for that reason, so a window that left it out is refused rather than read as having taken
     /// every file off.
     pub files: Vec<String>,
+    /// The message it passes on in its own form, by its token, and nothing for one that passes none
+    /// on. Named at every keep as the files are; the draft takes it at the first keep that names
+    /// it and keeps it until the draft goes.
+    pub original: Option<String>,
     /// Which composer it comes from: a name the window makes at random as the composer opens, the
     /// same in every keep and note that composer sends.
     ///
@@ -641,20 +670,12 @@ pub async fn keep_draft(
     draft: DraftDto,
 ) -> Result<u32, CommandError> {
     let profile = state.storage.profile()?;
-    let files = to_keep(&draft.files, &state.attaching)?;
+    let note = on_screen(account_id, under, draft, &state.attaching)?;
     let being_written = state.being_written.clone();
-    let (writing, draft) = written(draft);
 
     tauri::async_runtime::spawn_blocking(move || {
         being_written
-            .keep(
-                adapters::drafts(profile),
-                &writing,
-                &account_id,
-                under.map(i64::from),
-                draft,
-                &files,
-            )
+            .keep(adapters::drafts(profile), note)
             .map_err(CommandError::from)
             .and_then(|id| {
                 u32::try_from(id).map_err(|_| {
@@ -683,18 +704,9 @@ pub fn note_draft(
     under: Option<u32>,
     draft: DraftDto,
 ) -> Result<(), CommandError> {
-    let files = to_keep(&draft.files, &state.attaching)?;
-    let (writing, draft) = written(draft);
-
     state
         .being_written
-        .note(Note {
-            writing,
-            account_id,
-            under: under.map(i64::from),
-            draft,
-            files,
-        })
+        .note(on_screen(account_id, under, draft, &state.attaching)?)
         .map_err(CommandError::from)
 }
 
@@ -787,29 +799,52 @@ pub async fn latest_draft(
     .map_err(|_| CommandError::new(ErrorCode::Internal, "A background task failed."))?
 }
 
-/// The files a kept draft carries, attached again for the composer that opens it.
+/// What a kept draft carries, held again for the composer that opens it.
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/shared/ipc/generated/")]
+pub struct ReopenedDraftDto {
+    /// Its files, in order, each as a file attached a moment ago is told about.
+    pub files: Vec<AttachingDto>,
+    /// The message it passes on in its own form, by a fresh token, and nothing for one that passes
+    /// none on.
+    pub original: Option<String>,
+}
+
+/// The files a kept draft carries, attached again for the composer that opens it, and the message
+/// it passes on in its own form, held again beside them.
 ///
-/// Held here under fresh tokens, each standing for the name the draft keeps its file by, and
-/// listed, taken off and sent like any file attached a moment ago. What crosses is a name and a
-/// size. Nothing for a draft that is not there any more.
+/// Each file is held here under a fresh token standing for the name the draft keeps its file by, and
+/// is listed, taken off and sent like any file attached a moment ago; the message passed on is held
+/// under a fresh token of its own, and drawn rather than listed. What crosses is a name and a size,
+/// and for the message passed on, a token alone. Nothing for a draft that is not there any more.
 #[tauri::command]
 pub async fn reopen_draft(
     state: State<'_, AppState>,
     id: u32,
-) -> Result<Vec<AttachingDto>, CommandError> {
+) -> Result<ReopenedDraftDto, CommandError> {
     let profile = state.storage.profile()?;
     let attaching = state.attaching.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
-        adapters::drafts(profile)
-            .files(i64::from(id))
-            .map(|files| held_again(files, &attaching, a_fresh_token))
-            .map_err(|_| {
-                CommandError::new(
-                    ErrorCode::StorageUnavailable,
-                    "What was being written cannot be read.",
-                )
-            })
+        let drafts = adapters::drafts(profile);
+        let unreadable = |_| {
+            CommandError::new(
+                ErrorCode::StorageUnavailable,
+                "What was being written cannot be read.",
+            )
+        };
+        let files = drafts.files(i64::from(id)).map_err(unreadable)?;
+        let original = drafts.original(i64::from(id)).map_err(unreadable)?;
+
+        Ok(ReopenedDraftDto {
+            files: held_again(files, &attaching, a_fresh_token),
+            original: original.map(|original| {
+                let token = a_fresh_token();
+                attaching.hold_original(token.clone(), original);
+                token
+            }),
+        })
     })
     .await
     .map_err(|_| CommandError::new(ErrorCode::Internal, "A background task failed."))?
@@ -837,6 +872,28 @@ pub async fn discard_draft(state: State<'_, AppState>, id: u32) -> Result<(), Co
     })
     .await
     .map_err(|_| CommandError::new(ErrorCode::Internal, "A background task failed."))?
+}
+
+/// What is on screen in a composer, as a keep and a note both take it: the message as the window
+/// wrote it down, the files it carries and the message it passes on, held here.
+fn on_screen(
+    account_id: String,
+    under: Option<u32>,
+    draft: DraftDto,
+    attaching: &FilesBeingAttached,
+) -> Result<Note, CommandError> {
+    let files = to_keep(&draft.files, attaching)?;
+    let original = original_to_keep(draft.original.as_deref(), attaching)?;
+    let (writing, draft) = written(draft);
+
+    Ok(Note {
+        writing,
+        account_id,
+        under: under.map(i64::from),
+        draft,
+        files,
+        original,
+    })
 }
 
 /// The message as the window wrote it down, and the composer it comes from.
@@ -871,6 +928,26 @@ fn to_keep(
     })
 }
 
+/// The message a keep names to pass on in its own form, as the draft is to hold it.
+///
+/// Refused when it is not here, as a file is: a draft written without it would come back passing
+/// nothing on, and say nothing.
+fn original_to_keep(
+    token: Option<&str>,
+    attaching: &FilesBeingAttached,
+) -> Result<Option<std::sync::Arc<lyonoyl_domain::outgoing::Original>>, CommandError> {
+    token
+        .map(|token| {
+            attaching.original_of(token).ok_or_else(|| {
+                CommandError::new(
+                    ErrorCode::InvalidRequest,
+                    "The message this one passes on is no longer here.",
+                )
+            })
+        })
+        .transpose()
+}
+
 /// A draft's files held again under fresh tokens, and what the window is told about each.
 ///
 /// Fresh, so no composer is handed a token another one had; each stands for the name the draft
@@ -891,26 +968,45 @@ fn held_again(
         .collect()
 }
 
-/// The message as the window wrote it, with the files it names taken from where they wait.
+/// The message as the window wrote it, with the files it names and the message it passes on taken
+/// from where they wait.
 ///
 /// Read before anything is taken: a message refused for an address or a subject keeps its files,
 /// and the window still showing them sends them once the address is put right. Taken rather than
 /// copied — a message is sent once, and a token that survived its message would be a file the next
-/// one could attach without anybody choosing it — and all of them or none.
+/// one could attach without anybody choosing it — and all of them or none. A message naming what it
+/// passes on never goes without it.
 fn with_its_files(
     message: &OutgoingDto,
     attaching: &FilesBeingAttached,
 ) -> Result<Outgoing, CommandError> {
     let mut outgoing = read(message, Vec::new())?;
 
-    outgoing.files = attaching.take(&message.files).ok_or_else(|| {
+    let gone = || {
         CommandError::new(
             ErrorCode::InvalidRequest,
             "One of the files attached to this message is no longer here.",
         )
-    })?;
+    };
+    outgoing.files = attaching.take(&message.files).ok_or_else(gone)?;
+    if let Some(token) = &message.original {
+        let Some(original) = attaching.take_original(token) else {
+            attaching.give_back(&message.files, std::mem::take(&mut outgoing.files));
+            return Err(gone());
+        };
+        outgoing.original = Some(original);
+    }
 
     Ok(outgoing)
+}
+
+/// Puts what a message refused before it was written down took back where it was taken from: the
+/// window still shows its files and what it passes on, and sending again finds them there.
+fn given_back(message: &OutgoingDto, outgoing: Outgoing, attaching: &FilesBeingAttached) {
+    attaching.give_back(&message.files, outgoing.files);
+    if let (Some(token), Some(original)) = (&message.original, outgoing.original) {
+        attaching.hold_original(token.clone(), original);
+    }
 }
 
 /// The message as the domain has it, or a refusal naming what cannot be written.
@@ -946,6 +1042,7 @@ fn read(
                 )
             },
         )?,
+        original: None,
     })
 }
 
@@ -1010,6 +1107,7 @@ mod tests {
             chain: Vec::new(),
             writing: "w1".to_owned(),
             kept: None,
+            original: None,
         };
         over(&mut message);
         message
@@ -1021,6 +1119,111 @@ mod tests {
             content_type: "text/plain".to_owned(),
             bytes: name.as_bytes().to_vec(),
         }
+    }
+
+    /// A message passed on in its own form whose one picture weighs `size` bytes.
+    fn an_original(size: usize) -> lyonoyl_domain::outgoing::Original {
+        lyonoyl_domain::outgoing::Original {
+            opening: String::new(),
+            drawing: "<p>Theirs</p>".to_owned(),
+            text: "Theirs".to_owned(),
+            pictures: vec![lyonoyl_domain::outgoing::OriginalPicture {
+                named: "chart@example.com".to_owned(),
+                content_type: "image/png".to_owned(),
+                bytes: vec![0; size],
+            }],
+        }
+    }
+
+    #[test]
+    fn the_files_of_a_message_passed_on_in_its_own_form_are_held_beside_it() {
+        // Its pictures travel with the message too: a file that fits alone and not beside them is
+        // left behind, as it is beside another file.
+        use lyonoyl_domain::outgoing::HEAVIEST_MESSAGE;
+
+        let attaching = FilesBeingAttached::default();
+        let original = an_original(HEAVIEST_MESSAGE / 2);
+        let room = HEAVIEST_MESSAGE - original.weighs();
+        attaching.hold_original("t-original".to_owned(), original);
+        let mut count = 0;
+
+        let (told, left_behind) = held_to_pass_on(
+            vec![
+                ("video.mov".to_owned(), vec![0; room + 1]),
+                ("note.txt".to_owned(), vec![0; room]),
+            ],
+            &attaching,
+            || {
+                count += 1;
+                format!("t{count}")
+            },
+            Some("t-original"),
+        );
+
+        assert_eq!(
+            told.iter().map(|one| one.name.as_str()).collect::<Vec<_>>(),
+            vec!["note.txt"]
+        );
+        assert_eq!(left_behind, vec!["video.mov".to_owned()]);
+    }
+
+    #[test]
+    fn a_message_passing_one_on_takes_it_with_its_files_and_gives_both_back_when_refused() {
+        let attaching = crate::infrastructure::attaching::FilesBeingAttached::default();
+        attaching.hold("t1".to_owned(), a_file("invoice.pdf"));
+        attaching.hold_original("t-original".to_owned(), an_original(10));
+        let message = written(|message| {
+            message.files = vec!["t1".to_owned()];
+            message.original = Some("t-original".to_owned());
+        });
+
+        let outgoing = with_its_files(&message, &attaching).expect("both are here");
+        assert_eq!(outgoing.original, Some(an_original(10)));
+        assert!(
+            attaching.original_of("t-original").is_none(),
+            "taken rather than copied"
+        );
+
+        given_back(&message, outgoing, &attaching);
+        assert_eq!(
+            attaching.original_of("t-original").as_deref(),
+            Some(&an_original(10))
+        );
+        assert!(to_keep(&["t1".to_owned()], &attaching).is_ok());
+    }
+
+    #[test]
+    fn a_message_naming_a_message_to_pass_on_that_is_gone_takes_none_of_its_files() {
+        let attaching = crate::infrastructure::attaching::FilesBeingAttached::default();
+        attaching.hold("t1".to_owned(), a_file("invoice.pdf"));
+        let message = written(|message| {
+            message.files = vec!["t1".to_owned()];
+            message.original = Some("t-gone".to_owned());
+        });
+
+        assert!(with_its_files(&message, &attaching).is_err());
+        assert!(
+            to_keep(&["t1".to_owned()], &attaching).is_ok(),
+            "a file was taken by a message that was refused"
+        );
+    }
+
+    #[test]
+    fn a_keep_naming_a_message_to_pass_on_that_is_not_here_is_refused() {
+        let attaching = crate::infrastructure::attaching::FilesBeingAttached::default();
+        attaching.hold_original("t-original".to_owned(), an_original(10));
+
+        assert!(original_to_keep(Some("t-gone"), &attaching).is_err());
+        assert_eq!(
+            original_to_keep(Some("t-original"), &attaching)
+                .expect("here")
+                .map(|kept| (*kept).clone()),
+            Some(an_original(10))
+        );
+        assert_eq!(
+            original_to_keep(None, &attaching).expect("nothing to keep"),
+            None
+        );
     }
 
     /// A message refused for what it says keeps its files: the window still shows them, and
@@ -1227,6 +1430,7 @@ mod tests {
             ],
             &attaching,
             || tokens.pop().expect("a token"),
+            None,
         );
 
         assert_eq!(
@@ -1272,6 +1476,7 @@ mod tests {
                 count += 1;
                 format!("t{count}")
             },
+            None,
         );
 
         assert_eq!(
@@ -1296,6 +1501,7 @@ mod tests {
             vec![("archive.zip".to_owned(), vec![0; HEAVIEST_MESSAGE + 1])],
             &attaching,
             || "t1".to_owned(),
+            None,
         );
 
         assert!(told.is_empty());

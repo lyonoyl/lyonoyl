@@ -108,7 +108,7 @@ CREATE TABLE thread_names (
 
 ## Profile (profile.sqlite3, authoritative)
 
-`mail_accounts`, `account_groups`, and `account_index_counter`; `preferences`, the person's settings, and `device_window_state`, `device_pane_width`, and `device_pane_folded`, this machine's; `account_activity`; `op_log`; `outbox` with `outbox_recipients` and `outbox_files`; `drafts` with `draft_files`; and `asked_counter`.
+`mail_accounts`, `account_groups`, and `account_index_counter`; `preferences`, the person's settings, and `device_window_state`, `device_pane_width`, and `device_pane_folded`, this machine's; `account_activity`; `op_log`; `outbox` with `outbox_recipients`, `outbox_files`, `outbox_originals`, and `outbox_original_pictures`; `drafts` with `draft_files`, `draft_originals`, and `draft_original_pictures`; and `asked_counter`.
 
 A migration is appended, never edited, with a test that starts at the version before it. Writes go through a `synchronous = FULL` connection.
 

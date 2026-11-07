@@ -5,6 +5,7 @@ import type { InstalledDto } from "./generated/InstalledDto";
 import type { BeingReadDto } from "./generated/BeingReadDto";
 import type { HowFarDto } from "./generated/HowFarDto";
 import type { AttachingDto } from "./generated/AttachingDto";
+import type { ReopenedDraftDto } from "./generated/ReopenedDraftDto";
 import type { NewMailNoticeDto } from "./generated/NewMailNoticeDto";
 import type { NoticeShowsDto } from "./generated/NoticeShowsDto";
 import type { ShowPicturesDto } from "./generated/ShowPicturesDto";
@@ -804,8 +805,9 @@ export function whatTheWindowWears(): {
  * This window never names a file and never sees one: the system's own panel asks, and what comes
  * back is a name, a size and the token to send it by. `null` is the person closing the dialog.
  *
- * `beside` is the tokens of the files already on screen. A file that would make them heavier than
- * one message may be is refused with `fileTooLarge`, and nothing is kept.
+ * `beside` is the tokens of the files already on screen and of the message passed on in its own
+ * form. A file that would make them heavier than one message may be is refused with
+ * `fileTooLarge`, and nothing is kept.
  */
 export function attachFile(beside: string[]): Promise<AttachingDto | null> {
   return invoke<AttachingDto | null>("attach_file", { beside });
@@ -900,9 +902,10 @@ export function latestDraft(accountId: string): Promise<KeptDraftDto | null> {
  * The files a kept draft carries, attached again for the composer opening it.
  *
  * Each comes back as a file attached a moment ago does — a name, a size and a fresh token — so it
- * is listed, taken off and sent the same way. The bytes stay in the core.
+ * is listed, taken off and sent the same way. The bytes stay in the core. The message the draft
+ * passes on in its own form comes back as a fresh token alone.
  */
-export function reopenDraft(id: number): Promise<AttachingDto[]> {
+export function reopenDraft(id: number): Promise<ReopenedDraftDto> {
   return invoke("reopen_draft", { id });
 }
 
@@ -965,6 +968,22 @@ export function saveAttachment(
 
 export function saveMessage(messageId: string): Promise<SavedMessageDto> {
   return invoke("save_message", { messageId });
+}
+
+/**
+ * Opens the message a composer passes on in its own form, for the frame beneath what is being
+ * written: drawn as a message in the reader is, from the token it is held under, with nothing from
+ * the web. Closed by the name it answers with, as a message's body is.
+ */
+export function openOriginalBody(
+  token: string,
+  surface: { background: string; foreground: string } | null = null,
+): Promise<MessageBodyDto> {
+  return invoke("open_original_body", {
+    token,
+    background: surface?.background ?? null,
+    foreground: surface?.foreground ?? null,
+  });
 }
 
 /**

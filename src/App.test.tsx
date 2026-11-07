@@ -266,7 +266,7 @@ beforeEach(() => {
   keeping.mockReset();
   keeping.mockResolvedValue(9);
   reopening.mockReset();
-  reopening.mockResolvedValue([]);
+  reopening.mockResolvedValue({ files: [], original: null });
   noting.mockReset();
   noting.mockResolvedValue(undefined);
   forgetting.mockReset();
@@ -2984,6 +2984,7 @@ describe("reading, as the window does it", () => {
       text: "Shall we?",
       files: [{ token: "t1", name: "report.pdf", bytes: "2048" }],
       leftBehind: [],
+      original: null,
     });
     renderApp();
     fireEvent.click(await screen.findByText("About m-1"));

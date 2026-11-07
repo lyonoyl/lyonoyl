@@ -309,6 +309,7 @@ fn written_by_zeta(to: &[&str], bcc: &[&str], subject: &str) -> Outgoing {
             content_type: "application/octet-stream".to_owned(),
             bytes: a_binary_file(),
         }],
+        original: None,
     }
 }
 
@@ -1055,6 +1056,7 @@ fn a_message_sent_from_a_draft_carries_its_files_and_leaves_none_of_them_behind(
                 ..Draft::default()
             },
             &attached.to_keep(&["t1".to_owned()]).expect("it is held"),
+            None,
         )
         .expect("the draft is kept with its file");
 

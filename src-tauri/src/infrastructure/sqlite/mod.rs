@@ -10,6 +10,7 @@ pub mod mail_index;
 pub mod message_bodies;
 pub mod migrations;
 pub mod op_log;
+mod originals;
 pub mod outbox;
 pub mod placement;
 pub mod settings_repository;

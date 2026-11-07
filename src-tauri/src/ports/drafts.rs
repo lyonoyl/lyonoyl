@@ -5,12 +5,13 @@
 //! allowed to be half of one, and refusing to keep it would lose what a person typed at the moment
 //! they most need it kept. The checking happens when they press send and not before.
 //!
-//! The files it carries are kept with it, as bytes. A draft that came back without the invoice it
-//! was written to carry is a message somebody sends again without it, and never notices.
+//! The files it carries are kept with it, as bytes, and so is a message it passes on in its own
+//! form. A draft that came back without the invoice it was written to carry is a message somebody
+//! sends again without it, and never notices.
 
 use std::sync::Arc;
 
-use lyonoyl_domain::outgoing::OutgoingFile;
+use lyonoyl_domain::outgoing::{Original, OutgoingFile};
 use thiserror::Error;
 
 /// A message as it stands in the window, field for field.
@@ -65,34 +66,53 @@ pub trait Drafts: Send + Sync {
     /// Answers the number, so the next keep of the same message replaces it rather than leaving a
     /// second copy behind every keystroke. `files` is everything it carries now, in order: one it
     /// already holds under the same name is not written again, one it holds and `files` does not
-    /// name leaves it, and the text and the files are one change.
+    /// name leaves it, and the text and the files are one change. `original` is the message it
+    /// passes on in its own form, written with the keep that first names one, and kept until the
+    /// draft goes, whatever later keeps name.
     ///
     /// Refused whole with `NoRoom`, and nothing written, when it would be a draft of its own past
     /// how many an account keeps, or would make a draft heavier and leave the drafts of the account
     /// it belongs to heavier together than they may be. A keep that adds nothing is never refused,
     /// so one that takes a file off goes through however heavy the rest are. Checked in the change
     /// that writes the draft, so two keeps at once cannot both take the last of the room.
+    fn keep_passing_on(
+        &self,
+        account_id: &str,
+        under: Option<i64>,
+        draft: &Draft,
+        files: &[DraftFile],
+        original: Option<&Original>,
+    ) -> Result<i64, DraftError>;
+
+    /// `keep_passing_on` passing nothing on: for a draft that passes nothing on, or keeps the one
+    /// it does.
     fn keep(
         &self,
         account_id: &str,
         under: Option<i64>,
         draft: &Draft,
         files: &[DraftFile],
-    ) -> Result<i64, DraftError>;
+    ) -> Result<i64, DraftError> {
+        self.keep_passing_on(account_id, under, draft, files, None)
+    }
 
     /// The files one carries, in the order they were attached.
     ///
     /// Nothing for a draft that is not there: one thrown away has nothing left to carry.
     fn files(&self, id: i64) -> Result<Vec<DraftFile>, DraftError>;
 
+    /// The message one passes on in its own form, and nothing for one that passes none on or is
+    /// not there.
+    fn original(&self, id: i64) -> Result<Option<Original>, DraftError>;
+
     /// Writes down a message the outbox will not send as a draft that says it came back, with the
-    /// files it carried, lets go of the outbox's row of it, and answers the number the draft is
-    /// kept under.
+    /// files it carried and the message it passes on, lets go of the outbox's row of it, and
+    /// answers the number the draft is kept under.
     ///
-    /// One change writes the draft, moves the files out of the outbox into it, and deletes the row,
-    /// with everybody the message was addressed to, blind copies included. So once it is back in
-    /// the drafts the draft is the only place on this device it is, and no crash leaves it in both
-    /// places or in neither.
+    /// One change writes the draft, moves the files and the message it passes on out of the outbox
+    /// into it, and deletes the row, with everybody the message was addressed to, blind copies
+    /// included. So once it is back in the drafts the draft is the only place on this device it is,
+    /// and no crash leaves it in both places or in neither.
     ///
     /// Answers nothing, and writes nothing, for a message the outbox does not hold for the
     /// account: given back once, it has nothing left to give back, and a second draft would be the
@@ -122,18 +142,23 @@ pub trait Drafts: Send + Sync {
 }
 
 impl<D: Drafts + ?Sized> Drafts for &D {
-    fn keep(
+    fn keep_passing_on(
         &self,
         account_id: &str,
         under: Option<i64>,
         draft: &Draft,
         files: &[DraftFile],
+        original: Option<&Original>,
     ) -> Result<i64, DraftError> {
-        (**self).keep(account_id, under, draft, files)
+        (**self).keep_passing_on(account_id, under, draft, files, original)
     }
 
     fn files(&self, id: i64) -> Result<Vec<DraftFile>, DraftError> {
         (**self).files(id)
+    }
+
+    fn original(&self, id: i64) -> Result<Option<Original>, DraftError> {
+        (**self).original(id)
     }
 
     fn came_back(

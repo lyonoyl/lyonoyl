@@ -244,6 +244,7 @@ mod tests {
             subject: Subject::parse("").expect("empty is a subject"),
             body: String::new(),
             thread: Default::default(),
+            original: None,
         }
     }
 

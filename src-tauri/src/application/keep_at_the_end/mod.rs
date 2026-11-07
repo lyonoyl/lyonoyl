@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use crate::application::error::UseCaseError;
 use crate::application::keep_draft::{bounded, KeepDraft};
 use crate::ports::drafts::{Draft, DraftError, DraftFile, Drafts};
+use lyonoyl_domain::outgoing::Original;
 
 /// How long a name in a note may be: the account's, or the composer's own.
 ///
@@ -42,6 +43,8 @@ pub struct Note {
     /// The files on screen, held rather than named: a file the window lets go of once it has been
     /// noted is still here for the end to keep.
     pub files: Vec<DraftFile>,
+    /// The message passed on in its own form beneath what is written, held as the files are.
+    pub original: Option<Arc<Original>>,
 }
 
 /// The newest state of the message being written, for the end of the application to keep.
@@ -99,7 +102,7 @@ impl BeingWritten {
         if note.writing.len() > LONGEST_NAME || note.account_id.len() > LONGEST_NAME {
             return Err(UseCaseError::MessageIsTooLarge);
         }
-        let draft = bounded(note.draft, &note.files)?;
+        let draft = bounded(note.draft, &note.files, note.original.as_deref())?;
 
         let mut noted = lock(&self.inner.noted);
         // Another composer in the place of the one before: that one's first keep is a message of
@@ -136,7 +139,7 @@ impl BeingWritten {
         }
     }
 
-    /// Keeps a draft for the composer `writing`, in turn with the end, and answers its number.
+    /// Keeps `note`, what a composer has on screen, in turn with the end, and answers its number.
     ///
     /// After the end has written this composer's note, a keep under that number or under none
     /// writes nothing and answers the number the end wrote: it was asked for before the end came,
@@ -148,15 +151,16 @@ impl BeingWritten {
     /// message is one draft however the keep and the end fall. The first keep of a composer taken
     /// off the screen gives nothing: it notes nothing again, and the one in its place is writing a
     /// message of its own.
-    pub fn keep<D: Drafts>(
-        &self,
-        drafts: D,
-        writing: &str,
-        account_id: &str,
-        under: Option<i64>,
-        draft: Draft,
-        files: &[DraftFile],
-    ) -> Result<i64, UseCaseError> {
+    pub fn keep<D: Drafts>(&self, drafts: D, note: Note) -> Result<i64, UseCaseError> {
+        let Note {
+            writing,
+            account_id,
+            under,
+            draft,
+            files,
+            original,
+        } = note;
+        let writing = writing.as_str();
         let ended = lock(&self.inner.writing_down);
         if let Some(Ended::Wrote { writing: wrote, id }) = &*ended {
             if wrote == writing && under.is_none_or(|under| under == *id) {
@@ -164,7 +168,13 @@ impl BeingWritten {
             }
         }
 
-        let id = KeepDraft::new(drafts).execute(account_id, under, draft, files)?;
+        let id = KeepDraft::new(drafts).execute(
+            &account_id,
+            under,
+            draft,
+            &files,
+            original.as_deref(),
+        )?;
 
         if under.is_none() {
             let mut noted = lock(&self.inner.noted);
@@ -270,7 +280,13 @@ impl BeingWritten {
         let wrote = note.and_then(|note| {
             catch_unwind(AssertUnwindSafe(|| {
                 KeepDraft::new(drafts()?)
-                    .execute(&note.account_id, note.under, note.draft, &note.files)
+                    .execute(
+                        &note.account_id,
+                        note.under,
+                        note.draft,
+                        &note.files,
+                        note.original.as_deref(),
+                    )
                     .ok()
             }))
             .ok()

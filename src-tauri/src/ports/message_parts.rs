@@ -26,11 +26,15 @@ pub trait MessageParts: Send + Sync {
 /// What a message passed on carries with it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PassedOn {
-    /// What it says, as text, with its lines as it wrote them. Empty when it says nothing this
-    /// build reads as text.
+    /// What goes into the field: what it says, as text, with its lines as it wrote them. Empty when
+    /// it says nothing this build reads as text, and for a message passed on in its own form, whose
+    /// text `original` holds.
     pub text: String,
     /// Every file it carries, under names already made safe, in the order it carries them: the
-    /// ones beside its text, and the pictures inside it, which a message passed on as text no
-    /// longer draws.
+    /// ones beside its text, and the pictures inside it that its markup does not draw where it
+    /// goes — every one of them, for a message passed on as text, which draws nothing.
     pub files: Vec<(String, Vec<u8>)>,
+    /// The message cut down to what draws it, for passing it on in its own form. Nothing for a
+    /// message with no markup to draw, or none this build reads into a tree.
+    pub original: Option<lyonoyl_domain::outgoing::Original>,
 }

@@ -2420,6 +2420,7 @@ dependencies = [
  "blake2",
  "core-foundation",
  "digest",
+ "dom_query",
  "flate2",
  "futures",
  "idna",

@@ -438,8 +438,11 @@ export function MessageReader({
     forwardMessage(message.messageId, whole)
       .then((forward) => {
         if (!here.current || onForward === undefined) {
-          for (const file of forward.files)
-            void forgetAttachment(file.token).catch(() => {});
+          for (const token of [
+            ...forward.files.map((file) => file.token),
+            forward.original,
+          ])
+            if (token !== null) void forgetAttachment(token).catch(() => {});
           return;
         }
         onForward(

@@ -59,6 +59,12 @@ export interface Answer {
   files?: AttachingDto[];
   /** The names of the files the passed-on message carries that are too heavy to go with it. */
   leftBehind?: string[];
+  /**
+   * The message passed on in its own form, by the token the core holds it under: drawn beneath
+   * what is written and sent with it, never handed to the window. Nothing for one passed on as
+   * text.
+   */
+  original?: string | null;
 }
 
 /** A message answering nothing, which is what the compose button opens. */
@@ -192,6 +198,7 @@ export function forwardOf(
     fromAccount: message.accountId,
     files: forward.files,
     leftBehind: forward.leftBehind,
+    original: forward.original,
   };
 }
 

@@ -65,23 +65,40 @@ pub(super) fn passed_as(read: Guarded<PassedOn>) -> Option<PassedOn> {
     }
 }
 
-/// What a message parsed whole carries when it is passed on: its text, and its files in the order
-/// it carries them.
+/// What a message parsed whole carries when it is passed on: its text, its files in the order it
+/// carries them, and the message cut down to what draws it, where it has markup to draw.
 ///
-/// The files are the ones the reader lists beside the message and the pictures drawn inside it:
-/// passed on as text, the message draws nothing, and a picture somebody saw in it would otherwise
-/// be lost on the way. Every one of them can be taken off before it goes.
+/// The files are the ones the reader lists beside the message, and the pictures inside it that
+/// its markup does not draw where it goes: passed on as text, the message draws nothing, and a
+/// picture somebody saw in it would otherwise be lost on the way. Every one of them can be taken
+/// off before it goes.
 fn to_pass_on(parsed: &Message<'_>) -> PassedOn {
+    // Its lines as it wrote them, ending as a text box ends them: a line that ends in a return as
+    // well is one a window rewrites the moment it is shown.
+    let text = super::words::written_text(parsed)
+        .map(|text| text.lines().collect::<Vec<_>>().join("\n"))
+        .unwrap_or_default();
+    let original = super::original::cut_down(parsed, &text);
+    let drawn = original
+        .as_ref()
+        .map(|(_, inside)| inside.clone())
+        .unwrap_or_default();
+
     let mut carried = files_inside(parsed);
-    carried.extend(pictures_as_files(parsed));
+    carried.extend(
+        pictures_as_files(parsed)
+            .into_iter()
+            .filter(|one| !drawn.contains(&one.at)),
+    );
     carried.sort_by_key(|one| one.at);
 
     PassedOn {
-        // Its lines as it wrote them, ending as a text box ends them: a line that ends in a return
-        // as well is one a window rewrites the moment it is shown.
-        text: super::words::written_text(parsed)
-            .map(|text| text.lines().collect::<Vec<_>>().join("\n"))
-            .unwrap_or_default(),
+        // Into the field only when nothing draws it: passed on in its own form, its text goes with
+        // it.
+        text: match original {
+            Some(_) => String::new(),
+            None => text,
+        },
         files: carried
             .into_iter()
             .filter_map(|one| {
@@ -89,6 +106,7 @@ fn to_pass_on(parsed: &Message<'_>) -> PassedOn {
                 Some((one.name, bytes))
             })
             .collect(),
+        original: original.map(|(original, _)| original),
     }
 }
 

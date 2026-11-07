@@ -129,6 +129,7 @@
   "compose.noRecipientYet": "No recipient yet",
   "compose.nowhereToSend": "No account can send yet",
   "compose.nowhereToSendBody": "Mail is read from one server and sent through another. Open an account's settings and fill in its sending server",
+  "compose.original": "Forwarded message",
   "compose.removeAttachment": "Remove {name}",
   "compose.send": "Send",
   "compose.sending": "Sending…",

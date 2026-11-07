@@ -123,6 +123,7 @@
   "compose.noRecipientYet": "Belum ada penerima",
   "compose.nowhereToSend": "Belum ada akun yang dapat mengirim email",
   "compose.nowhereToSendBody": "Email diambil dari satu server dan dikirim melalui server lain. Buka pengaturan akun, lalu isi server keluarnya",
+  "compose.original": "Pesan terusan",
   "compose.removeAttachment": "Hapus lampiran {name}",
   "compose.send": "Kirim",
   "compose.sending": "Mengirim…",

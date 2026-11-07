@@ -688,10 +688,10 @@ while IFS= read -r hit; do
   violation "forbidden permanently: allow-* in a sandbox attribute -> $hit"
 done < <(grep -rnE 'allow-(scripts|same-origin|popups|forms|modals|top-navigation|downloads|pointer-lock|presentation|orientation-lock)' src "${SOURCE_GLOBS[@]}" 2>/dev/null | not_a_test)
 
-# One frame, and it is the message reader's. A second one is what any way past the rules above
-# would need, whatever it called its attributes.
+# One frame, and every message is drawn in it: the reader and the composer use the one component.
+# A second one is what any way past the rules above would need, whatever it called its attributes.
 frames=$(grep -rln '<iframe' src "${SOURCE_GLOBS[@]}" 2>/dev/null | grep -vE '\.(test|spec)\.[jt]sx?$' || true)
-if [ "$frames" != "src/features/message-reader/MessageBody.tsx" ]; then
+if [ "$frames" != "src/shared/ui/MessageFrame.tsx" ]; then
   violation "the message frame is not the only iframe in the interface -> ${frames:-none found}"
 fi
 

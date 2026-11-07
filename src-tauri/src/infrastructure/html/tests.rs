@@ -1588,19 +1588,94 @@ mod passing_a_message_on {
     }
 
     #[test]
-    fn a_picture_drawn_inside_the_message_goes_as_a_file() {
-        // Passed on as text, the message draws nothing: a chart somebody saw in it would be lost
-        // on the way rather than go beside it.
+    fn a_picture_drawn_inside_the_message_goes_inside_it_rather_than_beside_it() {
+        // Passed on in its own form, the message draws its chart where it drew it: listed as a
+        // file as well, the chart would arrive twice.
         let passed = passed(&named("inline-image.eml"));
+        let original = passed.original.as_ref().expect("markup to draw");
 
+        assert!(names(&passed).is_empty(), "{:?}", names(&passed));
+        assert_eq!(original.pictures.len(), 1);
+        assert_eq!(original.pictures[0].named, "chart@example.com");
+        assert!(original.pictures[0].bytes.starts_with(b"\x89PNG"));
+        assert!(
+            passed.text.is_empty(),
+            "its text went into the field as well"
+        );
+        assert!(
+            original.text.contains("Here is the chart we talked about"),
+            "the words of the markup were not passed on: {:?}",
+            original.text
+        );
+        assert!(!original.text.contains('<'), "markup was passed on as text");
+    }
+
+    #[test]
+    fn an_attachment_carrying_a_name_its_markup_never_draws_goes_as_a_file() {
+        let raw = message(
+            &[
+                "From: zeta@example.com",
+                "To: kappa@example.net",
+                "Subject: A photograph",
+                "MIME-Version: 1.0",
+                "Content-Type: multipart/mixed; boundary=\"outer\"",
+            ],
+            &[
+                "--outer",
+                "Content-Type: text/html; charset=utf-8",
+                "",
+                "<p>No chart here</p>",
+                "--outer",
+                "Content-Type: image/png",
+                "Content-ID: <photo@example.com>",
+                "Content-Disposition: attachment; filename=\"photo.png\"",
+                "Content-Transfer-Encoding: base64",
+                "",
+                "iVBORw0KGgo=",
+                "--outer--",
+            ],
+        );
+        let passed = passed(&raw);
+
+        assert_eq!(names(&passed), vec!["photo.png"]);
+        assert!(passed
+            .original
+            .as_ref()
+            .is_some_and(|original| original.pictures.is_empty()));
+    }
+
+    #[test]
+    fn a_picture_in_a_message_with_nowhere_to_draw_it_goes_as_a_file() {
+        // A page of frames has no body to draw in, so it is passed on as text, which draws
+        // nothing: a chart somebody saw in it would be lost on the way rather than go beside it.
+        let raw = message(
+            &[
+                "From: zeta@example.com",
+                "To: kappa@example.net",
+                "Subject: The chart in a frame",
+                "MIME-Version: 1.0",
+                "Content-Type: multipart/related; boundary=\"inner\"",
+            ],
+            &[
+                "--inner",
+                "Content-Type: text/html; charset=utf-8",
+                "",
+                "<html><frameset><frame src=\"cid:chart@example.com\"></frameset></html>",
+                "--inner",
+                "Content-Type: image/png",
+                "Content-ID: <chart@example.com>",
+                "Content-Disposition: inline; filename=\"chart.png\"",
+                "Content-Transfer-Encoding: base64",
+                "",
+                "iVBORw0KGgo=",
+                "--inner--",
+            ],
+        );
+        let passed = passed(&raw);
+
+        assert!(passed.original.is_none());
         assert_eq!(names(&passed), vec!["chart.png"]);
         assert!(passed.files[0].1.starts_with(b"\x89PNG"));
-        assert!(
-            passed.text.contains("Here is the chart we talked about"),
-            "the words of the markup were not passed on: {:?}",
-            passed.text
-        );
-        assert!(!passed.text.contains('<'), "markup was passed on as text");
     }
 
     #[test]
@@ -1634,8 +1709,8 @@ mod passing_a_message_on {
 
     #[test]
     fn its_pictures_and_files_go_in_the_order_it_carries_them() {
-        // A chart drawn in the text and an invoice after it go as the chart and then the invoice,
-        // not as every file first and every picture after.
+        // A chart of a kind this build does not draw, and an invoice after it, go as the chart and
+        // then the invoice, not as every file first and every picture after.
         let raw = message(
             &[
                 "From: zeta@example.com",
@@ -1653,12 +1728,12 @@ mod passing_a_message_on {
                 "",
                 "<p>The chart:</p><img src=\"cid:chart@example.com\">",
                 "--inner",
-                "Content-Type: image/png",
+                "Content-Type: image/tiff",
                 "Content-ID: <chart@example.com>",
-                "Content-Disposition: inline; filename=\"chart.png\"",
+                "Content-Disposition: inline; filename=\"chart.tiff\"",
                 "Content-Transfer-Encoding: base64",
                 "",
-                "iVBORw0KGgo=",
+                "SUkqAA==",
                 "--inner--",
                 "--outer",
                 "Content-Type: application/pdf; name=\"invoice.pdf\"",
@@ -1669,8 +1744,16 @@ mod passing_a_message_on {
                 "--outer--",
             ],
         );
+        let passed = passed(&raw);
 
-        assert_eq!(names(&passed(&raw)), vec!["chart.png", "invoice.pdf"]);
+        assert_eq!(names(&passed), vec!["chart.tiff", "invoice.pdf"]);
+        assert!(
+            passed
+                .original
+                .as_ref()
+                .is_some_and(|original| original.pictures.is_empty()),
+            "a picture this build does not draw went inside"
+        );
     }
 
     #[test]
@@ -1698,9 +1781,15 @@ mod passing_a_message_on {
             "<p>The second.</p>",
         ]));
 
-        assert!(passed.text.contains("first"), "{:?}", passed.text);
-        assert!(passed.text.contains("The second."), "{:?}", passed.text);
-        assert!(!passed.text.contains('<'), "markup was passed on as text");
+        let original = passed.original.as_ref().expect("markup to draw");
+
+        assert!(original.text.contains("first"), "{:?}", original.text);
+        assert!(original.text.contains("The second."), "{:?}", original.text);
+        assert!(!original.text.contains('<'), "markup was passed on as text");
+        assert!(
+            passed.text.is_empty(),
+            "its text went into the field as well"
+        );
         assert!(passed.files.is_empty());
     }
 
@@ -1721,6 +1810,7 @@ mod passing_a_message_on {
         let read = PassedOn {
             text: "Shall we?".to_owned(),
             files: vec![("invoice.pdf".to_owned(), b"%PDF".to_vec())],
+            original: None,
         };
 
         assert_eq!(passed_as(Guarded::Busy), None);

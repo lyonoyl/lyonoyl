@@ -692,6 +692,7 @@ mod tests {
             subject: Subject::parse("").expect("empty is a subject"),
             body: String::new(),
             thread: Default::default(),
+            original: None,
         };
         let row_of = |message_id: &str| -> i64 {
             outbox
@@ -809,6 +810,7 @@ mod tests {
                 subject: Subject::parse("").expect("empty is a subject"),
                 body: String::new(),
                 thread: Default::default(),
+                original: None,
             };
             outbox
                 .queue("acc-1", "<read-back@example.com>", &message)

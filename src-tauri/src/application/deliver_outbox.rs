@@ -336,7 +336,7 @@ mod tests {
     use super::*;
     use crate::ports::drafts::{DraftError, DraftFile, Kept};
     use crate::ports::outbox::OutboxError;
-    use lyonoyl_domain::outgoing::{EmailAddress, Outgoing, Subject};
+    use lyonoyl_domain::outgoing::{EmailAddress, Original, Outgoing, Subject};
     use std::sync::Mutex;
 
     #[derive(Default)]
@@ -416,17 +416,22 @@ mod tests {
     }
 
     impl Drafts for &CameBack {
-        fn keep(
+        fn keep_passing_on(
             &self,
             _account_id: &str,
             _under: Option<i64>,
             _draft: &Draft,
             _files: &[DraftFile],
+            _original: Option<&Original>,
         ) -> Result<i64, DraftError> {
             unreachable!("a message comes back by its row, with what it carried")
         }
 
         fn files(&self, _id: i64) -> Result<Vec<DraftFile>, DraftError> {
+            unreachable!("delivering reads no draft")
+        }
+
+        fn original(&self, _id: i64) -> Result<Option<Original>, DraftError> {
             unreachable!("delivering reads no draft")
         }
 
@@ -679,6 +684,7 @@ mod tests {
                 subject: Subject::parse("").expect("empty is a subject"),
                 body: String::new(),
                 thread: Default::default(),
+                original: None,
             },
             attempts,
             copy_refused: 0,

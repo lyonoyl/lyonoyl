@@ -16,7 +16,8 @@ import type { BodyFormDto } from "@/shared/ipc/generated/BodyFormDto";
 import type { CommandError } from "@/shared/ipc/generated/CommandError";
 import type { MessageBodyDto } from "@/shared/ipc/generated/MessageBodyDto";
 import type { ShowPicturesDto } from "@/shared/ipc/generated/ShowPicturesDto";
-import { LinkConfirmation, type Asked } from "./LinkConfirmation";
+import { LinkConfirmation, type Asked } from "@/shared/ui/LinkConfirmation";
+import { MessageFrame } from "@/shared/ui/MessageFrame";
 
 type State =
   | { status: "loading" }
@@ -455,11 +456,9 @@ export function MessageBody({
         )}
         <HowToLook form={form} onChange={setForm} />
       </div>
-      <iframe
+      <MessageFrame
         title={t("reading.body")}
-        src={body.url}
-        sandbox=""
-        referrerPolicy="no-referrer"
+        url={body.url}
         className="min-h-0 w-full flex-1 border-0 bg-white dark:bg-neutral-900"
       />
 

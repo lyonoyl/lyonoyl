@@ -21,6 +21,11 @@ chain: Array<string>,
  */
 files: Array<string>, 
 /**
+ * The message it passes on in its own form, by the token `forward_message` or `reopen_draft`
+ * answered with, and nothing for one that passes none on.
+ */
+original: string | null, 
+/**
  * Which composer it comes from, by the name its keeps and notes carry.
  *
  * What lets the outbox take the message in turn with the end of the application, and let go

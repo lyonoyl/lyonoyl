@@ -281,9 +281,10 @@ fn after_it_went(error: mail_send::Error) -> SubmissionError {
 /// not when it went on the wire. A message that waited a day in the outbox for a network is dated
 /// the day it was written, which is what its writer meant.
 ///
-/// What still differs between two calls is the MIME boundary of a message with files, which is
-/// random. Nobody reads a boundary: each copy is whole and consistent with itself, and the strings
-/// that separate its parts are not what the message says.
+/// What still differs between two calls is the MIME boundary of a message with files or one
+/// passing a message on in its own form, which is random. Nobody reads a boundary: each copy is
+/// whole and consistent with itself, and the strings that separate its parts are not what the
+/// message says.
 pub(crate) fn written(message_id: &str, message: &Outgoing, written_at: i64) -> String {
     let addresses = |list: &[lyonoyl_domain::outgoing::EmailAddress]| -> Vec<String> {
         list.iter().map(|address| address.as_str()).collect()
@@ -322,8 +323,9 @@ pub(crate) fn written(message_id: &str, message: &Outgoing, written_at: i64) -> 
         );
     }
 
-    // One part when there is nothing attached, the commonest message there is.
-    builder = match message.files.is_empty() {
+    // One part when there is nothing attached and nothing passed on, the commonest message there
+    // is.
+    builder = match message.files.is_empty() && message.original.is_none() {
         true => builder.text_body(message.body.as_str()),
         false => builder.body(with_its_files(message)),
     };
@@ -333,7 +335,7 @@ pub(crate) fn written(message_id: &str, message: &Outgoing, written_at: i64) -> 
     builder.write_to_string().unwrap_or_default()
 }
 
-/// The text and the files, as one multipart cut by a random boundary.
+/// What the message says, and the files beside it as one multipart cut by a random boundary.
 ///
 /// Cut here rather than by the builder, whose own boundary is the time in nanoseconds and a hash,
 /// under a fixed key, of a stack address and the thread it was built on: an identifier of this
@@ -346,7 +348,12 @@ pub(crate) fn written(message_id: &str, message: &Outgoing, written_at: i64) -> 
 /// can; where it cannot it goes as a file of bytes under the same name, which the other end still
 /// opens as a message, and never as a message re-encoded.
 fn with_its_files(message: &Outgoing) -> MimePart<'_> {
-    let mut parts = vec![MimePart::new("text/plain", message.body.as_str())];
+    let said = what_it_says(message);
+    if message.files.is_empty() {
+        return said;
+    }
+
+    let mut parts = vec![said];
     parts.extend(message.files.iter().map(|file| {
         if file.content_type == "message/rfc822" {
             return match can_go_as_written(&file.bytes) {
@@ -367,6 +374,25 @@ fn with_its_files(message: &Outgoing) -> MimePart<'_> {
             .attribute("boundary", uuid::Uuid::new_v4().simple().to_string()),
         parts,
     )
+}
+
+/// What the message says: its text, or, when it passes a message on in its own form, its text and
+/// its markup, for whoever reads the one rather than the other.
+///
+/// The text says all of it: what was written above, then what the message passed on says, a blank
+/// line between them. The markup draws what was written above the message passed on, and the
+/// pictures that message draws go beside the markup, under the names it draws them by.
+fn what_it_says(message: &Outgoing) -> MimePart<'_> {
+    use crate::infrastructure::html::original::{beneath, written_with};
+
+    match &message.original {
+        None => MimePart::new("text/plain", message.body.as_str()),
+        Some(original) => written_with(
+            format!("{}\n\n{}", message.body.trim_end(), original.text),
+            beneath(&message.body, original),
+            &original.pictures,
+        ),
+    }
 }
 
 /// Whether a message can go inside another exactly as it was written.
@@ -420,6 +446,7 @@ mod tests {
             subject: Subject::parse("About Tuesday").expect("a subject"),
             body: "Shall we?".to_owned(),
             thread: Default::default(),
+            original: None,
         }
     }
 
@@ -662,6 +689,166 @@ mod tests {
         let wire = written("<m@example.com>", &message(), WHEN);
 
         assert!(!wire.contains("multipart/mixed"), "{wire}");
+    }
+
+    /// A message passed on in its own form: a paragraph and the chart it draws, on its own
+    /// background.
+    fn passing_on() -> lyonoyl_domain::outgoing::Original {
+        lyonoyl_domain::outgoing::Original {
+            opening: "<html><head><meta charset=\"utf-8\"></head><body bgcolor=\"#f4f4f4\">"
+                .to_owned(),
+            drawing: "<p>Theirs</p><img src=\"cid:chart@example.com\"></body></html>".to_owned(),
+            text: "Theirs".to_owned(),
+            pictures: vec![lyonoyl_domain::outgoing::OriginalPicture {
+                named: "chart@example.com".to_owned(),
+                content_type: "image/png".to_owned(),
+                bytes: b"\x89PNG\r\n\x1a\n".to_vec(),
+            }],
+        }
+    }
+
+    /// A message somebody wrote above one they pass on in its own form.
+    fn written_above(original: lyonoyl_domain::outgoing::Original) -> Outgoing {
+        Outgoing {
+            body: "Have a look <now> & tell me:\n\n---------- Forwarded message ----------\n\n"
+                .to_owned(),
+            original: Some(original),
+            ..message()
+        }
+    }
+
+    fn parsed(wire: &str) -> mail_parser::Message<'_> {
+        mail_parser::MessageParser::default()
+            .parse(wire.as_bytes())
+            .expect("a message")
+    }
+
+    fn markup_of(message: &mail_parser::Message<'_>) -> Option<String> {
+        message
+            .html_body
+            .iter()
+            .find_map(|&at| match &message.part(at)?.body {
+                mail_parser::PartType::Html(html) => Some(html.to_string()),
+                _ => None,
+            })
+    }
+
+    /// The text part, with its lines ending as a text box ends them rather than as mail does.
+    fn text_of(message: &mail_parser::Message<'_>) -> Option<String> {
+        message.text_bodies().find_map(|part| match &part.body {
+            mail_parser::PartType::Text(text) => Some(text.replace("\r\n", "\n")),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn a_message_passed_on_in_its_own_form_goes_as_text_and_as_markup_with_its_pictures() {
+        use mail_parser::MimeHeaders;
+
+        let wire = written("<m@example.com>", &written_above(passing_on()), WHEN);
+        let parsed = parsed(&wire);
+
+        assert_eq!(
+            markup_of(&parsed).expect("markup"),
+            "<html><head><meta charset=\"utf-8\"></head><body bgcolor=\"#f4f4f4\"><div dir=\"auto\" style=\"white-space: pre-wrap; color: #000000; background-color: #ffffff\">Have a look &lt;now&gt; &amp; tell me:<br><br>---------- Forwarded message ----------<br><br></div><p>Theirs</p><img src=\"cid:chart@example.com\"></body></html>"
+        );
+        assert_eq!(
+            text_of(&parsed).expect("text"),
+            "Have a look <now> & tell me:\n\n---------- Forwarded message ----------\n\nTheirs"
+        );
+
+        let chart = parsed
+            .parts
+            .iter()
+            .find(|part| part.content_id() == Some("chart@example.com"))
+            .expect("the chart, under the name the markup draws it by");
+        assert_eq!(chart.contents(), b"\x89PNG\r\n\x1a\n");
+        assert!(chart
+            .content_type()
+            .is_some_and(|kind| kind.ctype() == "image" && kind.subtype() == Some("png")));
+        assert!(
+            !wire.contains("multipart/mixed"),
+            "nothing is attached, so nothing is mixed: {wire}"
+        );
+    }
+
+    #[test]
+    fn files_go_beside_a_message_passed_on_in_its_own_form() {
+        use mail_parser::MimeHeaders;
+
+        let mut carrying = written_above(passing_on());
+        carrying.files = vec![lyonoyl_domain::outgoing::OutgoingFile {
+            name: "invoice.pdf".to_owned(),
+            content_type: "application/pdf".to_owned(),
+            bytes: b"%PDF-1.4 not really".to_vec(),
+        }];
+
+        let wire = written("<m@example.com>", &carrying, WHEN);
+        let parsed = parsed(&wire);
+
+        assert!(markup_of(&parsed).is_some_and(|markup| markup.contains("<p>Theirs</p>")));
+        let named: Vec<&str> = parsed
+            .attachments()
+            .filter_map(|part| part.attachment_name())
+            .collect();
+        assert_eq!(named, vec!["invoice.pdf"], "{wire}");
+    }
+
+    #[test]
+    fn a_picture_whose_label_or_name_could_write_a_header_is_left_out() {
+        let mut original = passing_on();
+        original.pictures = vec![
+            lyonoyl_domain::outgoing::OriginalPicture {
+                named: "chart@example.com>\r\nX-Written-In: yes".to_owned(),
+                content_type: "image/png".to_owned(),
+                bytes: b"one".to_vec(),
+            },
+            lyonoyl_domain::outgoing::OriginalPicture {
+                named: "chart@example.com".to_owned(),
+                content_type: "image/png\r\nX-Written-In: yes".to_owned(),
+                bytes: b"two".to_vec(),
+            },
+        ];
+
+        let wire = written("<m@example.com>", &written_above(original), WHEN);
+
+        assert!(
+            !wire.lines().any(|line| line.starts_with("X-Written-In")),
+            "{wire}"
+        );
+        assert!(markup_of(&parsed(&wire)).is_some(), "the markup still goes");
+    }
+
+    #[test]
+    fn every_boundary_of_a_message_passed_on_says_nothing_about_anybody() {
+        let mut carrying = written_above(passing_on());
+        carrying.files = vec![lyonoyl_domain::outgoing::OutgoingFile {
+            name: "invoice.pdf".to_owned(),
+            content_type: "application/pdf".to_owned(),
+            bytes: b"%PDF-1.4 not really".to_vec(),
+        }];
+
+        let wire = written("<m@example.com>", &carrying, WHEN);
+        let boundaries: Vec<&str> = wire
+            .split("boundary=\"")
+            .skip(1)
+            .map(|rest| rest.split('"').next().expect("the name is closed"))
+            .collect();
+
+        assert_eq!(
+            boundaries.len(),
+            3,
+            "mixed, alternative and related: {wire}"
+        );
+        for boundary in boundaries {
+            assert!(
+                boundary.len() == 32
+                    && boundary
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+                "not random: {boundary}"
+            );
+        }
     }
 
     /// What `submit` answers for a server set to plain text at `host` and `port`.

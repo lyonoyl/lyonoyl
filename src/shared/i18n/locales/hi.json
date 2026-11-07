@@ -129,6 +129,7 @@
   "compose.noRecipientYet": "अभी कोई प्राप्तकर्ता नहीं",
   "compose.nowhereToSend": "अभी कोई भी खाता मेल नहीं भेज सकता",
   "compose.nowhereToSendBody": "मेल एक सर्वर से आता है और दूसरे सर्वर से भेजा जाता है। किसी खाते की सेटिंग खोलें और उसका भेजने वाला सर्वर भरें",
+  "compose.original": "फ़ॉरवर्ड किया गया संदेश",
   "compose.removeAttachment": "{name} हटाएं",
   "compose.send": "भेजें",
   "compose.sending": "भेजा जा रहा है…",

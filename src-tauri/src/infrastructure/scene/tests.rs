@@ -772,6 +772,7 @@ fn what_a_person_does_is_taken_and_goes_nowhere() {
         body: "Hi.".to_owned(),
         thread: Default::default(),
         files: Vec::new(),
+        original: None,
     };
     agrees
         .submit("1@example.com", &written, NOW)

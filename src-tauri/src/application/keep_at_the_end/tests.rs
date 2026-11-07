@@ -16,6 +16,8 @@ struct Row {
     draft: Draft,
     /// The files it carries, by the name each is kept as.
     files: Vec<String>,
+    /// What the message it passes on in its own form says.
+    original: Option<String>,
 }
 
 /// A drafts folder in memory that keeps the way the profile does: under a number it holds, a keep
@@ -71,12 +73,13 @@ impl Drawer {
 }
 
 impl Drafts for &Drawer {
-    fn keep(
+    fn keep_passing_on(
         &self,
         account_id: &str,
         under: Option<i64>,
         draft: &Draft,
         files: &[DraftFile],
+        original: Option<&lyonoyl_domain::outgoing::Original>,
     ) -> Result<i64, DraftError> {
         *self.asked.lock().expect("test lock") += 1;
         let stopped = self.halfway.lock().expect("test lock").take();
@@ -108,6 +111,7 @@ impl Drafts for &Drawer {
                 account_id: account_id.to_owned(),
                 draft: draft.clone(),
                 files: files.iter().map(|one| one.kept_as.clone()).collect(),
+                original: original.map(|one| one.text.clone()),
             },
         );
         Ok(id)
@@ -115,6 +119,10 @@ impl Drafts for &Drawer {
 
     fn files(&self, _id: i64) -> Result<Vec<DraftFile>, DraftError> {
         unreachable!("nothing here reads a draft's files")
+    }
+
+    fn original(&self, _id: i64) -> Result<Option<lyonoyl_domain::outgoing::Original>, DraftError> {
+        unreachable!("nothing here reads what a draft passes on")
     }
 
     fn came_back(
@@ -182,6 +190,7 @@ fn row(body: &str) -> Row {
         account_id: "acc-1".to_owned(),
         draft: typed(body),
         files: Vec::new(),
+        original: None,
     }
 }
 
@@ -193,6 +202,7 @@ fn noted(writing: &str, under: Option<i64>, body: &str) -> Note {
         under,
         draft: typed(body),
         files: Vec::new(),
+        original: None,
     }
 }
 
@@ -215,7 +225,7 @@ fn first_keep(
     writing: &str,
     body: &str,
 ) -> Result<i64, UseCaseError> {
-    being.keep(drawer, writing, "acc-1", None, typed(body), &[])
+    being.keep(drawer, noted(writing, None, body))
 }
 
 /// Long enough for an end that does not wait for a keep caught halfway to have written.
@@ -242,6 +252,38 @@ fn a_note_is_written_down_as_a_draft_when_the_application_ends() {
             Row {
                 files: vec!["t1".to_owned()],
                 ..row("Shall we")
+            }
+        )]
+    );
+}
+
+#[test]
+fn the_end_writes_down_the_message_a_note_passes_on_in_its_own_form() {
+    // Forwarded a moment ago and kept by nothing yet: without it, the draft the end writes is a
+    // note saying "see below" with nothing below.
+    let being = BeingWritten::default();
+    let drawer = Drawer::default();
+    being
+        .note(Note {
+            original: Some(Arc::new(lyonoyl_domain::outgoing::Original {
+                opening: String::new(),
+                drawing: "<p>Theirs</p>".to_owned(),
+                text: "Theirs".to_owned(),
+                pictures: Vec::new(),
+            })),
+            ..noted("w1", None, "Look at this")
+        })
+        .expect("a message being written is held");
+
+    being.at_the_end(|| Some(&drawer));
+
+    assert_eq!(
+        drawer.rows(),
+        vec![(
+            1,
+            Row {
+                original: Some("Theirs".to_owned()),
+                ..row("Look at this")
             }
         )]
     );
@@ -466,7 +508,7 @@ fn a_keep_the_end_catches_halfway_is_written_over_by_the_newer_note() {
 
     let keeping = {
         let (being, drawer) = (being.clone(), Arc::clone(&drawer));
-        thread::spawn(move || being.keep(&*drawer, "w1", "acc-1", Some(4), typed("Shall we"), &[]))
+        thread::spawn(move || being.keep(&*drawer, noted("w1", Some(4), "Shall we")))
     };
     began.recv().expect("the keep began writing");
     let ending = {
@@ -491,7 +533,7 @@ fn a_keep_whose_turn_comes_after_the_end_writes_nothing_over_it() {
 
     being.at_the_end(|| Some(&drawer));
     let answered = being
-        .keep(&drawer, "w1", "acc-1", Some(4), typed("Shall we"), &[])
+        .keep(&drawer, noted("w1", Some(4), "Shall we"))
         .expect("answered");
 
     assert_eq!(answered, 4);

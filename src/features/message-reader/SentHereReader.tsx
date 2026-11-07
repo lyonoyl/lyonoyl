@@ -4,7 +4,7 @@ import { listOf, useI18n } from "@/shared/i18n";
 import { askAboutAWrittenLink } from "@/shared/ipc/client";
 import type { SentHereDto } from "@/shared/ipc/generated/SentHereDto";
 import { linksIn } from "@/shared/ui/links";
-import { LinkConfirmation, type Asked } from "./LinkConfirmation";
+import { LinkConfirmation, type Asked } from "@/shared/ui/LinkConfirmation";
 
 /**
  * A message sent from this device whose account has not been read back with it yet, as the reader

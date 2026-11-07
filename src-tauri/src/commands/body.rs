@@ -210,11 +210,17 @@ pub async fn open_message_body(
     .await
     .map_err(|_| CommandError::new(ErrorCode::Internal, "A background task failed."))??;
 
-    // Held for the frame that is about to ask for it, and for nothing else.
-    // Copied out before the body is handed to the store, which takes it by value.
-    let attachments: Vec<AttachedDto> = rendered.attachments.iter().map(AttachedDto::of).collect();
+    held_for_the_frame(&held, &rendered, surface.as_ref())
+}
 
-    let token = held.hold(&rendered, surface.as_ref()).ok_or_else(|| {
+/// A body held for the frame that is about to ask for it, and for nothing else, and what the window
+/// is told about it.
+fn held_for_the_frame(
+    held: &serving::BodyBeingRead,
+    rendered: &crate::ports::body::RenderedBody,
+    surface: Option<&serving::Surface>,
+) -> Result<MessageBodyDto, CommandError> {
+    let token = held.hold(rendered, surface).ok_or_else(|| {
         CommandError::new(
             ErrorCode::Internal,
             "This machine has no randomness to spare.",
@@ -235,8 +241,47 @@ pub async fn open_message_body(
         remote_not_shown: rendered.remote_not_shown,
         remote_not_had: rendered.remote_not_had,
         truncated: rendered.truncated,
-        attachments,
+        attachments: rendered.attachments.iter().map(AttachedDto::of).collect(),
     })
+}
+
+/// Opens the message a composer passes on in its own form, for the frame beneath what is being
+/// written.
+///
+/// Drawn the way the reader draws a message, through the same sanitizer, the same scheme and the
+/// same frame, from the message held under `token`, cut down to what draws it: its pictures drawn
+/// inside it, and nothing from the web, which nobody has asked this message being written to load.
+/// Closed by the name it answers with, as a message's body is.
+#[tauri::command]
+pub async fn open_original_body(
+    state: State<'_, AppState>,
+    token: String,
+    background: Option<String>,
+    foreground: Option<String>,
+) -> Result<MessageBodyDto, CommandError> {
+    let surface = background
+        .zip(foreground)
+        .and_then(|(background, foreground)| serving::Surface::of(&background, &foreground));
+    let original = state.attaching.original_of(&token).ok_or_else(|| {
+        CommandError::new(
+            ErrorCode::InvalidRequest,
+            "The message this one passes on is no longer here.",
+        )
+    })?;
+
+    let rendered = tauri::async_runtime::spawn_blocking(move || {
+        html::body_of(
+            &html::original::as_message(&original),
+            Viewing {
+                form: BodyForm::Sent,
+                pictures: Pictures::Blocked,
+            },
+        )
+    })
+    .await
+    .map_err(|_| CommandError::new(ErrorCode::Internal, "A background task failed."))?;
+
+    held_for_the_frame(&state.bodies, &rendered, surface.as_ref())
 }
 
 /// Opens a link the message offered, after the person said yes to it.
