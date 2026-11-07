@@ -19,7 +19,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "licenseFile": "../LICENSE",
     "copyright": "Lyonoyl Mail",
     "icon": [
       "icons/32x32.png",
