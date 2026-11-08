@@ -84,6 +84,7 @@ describe("what this machine has, asked", () => {
       [true, "npm packages"],
       [true, "Rust 1.98.1, with clippy, rustfmt, llvm-tools"],
       [true, "rustc on PATH is 1.98.1, as rust-toolchain.toml pins"],
+      [true, "the databases are encrypted by the library src-tauri/Cargo.toml names"],
       [true, "cargo-audit 0.22.2"],
       [true, `cargo-about ${ABOUT}`],
       [true, "Python 3.14.2"],
@@ -117,7 +118,9 @@ describe("what this machine has, asked", () => {
     const answers = await checkMachine(mac, { build: true });
 
     expect(lacking(answers)).toEqual([]);
-    expect(answers.map((answer) => answer.name).at(-1)).toBe("rustc on PATH is 1.98.1, as rust-toolchain.toml pins");
+    expect(answers.map((answer) => answer.name).at(-1)).toBe(
+      "the databases are encrypted by the library src-tauri/Cargo.toml names",
+    );
     expect(mac.ran.some((command) => /cargo-audit|cargo-about|docker|python3|git |sysctl/.test(command))).toBe(false);
   });
 
@@ -403,5 +406,108 @@ describe("whether this Mac still clears closed connections", () => {
 
     expect((await closedConnections(mac)).name).toBe("closed connections: uptime unknown, not asked");
     expect(mac.waited).toEqual([]);
+  });
+});
+
+describe("what encrypts the databases", () => {
+  const cipher = (answers) => answers.find((answer) => answer.name.includes("encrypt"));
+
+  const CLEAN = "then run cargo clean -p libsqlite3-sys, and cargo clean -p libsqlite3-sys --release";
+  const SSL = "/opt/homebrew/opt/openssl@3";
+
+  it("refuses on a Mac what sends SQLCipher to another library, and says how to undo it", async () => {
+    for (const set of [
+      { OPENSSL_DIR: SSL },
+      { AARCH64_APPLE_DARWIN_OPENSSL_DIR: SSL },
+      { OPENSSL_LIB_DIR: `${SSL}/lib`, OPENSSL_INCLUDE_DIR: `${SSL}/include` },
+      { OPENSSL_LIB_DIR: `${SSL}/lib`, AARCH64_APPLE_DARWIN_OPENSSL_INCLUDE_DIR: `${SSL}/include` },
+    ]) {
+      const mac = machine();
+      mac.env = { PATH: "/usr/bin:/bin", ...set };
+
+      const answer = cipher(await checkMachine(mac, { build: true }));
+
+      const names = Object.keys(set).join(" ");
+      expect([names, answer.ok, answer.fix]).toEqual([names, false, `unset ${names}, ${CLEAN}`]);
+    }
+  });
+
+  it("takes either OpenSSL directory alone on a Mac, which leaves SQLCipher where it was", async () => {
+    for (const set of [
+      { OPENSSL_LIB_DIR: `${SSL}/lib` },
+      { OPENSSL_INCLUDE_DIR: `${SSL}/include` },
+      { X86_64_APPLE_DARWIN_OPENSSL_LIB_DIR: `${SSL}/lib` },
+    ]) {
+      const mac = machine();
+      mac.env = { PATH: "/usr/bin:/bin", ...set };
+
+      expect([Object.keys(set)[0], cipher(await checkMachine(mac, { build: true })).ok]).toEqual([Object.keys(set)[0], true]);
+    }
+  });
+
+  it("says how to undo it in the words of the system it runs on", async () => {
+    const box = machine({ platform: "win32" });
+    box.env = { PATH: "C:\\Windows", LIBSQLITE3_SYS_USE_PKG_CONFIG: "1" };
+
+    const answer = cipher(await checkMachine(box, { build: true }));
+
+    expect(answer.fix).toBe(`remove LIBSQLITE3_SYS_USE_PKG_CONFIG from the environment, ${CLEAN}`);
+    expect(answer.why).toEqual(["A build made under LIBSQLITE3_SYS_USE_PKG_CONFIG links a SQLCipher of the system's in place of the one built here."]);
+  });
+
+  it("gives the reason of the variable it found, not of the system", async () => {
+    const mac = machine();
+    mac.env = { PATH: "/usr/bin:/bin", LIBSQLITE3_SYS_USE_PKG_CONFIG: "1" };
+
+    expect(cipher(await checkMachine(mac, { build: true })).why).toEqual([
+      "A build made under LIBSQLITE3_SYS_USE_PKG_CONFIG links a SQLCipher of the system's in place of the one built here.",
+    ]);
+  });
+
+  it("refuses on Windows and Linux what links the system's OpenSSL in place of the one built in", async () => {
+    for (const [platform, name, fix] of [
+      ["linux", "OPENSSL_NO_VENDOR", `unset OPENSSL_NO_VENDOR, ${CLEAN}`],
+      ["linux", "AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_NO_VENDOR", `unset AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_NO_VENDOR, ${CLEAN}`],
+      ["win32", "X86_64_PC_WINDOWS_MSVC_OPENSSL_NO_VENDOR", `remove X86_64_PC_WINDOWS_MSVC_OPENSSL_NO_VENDOR from the environment, ${CLEAN}`],
+    ]) {
+      const box = machine({ platform });
+      box.env = { PATH: "/usr/bin:/bin", [name]: "1" };
+
+      const answer = cipher(await checkMachine(box, { build: true }));
+
+      expect([name, answer.ok, answer.fix]).toEqual([name, false, fix]);
+    }
+  });
+
+  it("takes OPENSSL_NO_VENDOR set to 0 as off, and does not ask about it on a Mac", async () => {
+    for (const [platform, value] of [["linux", "0"], ["win32", "0"], ["darwin", "1"]]) {
+      const box = machine({ platform });
+      box.env = { PATH: "/usr/bin:/bin", OPENSSL_NO_VENDOR: value };
+
+      expect([platform, cipher(await checkMachine(box, { build: true })).ok]).toEqual([platform, true]);
+    }
+  });
+
+  it("does not ask about the OpenSSL variables where SQLCipher is meant to take OpenSSL", async () => {
+    for (const platform of ["linux", "win32"]) {
+      const box = machine({ platform });
+      box.env = { PATH: "/usr/bin:/bin", OPENSSL_DIR: "/usr/local/ssl" };
+
+      expect([platform, cipher(await checkMachine(box, { build: true })).ok]).toEqual([platform, true]);
+    }
+  });
+
+  it("refuses a system SQLCipher on every system, an empty value included, and takes 0 as off", async () => {
+    for (const [platform, value, ok] of [
+      ["darwin", "1", false],
+      ["linux", "", false],
+      ["win32", "yes", false],
+      ["darwin", "0", true],
+    ]) {
+      const box = machine({ platform });
+      box.env = { PATH: "/usr/bin:/bin", LIBSQLITE3_SYS_USE_PKG_CONFIG: value };
+
+      expect([platform, value, cipher(await checkMachine(box, { build: true })).ok]).toEqual([platform, value, ok]);
+    }
   });
 });

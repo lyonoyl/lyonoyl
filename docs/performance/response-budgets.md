@@ -85,11 +85,11 @@ It prints what each interaction cost with the budget beside it, and **fails on n
 
 | 100,000 messages | Cold | Warm | Budget |
 | --- | --- | --- | --- |
-| List window at the top | 2.7 ms | **0.30 ms** | ≤150 ms |
-| List window at the bottom | 5.4 ms | **4.5 ms** | ≤150 ms |
-| Unread list window at the top | 10.1 ms | **5.5 ms** | ≤150 ms |
-| Unread list window at the bottom | 46.0 ms | **45.9 ms** | ≤150 ms |
-| Unread count for one folder | 9.5 ms | **5.4 ms** | counted in the window above |
+| List window at the top | 3.4 ms | **0.33 ms** | ≤150 ms |
+| List window at the bottom | 5.1 ms | **4.6 ms** | ≤150 ms |
+| Unread list window at the top | 9.3 ms | **5.7 ms** | ≤150 ms |
+| Unread list window at the bottom | 45.8 ms | **46.3 ms** | ≤150 ms |
+| Unread count for one folder | 9.0 ms | **5.2 ms** | counted in the window above |
 
 ### Searching what a message says
 
@@ -97,9 +97,9 @@ It prints what each interaction cost with the budget beside it, and **fails on n
 
 | | Cold | Warm | Budget |
 | --- | --- | --- | --- |
-| A search matching a phrase in the text—one message | 0.22 ms | **0.09 ms** | ≤120 ms |
-| A search matching one sender—about 200 messages | 11.9 ms | **6.2 ms** | ≤120 ms |
-| A search matching every message | 87.3 ms | **86.8 ms** | ≤120 ms |
+| A search matching a phrase in the text—one message | 0.27 ms | **0.10 ms** | ≤120 ms |
+| A search matching one sender—about 200 messages | 12.2 ms | **6.6 ms** | ≤120 ms |
+| A search matching every message | 86.6 ms | **84.1 ms** | ≤120 ms |
 
 Cost follows the match set and not the column: finding a phrase one message contains is the cheapest question in this table, because one message is what it has to produce. The text in the index costs the other two nothing measurable.
 
@@ -109,17 +109,17 @@ The view a person with more than one account opens on: every list that spans fol
 
 | 100,000 messages | Cold | Warm | Budget |
 | --- | --- | --- | --- |
-| Everything on the device, at the top | 6.5 ms | **2.0 ms** | ≤150 ms |
-| Everything on the device, at the bottom | 30.3 ms | **29.4 ms** | ≤150 ms |
-| The sidebar, folders, and counts | 24.6 ms | **19.9 ms** | ≤150 ms |
+| Everything on the device, at the top | 6.2 ms | **1.8 ms** | ≤150 ms |
+| Everything on the device, at the bottom | 28.9 ms | **28.0 ms** | ≤150 ms |
+| The sidebar, folders, and counts | 25.7 ms | **21.2 ms** | ≤150 ms |
 
 **The sidebar with a person's changes laid over it.** Fifty messages marked read and twenty moves carried out and not read back, in the queue beside the same hundred thousand messages, in the same run as the tables above.
 
 | 100,000 messages | Cold | Warm | Budget |
 | --- | --- | --- | --- |
-| The sidebar, nothing waiting | 24.6 ms | **19.9 ms** | ≤150 ms |
-| The sidebar, seventy changes waiting | 20.3 ms | **20.0 ms** | one IPC round trip |
-| The icon, seventy changes waiting | 5.4 ms | **5.9 ms** | one IPC round trip |
+| The sidebar, nothing waiting | 25.7 ms | **21.2 ms** | ≤150 ms |
+| The sidebar, seventy changes waiting | 21.4 ms | **21.2 ms** | one IPC round trip |
+| The icon, seventy changes waiting | 5.7 ms | **5.7 ms** | one IPC round trip |
 
 What a change costs before every count agrees is one read of the sidebar, and the fold over the queue adds nothing this tool can see to it.
 
@@ -141,21 +141,22 @@ The figures are taken on the view the command builds. Taken on a list of message
 
 ### What encrypting the whole database costs
 
-Both columns are the same run of the same tool on the same machine within a minute of each other, 100,000 messages, one folder—the second with `PRAGMA key` removed and nothing else changed. So the difference is the encryption. It covers what a folder costs; the views above span accounts and are a different reader.
+Both columns are runs of the same tool on the same machine, one straight after the other, 100,000 messages, one folder—the first with the key left out and nothing else changed, the second the run the tables above come from. So the difference is the encryption. It covers what a folder costs; the views above span accounts and are a different reader.
 
-| | In the clear | Encrypted | |
+| Warm | In the clear | Encrypted | |
 | --- | --- | --- | --- |
-| List window at the top | 1.73 ms | **1.89 ms** | ≤150 ms |
-| List window at the bottom | 14.63 ms | **15.17 ms** | ≤150 ms |
-| Unread list window at the top | 19.56 ms | **20.73 ms** | ≤150 ms |
-| Unread list window at the bottom | 124.21 ms | **129.66 ms** | ≤150 ms |
-| The sidebar, folders, and counts | 64.96 ms | **67.12 ms** | ≤150 ms |
+| List window at the top | 0.31 ms | **0.33 ms** | ≤150 ms |
+| List window at the bottom | 4.49 ms | **4.63 ms** | ≤150 ms |
+| Unread list window at the top | 5.76 ms | **5.71 ms** | ≤150 ms |
+| Unread list window at the bottom | 40.64 ms | **46.32 ms** | ≤150 ms |
+| The sidebar, folders, and counts | 21.10 ms | **21.20 ms** | ≤150 ms |
+| A search matching every message | 41.84 ms | **84.11 ms** | ≤120 ms |
 
-Reading a page costs the same whether it holds mail or noise, so the cost tracks **how many pages a question touches** rather than how much it returns: the window at the top of a folder, which seeks to a day and reads a handful, pays 9%; the unread window at the bottom, which reads a great many, pays 4%.
+Reading a page costs the same whether it holds mail or noise, so the cost tracks **how many pages a question touches** rather than how much it returns: the search matching every message, the question that reads the most, costs twice what it costs in the clear; the unread window at the bottom of a folder, which reads a great many, pays 14%; and the questions that read a handful pay a few percent, or less than one run can tell from another—the unread window at the top came out faster encrypted.
 
-**Every question is inside its budget at 100,000 messages**, cold and warm, and the closest is the worst case a search has: a word every message carries, at 87 ms against 120. At 400,000 the one a person can reach over its budget is that search, at 341 ms; everything on the device at its bottom, at 143 ms, and the sidebar, at 120 ms, are inside theirs, and the unread window at the bottom of a folder, at 211 ms, is answered by the read model and not offered by the window. Cost follows the match set, so that search is the one to watch as a mailbox grows—the two ordinary searches are at 12 ms and under a millisecond.
+**Every question is inside its budget at 100,000 messages**, cold and warm, and the closest is the worst case a search has: a word every message carries, at 87 ms against 120. At 400,000 the one a person can reach over its budget is that search, at 341 ms; everything on the device at its bottom, at 142 ms, and the sidebar, at 115 ms, are inside theirs, and the unread window at the bottom of a folder, at 207 ms, is answered by the read model and not offered by the window. Cost follows the match set, so that search is the one to watch as a mailbox grows—the two ordinary searches are at 52 ms and under a millisecond.
 
-What is left in it is the ordering. An index of words answers in the order it stores them and the list shows mail by date, so a hundred thousand matches are found, then sorted, so that a hundred can be shown. Asking how long the list is costs nothing like that: the word index is contentless and its rows are the messages, so counting the matches in the index is the same number as counting them through the table and takes 41 ms rather than 261. That equality could drift silently, so it is asserted through a deletion and an edit rather than assumed.
+Half of it at 100,000 messages is decryption, and what is left is the ordering. An index of words answers in the order it stores them and the list shows mail by date, so a hundred thousand matches are found, then sorted, so that a hundred can be shown. Asking how long the list is costs nothing like that: the word index is contentless and its rows are the messages, so counting the matches in the index is the same number as counting them through the table and takes 41 ms rather than 261. That equality could drift silently, so it is asserted through a deletion and an edit rather than assumed.
 
 **Which figures a reader can check for themselves.** The list, search, and sidebar tables above come from `what_this_build_costs`, `list_windows_at_every_depth` answers the same questions at every depth, and `what_many_accounts_cost` answers them over one account, ten, and a hundred: all three are `#[ignore]`d tests started by hand, all three print what they measured, and all three warm before they time. `what_a_deep_window_costs` answers `OFFSET` against a cursor. The one-per-pass column is the journal's: kept at `detail`, it writes every pass and round, and `scripts/where-the-time-went.sh` prints them. The loopback round trips, the one-per-unit column, and the comparisons taken with code changed for them—the clear column, the join, the subqueries, the table of names—were recorded once and have no instrument in the tree.
 
@@ -165,11 +166,11 @@ What is left in it is the ordering. An index of words answers in the order it st
 
 **The map counts messages, not copies.** A folder can hold the same message twice; the list shows one row, dated by the newer copy. A map counting both would put every position ahead of the row it named, by however many second copies lie above it—an error growing with depth, largest at the bottom, and silent, because the map stays internally consistent. The window therefore keeps the copy that speaks for a message rather than grouping, which is also what lets the index serve it: grouping costs the folder a sort.
 
-**The unread list keeps the same copy, and at 400,000 messages its top is 39 ms.** Its total reads no column from `messages` and so does not join to it, which would cost one lookup by rowid for every unread placement in the folder.
+**The unread list keeps the same copy, and at 400,000 messages its top is 38 ms.** Its total reads no column from `messages` and so does not join to it, which would cost one lookup by rowid for every unread placement in the folder.
 
-**Its bottom is 211 ms there, over the 150 ms budget.** The cost is linear in the number of **unread** messages, not in the size of the folder; the fixture leaves one in five unread.
+**Its bottom is 207 ms there, over the 150 ms budget.** The cost is linear in the number of **unread** messages, not in the size of the folder; the fixture leaves one in five unread.
 
-**Both ends of both lists are timed, and the unread total on its own**: the top alone makes this table look like the fastest thing in the build, and which of a window's three reads costs the time is not a thing to work out from the shape of the SQL. At 400,000 messages the total is 37 ms of the 39 the top costs.
+**Both ends of both lists are timed, and the unread total on its own**: the top alone makes this table look like the fastest thing in the build, and which of a window's three reads costs the time is not a thing to work out from the shape of the SQL. At 400,000 messages the total is 36 ms of the 38 the top costs.
 
 **How the views that span folders are served.** What the list orders by—when a message arrived in an inbox—and what it filters on are columns rather than correlated subqueries, and each holds nothing when the answer is no. So one partial index serves the filter and the order together, in one pass: `idx_messages_arrived` for the whole device and `idx_messages_unread_arrived` for the unread. Asked as subqueries instead, neither can be served by any index: SQLite reads every message, asks twice about each, and sorts the lot in a temporary b-tree.
 
@@ -193,7 +194,7 @@ Only names this device holds no message for are written down. Writing every mess
 
 **`OFFSET` cannot address the list.** It walks every row it skips, so the cost is linear in how far down somebody has scrolled—25.9 ms ninety thousand rows down, and the target is fifty times as many messages. Asked as a cursor on the sort key instead—*what comes after this message* rather than *the ninety-thousandth message*—the same window takes **0.07 ms against 25.9 ms**, nearly four hundred times less, because it walks none of them.
 
-**The unread count for a folder reads one index.** Every copy of a message carries its own flags, so the count is answered from a covering index and the table is never opened—37 ms at four hundred thousand messages:
+**The unread count for a folder reads one index.** Every copy of a message carries its own flags, so the count is answered from a covering index and the table is never opened—36 ms at four hundred thousand messages:
 
 ```
 unread count   SEARCH p USING COVERING INDEX idx_placements_folder_flags (folder_id=?)

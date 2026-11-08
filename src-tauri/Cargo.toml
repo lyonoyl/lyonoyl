@@ -32,12 +32,12 @@ png = "0.18"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# `bundled-sqlcipher-vendored-openssl` rather than `bundled`: every page of these files is
-# written encrypted. Vendored rather than the system OpenSSL, because a build that depends on
-# one is a build that works on whichever of the three systems happens to have it.
+# `bundled-sqlcipher` rather than `bundled`: every page of these files is written encrypted, on
+# every system. Where SQLCipher takes its ciphers from is decided by the table that adds to this
+# further down, `cfg(not(target_os = "macos"))`.
 rusqlite = { version = "0.40", features = [
     "backup",
-    "bundled-sqlcipher-vendored-openssl",
+    "bundled-sqlcipher",
     "functions",
     "hooks",
     "limits",
@@ -164,6 +164,35 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
 # here. Already in the tree through `xattr` and `tempfile`; this turns on its `process` feature.
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", default-features = false, features = ["std", "process"] }
+
+# Where SQLCipher takes its ciphers from, and the one place that decides it. Every system writes the
+# same files, SQLCipher 4's format, and `encryption_tests.rs` opens what each library wrote. The
+# provider test's constant there, `scripts/check-machine.mjs`, `scripts/release-macos.sh`,
+# `docs/platforms/differences.md`, the threat model, the defenses, item 9 of the security checklist
+# and the two licence comments name the library each system takes, and change with this table.
+#
+# Elsewhere it is OpenSSL compiled from source: Windows has no libcrypto of its own, and
+# libsqlite3-sys refuses to build SQLCipher there without one. macOS is left out on purpose, so
+# libsqlite3-sys compiles SQLCipher against CommonCrypto, which is part of the system and is patched
+# with it. Turned on for macOS, OpenSSL writes the directory it was built in into the binary, and the
+# release refuses that.
+#
+# It holds under the workspace's `resolver = "2"`, which keeps a target table's features off every
+# other target: under the first resolver they apply everywhere, and the Mac compiles OpenSSL in.
+# The version is the one in `[dependencies]` above and moves with it.
+#
+# On every system, LIBSQLITE3_SYS_USE_PKG_CONFIG set to anything but 0 links a SQLCipher of the
+# system's in place of the one built here. On macOS, OPENSSL_DIR, or OPENSSL_LIB_DIR with
+# OPENSSL_INCLUDE_DIR, plain or prefixed with the target, send SQLCipher to that library instead; on
+# Windows and Linux, OPENSSL_NO_VENDOR links the system's OpenSSL in place of the one built here; and
+# a Cargo `[env]` table setting any of them does the same. libsqlite3-sys 0.38 does not rebuild when
+# the OPENSSL ones change, so a build made under them stays that way until both
+# `cargo clean -p libsqlite3-sys` and the same with `--release` have run. The machine check refuses
+# the variables, the provider test a test build made under them, and the release an application
+# that links anything outside the system; a build kept for this machine runs here with the library
+# it was pointed at.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+rusqlite = { version = "0.40", features = ["bundled-sqlcipher-vendored-openssl"] }
 
 
 [lints]

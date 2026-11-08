@@ -1,4 +1,6 @@
 [workspace]
+# Under the first resolver a `[target]` table's features apply on every system, and the Mac build
+# would compile OpenSSL in: `src-tauri/Cargo.toml` says why that is refused.
 resolver = "2"
 members = ["crates/lyonoyl-domain", "src-tauri"]
 

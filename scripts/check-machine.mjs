@@ -33,6 +33,50 @@ const LINUX_LIBRARIES = [
   ["openssl", "libssl-dev"],
 ];
 
+/** The targets a Mac builds for, as libsqlite3-sys writes them in front of a variable it reads. */
+const APPLE_TARGETS = ["AARCH64_APPLE_DARWIN", "X86_64_APPLE_DARWIN"];
+
+/**
+ * The variables that send SQLCipher on macOS to a library other than the system's, read for each
+ * target the way libsqlite3-sys reads them: the name with the target in front, else the plain one.
+ * OPENSSL_DIR does it alone, and OPENSSL_LIB_DIR only with OPENSSL_INCLUDE_DIR; either directory
+ * alone leaves SQLCipher on CommonCrypto, which `src-tauri/Cargo.toml` leaves macOS to.
+ */
+function sentElsewhere(env) {
+  const named = new Set();
+  for (const target of APPLE_TARGETS) {
+    const read = (name) => [`${target}_${name}`, name].find((each) => env[each] !== undefined);
+    const dir = read("OPENSSL_DIR");
+    const lib = read("OPENSSL_LIB_DIR");
+    const include = read("OPENSSL_INCLUDE_DIR");
+    if (dir) named.add(dir);
+    if (lib && include) {
+      named.add(lib);
+      named.add(include);
+    }
+  }
+  return [...named];
+}
+
+/** The targets Windows and Linux build for, as openssl-sys writes them in front of a variable it reads. */
+const OTHER_TARGETS = {
+  win32: ["X86_64_PC_WINDOWS_MSVC", "AARCH64_PC_WINDOWS_MSVC"],
+  linux: ["X86_64_UNKNOWN_LINUX_GNU", "AARCH64_UNKNOWN_LINUX_GNU"],
+};
+
+/**
+ * OPENSSL_NO_VENDOR set to anything but 0, read for each target the way openssl-sys reads it: on
+ * Windows and Linux it links the system's OpenSSL in place of the one `src-tauri/Cargo.toml` builds in.
+ */
+function unvendored(platform, env) {
+  const named = new Set();
+  for (const target of OTHER_TARGETS[platform] ?? []) {
+    const name = [`${target}_OPENSSL_NO_VENDOR`, "OPENSSL_NO_VENDOR"].find((each) => env[each] !== undefined);
+    if (name && env[name] !== "0") named.add(name);
+  }
+  return [...named];
+}
+
 /** The oldest WebKitGTK a Linux build is made against. */
 const WEBKITGTK = [2, 44];
 
@@ -230,6 +274,33 @@ function linux(machine) {
   return results;
 }
 
+/**
+ * Whether the databases will be encrypted by the library `src-tauri/Cargo.toml` names for this
+ * system. On macOS the OPENSSL variables send SQLCipher to another library, on Windows and Linux
+ * OPENSSL_NO_VENDOR links the system's OpenSSL, and everywhere LIBSQLITE3_SYS_USE_PKG_CONFIG set to
+ * anything but 0 links a SQLCipher of the system's in place of the one built here. libsqlite3-sys
+ * does not rebuild when the OPENSSL ones change, so a build made under them stays that way until it
+ * is cleaned, in both profiles.
+ */
+function cipherLibrary(machine) {
+  const elsewhere = machine.platform === "darwin" ? sentElsewhere(machine.env) : [];
+  const vendor = unvendored(machine.platform, machine.env);
+  const pkg = machine.env.LIBSQLITE3_SYS_USE_PKG_CONFIG;
+  const system = pkg !== undefined && pkg !== "0" ? ["LIBSQLITE3_SYS_USE_PKG_CONFIG"] : [];
+  const set = [...elsewhere, ...vendor, ...system];
+  if (set.length === 0) return found("the databases are encrypted by the library src-tauri/Cargo.toml names");
+  const undo = machine.platform === "win32" ? `remove ${set.join(" and ")} from the environment` : `unset ${set.join(" ")}`;
+  return missing(
+    `${set.join(", ")} ${set.length === 1 ? "is" : "are"} set, which sends the databases' encryption to another library`,
+    `${undo}, then run cargo clean -p libsqlite3-sys, and cargo clean -p libsqlite3-sys --release`,
+    ...(elsewhere.length
+      ? ["A build made under the OPENSSL variables links the OpenSSL they point at, which the Mac that built it has and another may not."]
+      : []),
+    ...(vendor.length ? ["A build made under OPENSSL_NO_VENDOR links the system's OpenSSL in place of the one built here."] : []),
+    ...(system.length ? ["A build made under LIBSQLITE3_SYS_USE_PKG_CONFIG links a SQLCipher of the system's in place of the one built here."] : []),
+  );
+}
+
 /** The TCP connections in TIME_WAIT that `netstat` lists, one line each. */
 function waiting(machine) {
   return new Set(
@@ -284,6 +355,7 @@ export const NEEDS = [
   { build: true, check: packages },
   { build: true, check: rust },
   { build: true, check: compiler },
+  { build: true, check: cipherLibrary },
   { check: audit },
   { check: about },
   { check: python },

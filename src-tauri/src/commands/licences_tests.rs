@@ -139,7 +139,8 @@ fn what_ships_without_declaring_itself_still_carries_its_notice() {
     assert!(covers("SQLCipher"), "SQLCipher is in every database file");
     assert!(
         covers("OpenSSL"),
-        "OpenSSL is where SQLCipher takes its ciphers from"
+        "OpenSSL is where SQLCipher takes its ciphers from on Windows and Linux, and this list is \
+         every system's"
     );
     // Not compiled in but copied in, which comes to the same thing for a notice: the files in
     // `src/shared/ui/primitives/` and the variants in `src/index.css` are somebody else's, and the

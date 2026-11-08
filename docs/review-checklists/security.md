@@ -16,7 +16,7 @@ The guiding question: **a message is hostile input—can it run code or send any
 6. **Paths.** Does a file path come from the frontend? Are attachment filenames sanitized against bidi controls? Does anything open a file a message carried rather than save it?
 7. **IPC.** Every command parses untrusted JSON. Is there validation, are there size limits, are newtypes used instead of `String`?
 8. **Privacy.** Has a network request appeared before explicit user consent? Does the User-Agent leak the OS version? Is a third-party service contacted while the user types an address? Does an update check run without consent? Is a journal event about one message written at `trouble` or `worth` rather than `detail`?
-9. **Dependencies.** Has a TLS stack beside `rustls` appeared, such as `native-tls`? `openssl-sys` is here for SQLCipher. Does a new dependency carry a license section 6 of [the working contract](../../AGENTS.md) refuses?
+9. **Dependencies.** Has a TLS stack beside `rustls` appeared, such as `native-tls`? `openssl-sys` is here for SQLCipher on Windows and Linux, and nowhere in the macOS build: `cargo tree --target aarch64-apple-darwin -i openssl-sys` finds nothing. Does a new dependency carry a license section 6 of [the working contract](../../AGENTS.md) refuses?
 10. **Panic strategy.** Has `panic = "abort"` appeared?
 11. **Bodies.** Does a message body cross IPC as a string? Does anything from a message reach the window as text beyond a list row's preview of at most 320 characters, a clicked link's address, and the text an answer or a forward puts in the composer?
 12. **The database key.** Does a database open without the key from the store, does the key leave `secure_storage`, or can SQLite's error quoting it reach error text?

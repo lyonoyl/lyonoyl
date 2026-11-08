@@ -2,7 +2,7 @@
 
 Lyonoyl Mail ships on macOS; Windows and Linux are built from source. This page records where the three differ, what the code does about it, and which differences are unverified.
 
-Verified means someone ran the application and watched the behavior, or the engine probe ran and reported a number. Reasoned means the platform API was read and the call is the right one, but nobody has run it there.
+Verified means someone ran the application and watched the behavior, the engine probe ran and reported a number, or a test asked the library itself on that system. Reasoned means the platform API was read and the call is the right one, but nobody has run it there.
 
 ## What is supported
 
@@ -36,7 +36,7 @@ What this page marks verified was run on these three. A release is the macOS bui
 
 `macOS.hardenedRuntime` is on by Tauri's default, which is what notarization requires, and `scripts/release-macos.sh` refuses a build without it.
 
-**What the application weighs.** A release build for Apple Silicon is **27.5 MB** on disk, the whole `.app` bundle counted. Taken with `npm run app:build`, which is the same build the installers are cut from. The other two systems are not measured here.
+**What the application weighs.** A release build for Apple Silicon is **24.6 MB** on disk, the whole `.app` bundle counted. Taken with `npm run app:build`, which is the same build the installers are cut from. The other two systems are not measured here.
 
 ## Where data is kept
 
@@ -203,6 +203,18 @@ Which one a device gets is decided by the first start that writes anything, by r
 The file itself is Argon2id at 256 MB of memory over the master password, and one sealed block underneath a header that names that cost—sealed together with it, so a file claiming a cheaper derivation is refused rather than opened. Mode `0600`, written through a neighbor and a rename. Nothing is created until a master password is chosen, and the file is closed again at every start.
 
 The file, the derivation, and the classification are covered by tests; the rows are reasoned because a real Secret Service that is absent, present, or locked has not been run on a Linux desktop.
+
+## What encrypts the databases
+
+Every system writes the same files: SQLCipher 4's format, every page encrypted with AES-256-CBC and authenticated with HMAC-SHA512 under the raw key from the store, so a file written on one opens on the others. What SQLCipher takes its ciphers from differs, and `src-tauri/Cargo.toml` decides it in one place, a table that applies to every system but macOS.
+
+| Platform | Library | Where it comes from | Status |
+| --- | --- | --- | --- |
+| macOS | CommonCrypto | Part of the system, and patched with it | **verified**—`the_databases_are_encrypted_by_the_library_this_system_is_built_with` answers `commoncrypto` |
+| Windows | OpenSSL 3.6 | Compiled from source into the build: Windows has no libcrypto of its own | reasoned |
+| Linux | OpenSSL 3.6 | Compiled from source into the build | reasoned |
+
+`a_database_another_build_wrote_opens_in_this_one` opens, under the library the system takes, a database each library wrote, the write-ahead log included. On every system, LIBSQLITE3_SYS_USE_PKG_CONFIG links a SQLCipher of the system's in place of the one built here; on macOS, OPENSSL_DIR, or OPENSSL_LIB_DIR with OPENSSL_INCLUDE_DIR, plain or prefixed with the target, sends SQLCipher to that library, which the Mac that built it has and another may not; and on Windows and Linux, OPENSSL_NO_VENDOR links the system's OpenSSL. The machine check refuses the variables, the provider test a test build made under them, and `scripts/release-macos.sh` an application that links anything outside the system; a build kept for this machine runs here with the library it was pointed at.
 
 ## Asking where a file goes
 

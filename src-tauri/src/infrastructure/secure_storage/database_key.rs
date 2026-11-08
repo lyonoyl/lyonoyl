@@ -77,9 +77,20 @@ impl DatabaseKey {
     ///
     /// The quoting around the material is not decoration: a bare `x'…'` is a blob literal and the
     /// pragma refuses it outright. Raw material is given as a string holding that literal.
+    ///
+    /// The file's format is named with the key, after it and before anything reads the first page,
+    /// because the format is this product's decision rather than a library's default: SQLCipher 4's,
+    /// 4096-byte pages, each encrypted with AES-256-CBC and authenticated with HMAC-SHA512. Every
+    /// system writes it, whichever library is behind SQLCipher there. A SQLCipher whose defaults
+    /// differ, as version 5's do in the cipher, the page size and the derivation, would otherwise
+    /// take every file already written for one this key does not open. Moving to a newer format is
+    /// a migration of its own, never a library update.
     pub fn unlock(&self, connection: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
         connection
-            .execute_batch(&format!("PRAGMA key = {};", self.0.expose_secret()))
+            .execute_batch(&format!(
+                "PRAGMA key = {}; PRAGMA cipher_compatibility = 4;",
+                self.0.expose_secret()
+            ))
             .map_err(|_| {
                 rusqlite::Error::SqliteFailure(
                     rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_NOTADB),
