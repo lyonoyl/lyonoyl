@@ -30,6 +30,7 @@ What this page marks verified was run on these three. A release is the macOS bui
 | | Set to | Why |
 | --- | --- | --- |
 | `macOS.minimumSystemVersion` | `13.0` | Otherwise the floor is whatever the Rust target defaults to—a side effect standing where a decision belongs |
+| `macOS.dmg` | a background, the window's size, and where the two icons stand | The disk image opens on a window that shows where to drag the application: the picture, `src-tauri/images/dmg-background.tiff`, holds both sizes Finder draws, for an ordinary screen and a Retina one, and an arrow on the line between the two places, and Finder lays the window out while the image is built |
 | `windows.webviewInstallMode` | `skip` | The default downloads WebView2 from Microsoft **during installation**. On Windows 11 it is part of the system, so the installer does not reach the network before the application has been started once. The cost: on a Windows without it—a stripped or LTSC build—the application does not start and the installer does not say why |
 | `linux.deb.depends` | the portal, a GTK or KDE backend, Zenity | The file dialog is an XDG portal over D-Bus, with Zenity where there is none |
 | `linux.rpm.depends` | the portal and Zenity | The same |
