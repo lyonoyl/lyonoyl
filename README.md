@@ -46,12 +46,11 @@ How each of these works is in [the threat model](docs/security/threat-model.md).
 <p align="center"><strong>FORGE OF THE GODS</strong><br>
 Independent software house building products across software, finance, and technology.</p>
 
-<p align="center"><img src="docs/sponsors/badges/supporting-organization.svg" alt="Supporting Organization" height="20">
-<img src="docs/sponsors/badges/founding-sponsor.svg" alt="Founding Sponsor" height="20"></p>
+<p align="center"><img src="docs/sponsors/badges/supporting-organization.svg" alt="Supporting Organization" height="20"></p>
 
 <p align="center"><a href="https://fotg.net?utm_source=github&utm_medium=readme&utm_campaign=lyonoyl">www.fotg.net</a></p>
 
-<p>Support independent, open-source software and help make privacy-respecting email accessible to everyone. Your company logo and a link to your product can be featured here.</p>
+<p>Support independent, open-source software and help make privacy-respecting email accessible to everyone. Your company logo and a link to your product can be featured here, at one of the <a href="docs/sponsors/README.md">sponsor levels</a>.</p>
 
 <p>Be the cat's patron: <a href="mailto:patron@lyonoyl.com">patron@lyonoyl.com</a></p>
 
@@ -86,6 +85,7 @@ npm run app:build
 | [Privacy](PRIVACY.md) | What reaches the project from your copy, and what its site keeps |
 | [Response budgets](docs/performance/response-budgets.md) | How long each action may take, and what was measured |
 | [Review checklists](docs/review-checklists/README.md) | What a review checks in mail handling, security, architecture and responsiveness |
+| [Sponsors](docs/sponsors/README.md) | The sponsor levels, and the badge that shows each |
 | [Threat model](docs/security/threat-model.md) | What Lyonoyl Mail trusts, what it does not, and how each defense works |
 
 ## Contributing
