@@ -36,7 +36,7 @@ const VENDORED = [
     project: "SQLCipher",
     licence: "BSD-3-Clause",
     text: "sqlcipher/LICENSE",
-    // Compiled in by the `bundled-sqlcipher-vendored-openssl` feature in src-tauri/Cargo.toml,
+    // Compiled in on every system by the `bundled-sqlcipher` feature in src-tauri/Cargo.toml,
     // which is how every page of both databases comes to be encrypted.
   },
   {
@@ -44,7 +44,9 @@ const VENDORED = [
     project: "OpenSSL",
     licence: "Apache-2.0",
     text: "openssl/LICENSE.txt",
-    // Pulled in by the same feature: SQLCipher takes its ciphers from it.
+    // Pulled in on Windows and Linux by `bundled-sqlcipher-vendored-openssl`, where SQLCipher
+    // takes its ciphers from it; on macOS it takes them from the system, which ships nothing here.
+    // The list is every system's, so the notice stays while any of them compiles OpenSSL in.
   },
 ];
 

@@ -1,2 +1,6 @@
 # cmd.exe is unreliable about labels in a file with bare newlines.
 *.cmd text eol=crlf
+
+# A database another build wrote is opened byte for byte as it was written; a checkout that
+# converted a line ending inside one would leave a file no key opens.
+tests/fixtures/databases/** binary

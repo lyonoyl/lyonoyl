@@ -569,3 +569,7 @@ mod opening_a_workspace {
         std::fs::remove_dir_all(&dir).ok();
     }
 }
+
+#[cfg(test)]
+#[path = "encryption_tests.rs"]
+mod encryption_tests;

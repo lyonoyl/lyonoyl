@@ -36,6 +36,18 @@ say "The signing identity"
 . scripts/signing-identity.sh notarizing
 echo "certificate in the keychain, notarization key present and readable only by you"
 
+say "Finder, which arranges the disk image's window"
+# Tauri lays out the window the disk image opens in by asking Finder, through AppleScript, while it
+# builds the image. macOS lets the terminal running this do that only once it has been allowed, and
+# a terminal that may not fails that step at the end of the build, where Tauri says only that its
+# script failed. Asked here first, macOS puts its question while somebody is watching, and a
+# refusal stops the release before anything is built.
+if ! osascript -e 'tell application "Finder" to get name' >/dev/null 2>&1; then
+  printf '\033[31m%s\033[0m\n' "This terminal may not control Finder, which arranges the disk image's window. Allow it under System Settings, Privacy & Security, Automation, then run this again." >&2
+  exit 1
+fi
+echo "Finder answers this terminal"
+
 say "Everything that must be true before a release leaves this machine"
 npm run preflight
 
@@ -107,8 +119,10 @@ codesign --verify --deep --strict --verbose=2 "$app"
 # whether a home directory shipped is looking in what shipped.
 inside="$app/Contents/MacOS"
 # `-a` because this is a binary, and without it `grep` reports nothing at all on one rather than
-# reporting no match -- a check that says what a person wants to hear whatever is in the file.
-carried=$(grep -raoF "$HOME" "$inside" 2>/dev/null | wc -l | tr -d ' ')
+# reporting no match -- a check that says what a person wants to hear whatever is in the file. A
+# `grep` that finds nothing exits 1, and under `pipefail` that ended the script there without a word,
+# on exactly the binary that passes: so its finding nothing is taken as the answer it is.
+carried=$({ grep -raoiF "$HOME" "$inside" 2>/dev/null || true; } | wc -l | tr -d ' ')
 if [ "$carried" != "0" ]; then
   printf '\033[31m%s\033[0m\n' "The application carries the directory it was built in, $carried times." >&2
   exit 1
@@ -129,6 +143,32 @@ case "$directory" in
     exit 1
     ;;
 esac
+
+# Linked to nothing but the system, read and matched the same way. On macOS SQLCipher takes its
+# ciphers from the system; a build made under OPENSSL_DIR, OPENSSL_LIB_DIR with OPENSSL_INCLUDE_DIR,
+# plain or prefixed with the target, or LIBSQLITE3_SYS_USE_PKG_CONFIG links a library from wherever
+# that pointed instead, outside the system, which the Mac that built it has and another may not;
+# there the application stops before its first window.
+#
+# Every binary links the system's own C library, so an answer without it is otool having read
+# nothing, and a check that reads nothing does not pass. An outside library is printed with the
+# account it lies under replaced, in any letter case, since what this prints may be shown to
+# somebody.
+linked=$(otool -L "$inside"/* 2>/dev/null | grep -E '^[[:space:]]' | awk '{print $1}' || true)
+case "$linked" in
+  *"/usr/lib/libSystem.B.dylib"*) ;;
+  *)
+    printf '\033[31m%s\033[0m\n' "otool read no libraries from the application, so nothing says what it links." >&2
+    exit 1
+    ;;
+esac
+outside=$(printf '%s\n' "$linked" | grep -vE '^(/System/Library/|/usr/lib/|$)' || true)
+if [ -n "$outside" ]; then
+  printf '\033[31m%s\033[0m\n' "The application links libraries from outside the system:" >&2
+  printf '%s\n' "$outside" | sed -E 's#^/([Uu][Ss][Ee][Rr][Ss]|[Hh][Oo][Mm][Ee])/[^/]+/#/\1/<account>/#' >&2
+  printf '%s\n' "Unset OPENSSL_DIR, OPENSSL_LIB_DIR and OPENSSL_INCLUDE_DIR, plain or prefixed with the target, and LIBSQLITE3_SYS_USE_PKG_CONFIG, then run cargo clean -p libsqlite3-sys --release." >&2
+  exit 1
+fi
 
 # The one that catches a missing secret. Tauri skips notarization with a warning and exits zero when
 # the notary credentials are absent, so a build with no secret is green and produces an application
@@ -163,13 +203,14 @@ if [ "$status" != "Accepted" ]; then
   exit 1
 fi
 echo "accepted by the notary"
-xcrun stapler staple -q "$image"
+xcrun stapler staple "$image"
 
 # Asked the way a Mac that downloaded it asks, by the image's own signature, rather than taken from
-# the ticket having been written. Verbose enough to say it was accepted and why, and no more: one
+# the ticket having been written. Not quiet: a step that fails here says why rather than ending the
+# script without a word. Verbose enough to say it was accepted and why, and no more: one
 # more level names the certificate's holder.
 codesign --verify --strict "$image"
-xcrun stapler validate -q "$image"
+xcrun stapler validate "$image"
 spctl --assess --type open --context context:primary-signature --verbose "$image"
 
 # What this build will and will not do about updates, said out loud rather than discovered later.

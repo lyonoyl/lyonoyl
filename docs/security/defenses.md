@@ -35,13 +35,14 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | A connection opened to read cannot change a mailbox, whatever command it is handed, and no connection makes, renames, or deletes a mailbox, names a message by its position, or expunges one it did not name | `a_command_that_changes_the_server_never_leaves_the_machine`, `nothing_may_replace_a_message_whatever_it_was_opened_for_or_names_it_by`, `a_connection_opened_to_read_opens_a_mailbox_only_to_read_it`, `nothing_may_make_unmake_or_rename_a_mailbox_whatever_it_was_opened_for`, `even_a_connection_opened_to_act_may_not_name_a_message_by_its_position`, `a_bare_expunge_is_refused_on_every_connection_there_is` |
 | A move or a delete reaches only a folder of the message's own account | `a_folder_is_only_found_in_the_account_that_owns_it` |
 | A database a newer version wrote is refused, never set aside, and left byte for byte as it was, with the log beside it | `a_profile_a_newer_build_wrote_is_refused_with_its_own_code_and_left_alone`, `a_file_a_newer_build_wrote_is_refused_and_left_at_its_version` |
+| A database another build wrote opens in this one, whichever library encrypted it, the write-ahead log included | `a_database_another_build_wrote_opens_in_this_one` |
 
 ## Secrets stay secret
 
 | Defense | Held by |
 | --- | --- |
 | Passwords and the database key live only in the system's keychain, or on a Linux desktop without one in a file a master password opens | `scripts/check-layering.sh` |
-| Every page of every database is encrypted, and a file opens only under the key it was written with | `a_file_does_not_open_under_a_key_it_was_not_written_under` |
+| Every page of every database is encrypted, by the system's CommonCrypto on macOS and by OpenSSL built in on Windows and Linux, and a file opens only under the key it was written with | `a_file_does_not_open_under_a_key_it_was_not_written_under`, `the_databases_are_encrypted_by_the_library_this_system_is_built_with`, `scripts/check-machine.mjs`, `scripts/release-macos.sh` |
 | Message bodies are sealed again inside that, under a key of their own | `another_key_does_not_open_it`, `bytes_that_were_never_sealed_do_not_open` |
 | The data folder and its databases are this person's alone | `a_database_is_unreadable_by_anybody_else_from_the_first_run`, `the_data_directory_is_this_persons_alone_however_it_was_made` |
 | What SQLite sorts stays in memory, and what it frees is overwritten | `keeps_what_it_sorts_in_memory_and_overwrites_what_it_frees` |
@@ -118,5 +119,5 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | Every check here runs before every commit, on the machine making it, and nothing runs anywhere else | `scripts/preflight.sh` |
 | Each prohibition is refused by what it does rather than how it is spelled, and every rule a planted file can trip is fed one it must refuse | `scripts/check-layering.sh`, `scripts/check-layering.test.sh` |
 | Every license the application ships is collected from the tree, the C code inside crates included, and none stops the product being sold | `nothing_in_the_tree_is_licensed_in_a_way_this_product_cannot_be_sold_under`, `a_refused_licence_is_caught_in_either_spelling`, `scripts/collect-vendored-licences.mjs` |
-| Nothing in the tree identifies anybody | `scripts/check-anonymity.py` |
+| Nothing in the tree identifies anybody, and a database kept as a fixture holds no file, table, column, row, or page but those the generator writes | `scripts/check-anonymity.py`, `a_database_another_build_wrote_opens_in_this_one` |
 | Advisories against what the tree holds are read on every run | `scripts/preflight.sh` |
