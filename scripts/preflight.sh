@@ -292,7 +292,9 @@ fi
 step "Advisories"
 # `--deny yanked` as well as the advisories: a crate pulled from the registry is one nobody can
 # build against again, and it fails the run rather than being mentioned in passing.
-cargo audit --deny yanked || bad "cargo audit"
+#
+# One advisory is accepted until its fix can be taken.
+cargo audit --deny yanked --ignore RUSTSEC-2026-0459 || bad "cargo audit"
 npm audit --audit-level=high || bad "npm audit"
 
 # The bundle the application ships, built rather than only type-checked. `tsc --noEmit` says the

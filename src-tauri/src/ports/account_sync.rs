@@ -62,6 +62,18 @@ pub trait AccountWatch: Send + Sync + 'static {
 pub trait AccountSync: Send + Sync + 'static {
     fn sync(&self, account_id: &str) -> Result<AccountChanged, AccountSyncError>;
 
+    /// The same pass, saying how far it has got as it goes: the round as the application starts,
+    /// which the foot of the window shows. One with nothing to say about its folders reads the
+    /// account as [`AccountSync::sync`] does.
+    fn sync_telling(
+        &self,
+        account_id: &str,
+        progress: &dyn crate::ports::progress::Progress,
+    ) -> Result<AccountChanged, AccountSyncError> {
+        let _ = progress;
+        self.sync(account_id)
+    }
+
     /// The accounts on this device, in the order they should be visited.
     fn accounts(&self) -> Result<Vec<String>, AccountSyncError>;
 }

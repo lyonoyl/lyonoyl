@@ -103,7 +103,8 @@ const A_PUSH_ECHOES_FOR: Duration = Duration::from_secs(5);
 /// Why an account is being read, which decides who waits for whom and who is told about it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Why {
-    /// A person asked: the refresh button, or the first read of an account just added. The only
+    /// A person asked: the refresh button, the first read of an account just added, or the round
+    /// as the application starts, which a person who has just opened it is waiting on. The only
     /// reading the foot of the window speaks about, because it is the only reading somebody is
     /// waiting on.
     Person,
@@ -178,13 +179,27 @@ impl InFlight {
 /// Named rather than counted, and that is what bounds it: an account asked about twice in one
 /// burst is one mailbox to read, not two.
 ///
+/// `waiting` is every account a person has asked for that has not had its turn yet, with how many
+/// asks for it are waiting. An account is counted in `asked` from the moment it is asked for, not
+/// from the moment its turn comes: only so many mailboxes talk to their servers at once, and a
+/// total counted as they were let in read three of four, then five of nine. And a burst lasts while
+/// any of them waits, or the one letting go just before another's turn would end it halfway.
+///
 /// `pushed` is when a push last let go of each account, kept only while it can still matter to a
 /// watcher: for [`A_PUSH_ECHOES_FOR`].
 #[derive(Default)]
 struct Reading {
     accounts: HashMap<String, Why>,
     asked: HashSet<String>,
+    waiting: HashMap<String, u32>,
     pushed: HashMap<String, tokio::time::Instant>,
+}
+
+impl Reading {
+    /// Whether nobody is reading what a person asked for, nor waiting to: the burst is over.
+    fn nobody_waits(&self) -> bool {
+        self.waiting.is_empty() && !self.accounts.values().any(|why| *why == Why::Person)
+    }
 }
 
 /// How far a burst of reading has got: how many are done, out of how many were asked for.
@@ -195,6 +210,21 @@ pub struct HowFar {
 }
 
 impl InFlight {
+    /// Counts an account a person asked for before its turn comes, for as long as what is
+    /// returned is held: taken first thing, before waiting for a place, and let go once the
+    /// account is claimed or turned away.
+    pub fn ask(&self, account_id: &str) -> Asked {
+        let mut held = self.reading.lock().expect("the lock is never poisoned");
+        held.asked.insert(account_id.to_owned());
+        *held.waiting.entry(account_id.to_owned()).or_default() += 1;
+
+        Asked {
+            reading: Arc::clone(&self.reading),
+            account_id: account_id.to_owned(),
+            how_far: self.how_far.clone(),
+        }
+    }
+
     /// Claims an account now, or answers `None` when something else holds it.
     pub fn claim(&self, account_id: &str, why: Why) -> Option<Claim> {
         self.try_to_claim(account_id, why).ok()
@@ -271,16 +301,21 @@ impl InFlight {
     /// to the server are not counted, because nobody is waiting on them. `asked` goes back to
     /// nought when the last one finishes, so a line drawn from this disappears rather than sitting
     /// at nine of nine.
+    ///
+    /// Still to do is every account a person's reading holds and every one still waiting for its
+    /// turn, each once: an account just claimed is both until its ask is let go.
     pub fn how_far(&self) -> HowFar {
         let held = self.reading.lock().expect("the lock is never poisoned");
-        let still = held
+        let still: HashSet<&String> = held
             .accounts
-            .values()
-            .filter(|why| **why == Why::Person)
-            .count();
+            .iter()
+            .filter(|(_, why)| **why == Why::Person)
+            .map(|(account_id, _)| account_id)
+            .chain(held.waiting.keys())
+            .collect();
 
         HowFar {
-            done: u32::try_from(held.asked.len() - still).unwrap_or(u32::MAX),
+            done: u32::try_from(held.asked.len().saturating_sub(still.len())).unwrap_or(u32::MAX),
             asked: u32::try_from(held.asked.len()).unwrap_or(u32::MAX),
         }
     }
@@ -320,7 +355,7 @@ impl Drop for Claim {
             // The last one a person asked for ends the burst. Without this the next refresh
             // would begin against a total left over from the one before it, and the line would
             // say four of nine before anything had been read at all.
-            let nobody_waits = !held.accounts.values().any(|why| *why == Why::Person);
+            let nobody_waits = held.nobody_waits();
             if nobody_waits {
                 held.asked.clear();
             }
@@ -342,25 +377,71 @@ impl Drop for Claim {
     }
 }
 
+/// An account a person asked for, counted while it waits for its turn. Let go however the asking
+/// ends: an ask that outlived it would hold every later line at a total nobody is reading toward.
+pub struct Asked {
+    reading: Arc<Mutex<Reading>>,
+    account_id: String,
+    how_far: Option<crate::infrastructure::progress::HowFarAlong>,
+}
+
+impl Drop for Asked {
+    fn drop(&mut self) {
+        let ended = {
+            let mut held = self.reading.lock().expect("the lock is never poisoned");
+            if let Some(waiting) = held.waiting.get_mut(&self.account_id) {
+                *waiting -= 1;
+                if *waiting == 0 {
+                    held.waiting.remove(&self.account_id);
+                }
+            }
+            // An ask let go without its turn — turned away, or failed before it — can be the last
+            // thing a burst was waiting for, and then it is the one that ends it.
+            let nobody_waits = held.nobody_waits();
+            if nobody_waits {
+                held.asked.clear();
+            }
+            nobody_waits
+        };
+
+        if ended {
+            if let Some(how_far) = &self.how_far {
+                how_far.nothing_is_being_read();
+            }
+        }
+    }
+}
+
 /// Reads one account, if nothing else is reading it, and answers with what changed.
 ///
 /// Waits for a change on its way to the server, which would otherwise be read before the server
-/// had it, and leaves an account anything else is already reading.
+/// had it, and leaves an account anything else is already reading. Read for a person — the round
+/// as the application starts — it says how far it has got as it goes, and the ask that counted it
+/// is let go once its turn has come.
 async fn read_one<S: AccountSync>(
     sync: Arc<S>,
     in_flight: InFlight,
     runtime: tokio::runtime::Handle,
     account_id: String,
+    why: Why,
+    asked: Option<Asked>,
 ) -> Option<(String, AccountChanged)> {
-    let claim = in_flight
-        .claim_waiting(&account_id, Why::Background)
-        .await?;
+    let claim = in_flight.claim_waiting(&account_id, why).await;
+    drop(asked);
+    let claim = claim?;
+    let telling = match why {
+        Why::Person => in_flight.how_far.clone(),
+        _ => None,
+    };
 
     // The pass itself is blocking: SQLite and a synchronous protocol adapter. It belongs off the
     // runtime's worker threads, or four accounts would stall everything else.
     let outcome = runtime
         .spawn_blocking(move || {
-            let changed = sync.sync(&account_id);
+            let changed = match &telling {
+                Some(how_far) => sync.sync_telling(&account_id, how_far),
+                None => sync.sync(&account_id),
+            };
             drop(claim);
             (account_id, changed)
         })
@@ -380,10 +461,38 @@ pub async fn one_round<S: AccountSync>(
     runtime: tokio::runtime::Handle,
     at_once: Arc<Semaphore>,
 ) -> Vec<(String, AccountChanged)> {
-    one_round_waiting_at_most(sync, in_flight, runtime, at_once, A_PASS_AT_MOST).await
+    one_round_waiting_at_most(
+        sync,
+        in_flight,
+        runtime,
+        at_once,
+        A_PASS_AT_MOST,
+        Why::Background,
+    )
+    .await
 }
 
-/// The same round, told how long to wait on one account.
+/// The round as the application starts. Read as a press of refresh is, and shown as one: a person
+/// who has just opened the application is waiting on it, as nobody is on the rounds after it.
+/// Every account is counted before the first is read.
+pub async fn the_round_at_launch<S: AccountSync>(
+    sync: Arc<S>,
+    in_flight: InFlight,
+    runtime: tokio::runtime::Handle,
+    at_once: Arc<Semaphore>,
+) -> Vec<(String, AccountChanged)> {
+    one_round_waiting_at_most(
+        sync,
+        in_flight,
+        runtime,
+        at_once,
+        A_PASS_AT_MOST,
+        Why::Person,
+    )
+    .await
+}
+
+/// The same round, told how long to wait on one account and whose reading it is.
 ///
 /// The bound is an argument only so a test can drive the real thing with a real clock: pausing
 /// time does not work here, because the pass is a blocking task and the runtime is never idle
@@ -397,10 +506,18 @@ async fn one_round_waiting_at_most<S: AccountSync>(
     // round and a person pressing refresh could be thirty-two conversations between them.
     permits: Arc<Semaphore>,
     at_most: Duration,
+    why: Why,
 ) -> Vec<(String, AccountChanged)> {
     let Ok(accounts) = sync.accounts() else {
         return Vec::new();
     };
+
+    // A round a person is waiting on counts every account before the first is let in, so the
+    // total it shows is the whole round from its first moment.
+    let mut asks: Vec<Option<Asked>> = accounts
+        .iter()
+        .map(|account_id| (why == Why::Person).then(|| in_flight.ask(account_id)))
+        .collect();
 
     // What the whole round costs, beside what each pass in it costs. The two are different
     // questions: a round of ten accounts that are each quick is still slow if they queue, and the
@@ -414,7 +531,7 @@ async fn one_round_waiting_at_most<S: AccountSync>(
 
     let mut running = Vec::new();
 
-    for account_id in accounts {
+    for (account_id, asked) in accounts.into_iter().zip(asks.drain(..)) {
         let ours = Arc::clone(&ours);
         let permits = Arc::clone(&permits);
         let sync = Arc::clone(&sync);
@@ -424,9 +541,12 @@ async fn one_round_waiting_at_most<S: AccountSync>(
         running.push(tokio::spawn(async move {
             let _share = ours.acquire().await.ok()?;
             let _permit = permits.acquire().await.ok()?;
-            tokio::time::timeout(at_most, read_one(sync, in_flight, runtime, account_id))
-                .await
-                .ok()?
+            tokio::time::timeout(
+                at_most,
+                read_one(sync, in_flight, runtime, account_id, why, asked),
+            )
+            .await
+            .ok()?
         }));
     }
 
@@ -472,23 +592,31 @@ pub fn start<S: AccountSync>(
 ) {
     let spawner = runtime.clone();
     spawner.spawn(async move {
+        // Before the wait: every account is read as the application starts, and the foot of the
+        // window shows that round as it shows a press of refresh; the rounds after it are quiet.
+        // The window reads on its own only an account it has no folders for yet.
+        let mut changed = the_round_at_launch(
+            Arc::clone(&sync),
+            in_flight.clone(),
+            runtime.clone(),
+            Arc::clone(&at_once),
+        )
+        .await;
+
         loop {
-            // Before the wait: every account is read as the application starts, and the foot of
-            // the window shows it as it shows any round. The window reads on its own only an
-            // account it has no folders for yet.
-            let changed = one_round(
+            for (account_id, changed) in changed.drain(..) {
+                announce(&account_id, changed);
+            }
+
+            until_the_next_round(BETWEEN_ROUNDS).await;
+
+            changed = one_round(
                 Arc::clone(&sync),
                 in_flight.clone(),
                 runtime.clone(),
                 Arc::clone(&at_once),
             )
             .await;
-
-            for (account_id, changed) in changed {
-                announce(&account_id, changed);
-            }
-
-            until_the_next_round(BETWEEN_ROUNDS).await;
         }
     });
 }
@@ -1251,6 +1379,173 @@ mod tests {
 
         assert!(holding > 0, "the round was reading, or this proves nothing");
         assert_eq!(shown, HowFar::default(), "and it said so to nobody");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_round_at_launch_is_shown_with_every_mailbox_counted_from_the_start() {
+        // A person who has just opened the application is waiting on this one, and it reads only
+        // so many mailboxes at once: counted as they were let in, the line read eight of eight
+        // while twenty-four more had not begun.
+        let in_flight = InFlight::default();
+        let sync = Arc::new(HoldingSync::default());
+
+        let round = tokio::spawn(the_round_at_launch(
+            Arc::clone(&sync),
+            in_flight.clone(),
+            tokio::runtime::Handle::current(),
+            Arc::new(Semaphore::new(AT_ONCE)),
+        ));
+
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
+        let holding = sync.reading.load(Ordering::SeqCst);
+        let shown = in_flight.how_far();
+
+        sync.let_go.store(true, Ordering::SeqCst);
+        round
+            .await
+            .expect("the round finishes once the passes are let go");
+
+        let mailboxes = u32::try_from(AT_ONCE * 2).expect("a small number");
+        assert!(holding > 0, "the round was reading, or this proves nothing");
+        assert!(
+            holding < AT_ONCE * 2,
+            "some mailboxes were still waiting their turn, or this proves nothing"
+        );
+        assert_eq!(
+            shown,
+            HowFar {
+                done: 0,
+                asked: mailboxes
+            }
+        );
+        assert_eq!(
+            in_flight.how_far(),
+            HowFar::default(),
+            "and the line goes when it ends"
+        );
+    }
+
+    /// A pass that says which way it was asked to read: telling how far it has got, or not.
+    #[derive(Default)]
+    struct TellingSync {
+        told: AtomicUsize,
+        untold: AtomicUsize,
+    }
+
+    impl AccountSync for TellingSync {
+        fn accounts(&self) -> Result<Vec<String>, AccountSyncError> {
+            Ok(vec!["acc-0".to_owned(), "acc-1".to_owned()])
+        }
+
+        fn sync(&self, _account_id: &str) -> Result<AccountChanged, AccountSyncError> {
+            self.untold.fetch_add(1, Ordering::SeqCst);
+            Ok(AccountChanged::default())
+        }
+
+        fn sync_telling(
+            &self,
+            _account_id: &str,
+            _progress: &dyn crate::ports::progress::Progress,
+        ) -> Result<AccountChanged, AccountSyncError> {
+            self.told.fetch_add(1, Ordering::SeqCst);
+            Ok(AccountChanged::default())
+        }
+    }
+
+    #[tokio::test]
+    async fn the_round_at_launch_says_how_far_its_passes_have_got_and_a_round_after_it_does_not() {
+        // The bar moves by folders, and only a pass that tells it about them moves it.
+        let in_flight =
+            InFlight::reporting_to(crate::infrastructure::progress::HowFarAlong::default());
+        let sync = Arc::new(TellingSync::default());
+
+        the_round_at_launch(
+            Arc::clone(&sync),
+            in_flight.clone(),
+            tokio::runtime::Handle::current(),
+            Arc::new(Semaphore::new(AT_ONCE)),
+        )
+        .await;
+        assert_eq!(
+            sync.told.load(Ordering::SeqCst),
+            2,
+            "both passes told how far they got"
+        );
+        assert_eq!(sync.untold.load(Ordering::SeqCst), 0);
+
+        one_round(
+            Arc::clone(&sync),
+            in_flight.clone(),
+            tokio::runtime::Handle::current(),
+            Arc::new(Semaphore::new(AT_ONCE)),
+        )
+        .await;
+        assert_eq!(
+            sync.told.load(Ordering::SeqCst),
+            2,
+            "the round after it told nobody"
+        );
+        assert_eq!(sync.untold.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn every_mailbox_asked_for_counts_before_its_turn_comes() {
+        let in_flight = InFlight::default();
+        let mut asks: Vec<Asked> = (0..9).map(|n| in_flight.ask(&format!("acc-{n}"))).collect();
+
+        let first = in_flight
+            .claim("acc-0", Why::Person)
+            .expect("nothing else holds it");
+        drop(asks.remove(0));
+        assert_eq!(
+            in_flight.how_far(),
+            HowFar { done: 0, asked: 9 },
+            "nine from the first moment, not one"
+        );
+
+        drop(first);
+        assert_eq!(
+            in_flight.how_far(),
+            HowFar { done: 1, asked: 9 },
+            "one read and eight waiting their turn: the burst goes on rather than ending halfway"
+        );
+
+        drop(asks);
+        assert_eq!(
+            in_flight.how_far(),
+            HowFar::default(),
+            "the last ask let go ends the burst"
+        );
+    }
+
+    #[test]
+    fn an_ask_let_go_without_its_turn_ends_the_burst_when_nothing_else_is_left() {
+        // Turned away, or failed before its turn: the line must not wait for it for ever.
+        let in_flight = InFlight::default();
+        let asked = in_flight.ask("acc-0");
+        assert_eq!(in_flight.how_far(), HowFar { done: 0, asked: 1 });
+
+        drop(asked);
+        assert_eq!(in_flight.how_far(), HowFar::default());
+    }
+
+    #[test]
+    fn an_account_asked_for_twice_is_one_mailbox_until_both_asks_are_let_go() {
+        let in_flight = InFlight::default();
+        let first = in_flight.ask("acc-0");
+        let second = in_flight.ask("acc-0");
+        assert_eq!(in_flight.how_far(), HowFar { done: 0, asked: 1 });
+
+        drop(first);
+        assert_eq!(
+            in_flight.how_far(),
+            HowFar { done: 0, asked: 1 },
+            "the other ask still waits"
+        );
+
+        drop(second);
+        assert_eq!(in_flight.how_far(), HowFar::default());
     }
 
     #[tokio::test]
@@ -2251,6 +2546,7 @@ mod tests {
             runtime.handle().clone(),
             Arc::new(Semaphore::new(AT_ONCE)),
             Duration::from_millis(50),
+            Why::Background,
         ));
         let took = started.elapsed();
 
