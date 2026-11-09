@@ -136,7 +136,9 @@ async fn a_push_that_sent_a_message_files_its_copy_and_then_reads_the_account_ba
     let (pushes, announced) = pushing(&push, InFlight::default());
 
     pushes.please_push("acc-1");
-    until(|| push.read_backs() == 1).await;
+    // The announcement comes after the read-back returns, so waiting for the read-back alone
+    // asserts before it about once in forty runs.
+    until(|| push.read_backs() == 1 && !announced.lock().expect("test lock").is_empty()).await;
 
     assert_eq!(push.filings.load(Ordering::SeqCst), 1, "no copy was filed");
     assert_eq!(

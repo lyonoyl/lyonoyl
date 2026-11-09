@@ -310,6 +310,7 @@ impl WorkspaceSync {
         &self,
         account_id: &str,
         number: i64,
+        progress: &dyn crate::ports::progress::Progress,
     ) -> Result<crate::application::sync::AccountPass, crate::application::error::UseCaseError>
     {
         // A file that will not open is the account's own failure, not the pass's: it is reported
@@ -337,7 +338,7 @@ impl WorkspaceSync {
             SqliteMailIndex::new(index.clone()),
             SqliteOperationLog::new(self.profile.clone()),
             crate::infrastructure::sqlite::message_bodies::SqliteMessageBodies::new(index, sealing),
-            (),
+            progress,
         )
         .execute(account_id, number)
     }
@@ -401,7 +402,7 @@ impl WorkspaceSync {
     fn read_back_now(&self, account_id: &str, number: i64) -> Result<ReadBack, AccountSyncError> {
         let reading = std::time::Instant::now();
         let pass = self
-            .read(account_id, number)
+            .read(account_id, number, &())
             .map_err(|_| AccountSyncError::Failed)?;
 
         // What was filed is let go once the account is read back: the list of sent mail shows the
@@ -466,6 +467,35 @@ impl AccountPush for WorkspaceSync {
 
 impl AccountSync for WorkspaceSync {
     fn sync(&self, account_id: &str) -> Result<AccountChanged, AccountSyncError> {
+        self.pass(account_id, &())
+    }
+
+    fn sync_telling(
+        &self,
+        account_id: &str,
+        progress: &dyn crate::ports::progress::Progress,
+    ) -> Result<AccountChanged, AccountSyncError> {
+        self.pass(account_id, progress)
+    }
+
+    fn accounts(&self) -> Result<Vec<String>, AccountSyncError> {
+        Ok(SqliteAccountRepository::new(self.profile.clone())
+            .list()
+            .map_err(|_| AccountSyncError::Failed)?
+            .iter()
+            .map(|account| account.id().to_owned())
+            .collect())
+    }
+}
+
+impl WorkspaceSync {
+    /// One pass over one account, a round's or the one at launch, telling `progress` how far it
+    /// has got: nothing, for a round nobody is waiting on.
+    fn pass(
+        &self,
+        account_id: &str,
+        progress: &dyn crate::ports::progress::Progress,
+    ) -> Result<AccountChanged, AccountSyncError> {
         let number = self.number_of(account_id)?;
 
         // What this pass costs, taken at both ends. Counts and a clock only -- no account, no
@@ -477,7 +507,7 @@ impl AccountSync for WorkspaceSync {
         // side by side each report the whole round.
         let began = std::time::Instant::now();
 
-        let pass = match self.read(account_id, number) {
+        let pass = match self.read(account_id, number, progress) {
             Ok(pass) => pass,
             // Written down before the failure is passed on.
             Err(why) => {
@@ -526,15 +556,6 @@ impl AccountSync for WorkspaceSync {
             bodies_read: read.bodies_read + again.changed.bodies_read,
             unseen_in_inbox: read.unseen_in_inbox + again.changed.unseen_in_inbox,
         })
-    }
-
-    fn accounts(&self) -> Result<Vec<String>, AccountSyncError> {
-        Ok(SqliteAccountRepository::new(self.profile.clone())
-            .list()
-            .map_err(|_| AccountSyncError::Failed)?
-            .iter()
-            .map(|account| account.id().to_owned())
-            .collect())
     }
 }
 

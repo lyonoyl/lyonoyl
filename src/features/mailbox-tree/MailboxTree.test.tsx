@@ -188,10 +188,10 @@ describe("MailboxTree", () => {
     expect(screen.queryByText(/Reading folders/i)).toBeNull();
   });
 
-  it("says so when the press found every account already being read", async () => {
-    // A round already under way answers "being checked right now", which is not a failure. When that
-    // is the answer for every account the press did nothing at all -- and saying nothing about it
-    // is a button that looks broken, which is exactly what it looked like.
+  it("says nothing when the press found every account already being read", async () => {
+    // A check already under way answers "being read right now". That is the check the press asked
+    // for, happening, and the line at the foot of the window shows it: said as a failure, it read
+    // "This account is being checked right now" over a check that was going fine.
     tree.mockResolvedValue(
       sidebar([account("acc-1", "one@example.com", [INBOX])]),
     );
@@ -205,9 +205,11 @@ describe("MailboxTree", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Get new mail" }),
     );
+    await waitFor(() => expect(sync).toHaveBeenCalledWith("acc-1"));
+    await act(async () => {});
 
-    const said = await screen.findByRole("alert");
-    expect(said.textContent).toContain("being checked right now");
+    expect(screen.getByRole("button", { name: "Get new mail" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("says nothing when one account was already being read and another ran", async () => {

@@ -58,6 +58,9 @@ pub async fn sync_account(
     // — a pass that found no folders and a pass that never ran — and the caller acts on it: the
     // sidebar records the account as asked and does not ask again for the rest of the session, so
     // a refusal answered as nothing would leave an account empty until the application restarts.
+    // Counted from now rather than from its turn: the window asks about every mailbox it reads at
+    // once, and a total counted as each was let in read three of four, then five of nine.
+    let asked = state.in_flight.ask(&account_id);
     let asked_at = std::time::Instant::now();
 
     // Waits its turn where the window has asked about more mailboxes than may talk to a server at
@@ -84,6 +87,8 @@ pub async fn sync_account(
             "That account is being read right now.",
         ));
     };
+    // Its turn has come, and the claim counts it from here.
+    drop(asked);
 
     // The same held passwords the background rounds use: the store is asked once per
     // account per run, not once per pass.

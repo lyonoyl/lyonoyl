@@ -257,22 +257,14 @@ export function MailboxTree({
    * that looks frozen. This is the path a press of refresh takes, and the one an account new to the
    * sidebar takes; every account is read as the application starts by the core's first round.
    *
-   * `pressed` is whether a person asked for this, and it changes one answer: an account already
-   * being read. A press that did nothing at all has to say so, or the button looks broken; an ask
-   * this sidebar made of its own accord has nobody waiting on it, and a red line above the tree
-   * over it says a new account failed when it is being read exactly as asked.
+   * An account already being read is not a failure, whoever asked for it: what was asked for is
+   * under way, and the line at the foot of the window shows it.
    */
   const sync = useCallback(
-    async (targets: AccountNodeDto[], pressed: boolean) => {
+    async (targets: AccountNodeDto[]) => {
       if (targets.length === 0) return;
       setSyncing(true);
       setSyncFailure(null);
-
-      // Whether anything actually ran. A round already under way answers "being read right now",
-      // which is not a failure -- but when that is the answer for every account, the press did
-      // nothing at all, and a press that says nothing is a button that looks broken.
-      let ranSomething = false;
-      let alreadyReading: { accountId: string; reason: unknown } | null = null;
 
       try {
         for (const account of targets) asked.current.add(account.accountId);
@@ -285,10 +277,7 @@ export function MailboxTree({
           const account = targets[at];
           if (account === undefined) continue;
 
-          if (answer.status === "fulfilled") {
-            ranSomething = true;
-            continue;
-          }
+          if (answer.status === "fulfilled") continue;
 
           const reason: unknown = answer.reason;
 
@@ -299,16 +288,10 @@ export function MailboxTree({
           // above it.
           if (isCommandError(reason) && reason.code === "alreadyReading") {
             collided.current.add(account.accountId);
-            alreadyReading ??= { accountId: account.accountId, reason };
             continue;
           }
 
           failed(account.accountId, reason);
-          ranSomething = true;
-        }
-
-        if (pressed && !ranSomething && alreadyReading !== null) {
-          failed(alreadyReading.accountId, alreadyReading.reason);
         }
       } finally {
         // Whatever happened. A round that ended by throwing left the button turning for the rest
@@ -338,7 +321,7 @@ export function MailboxTree({
         account.answered &&
         !asked.current.has(account.accountId),
     );
-    if (fresh.length > 0) void sync(fresh, false);
+    if (fresh.length > 0) void sync(fresh);
   }, [accounts, sync, syncing]);
 
   // A group removed while it was the thing being read. The row it was selected in is gone from
@@ -566,7 +549,7 @@ export function MailboxTree({
 
   const actions: AccountActions = {
     groups: groups ?? [],
-    sync: (account) => void sync([account], true),
+    sync: (account) => void sync([account]),
     settings: onReconnect,
     regrouped: () => {
       setReloads((count) => count + 1);
@@ -614,7 +597,7 @@ export function MailboxTree({
    */
   const getMail = () => {
     if (syncing) return;
-    void sync(accounts, true);
+    void sync(accounts);
   };
 
   return (
