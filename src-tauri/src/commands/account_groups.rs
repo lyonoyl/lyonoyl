@@ -12,7 +12,7 @@ use crate::application::arrange_accounts::ArrangeAccounts;
 use crate::bootstrap::adapters;
 use crate::commands::error::CommandError;
 use crate::AppState;
-use lyonoyl_domain::account_group::Placed;
+use lyonoyl_domain::account_group::{Placed, Sorting};
 
 /// One group as the sidebar draws it.
 #[derive(Debug, Clone, Serialize, TS)]
@@ -26,6 +26,8 @@ pub struct AccountGroupDto {
     pub place: i64,
     /// Folded away or open, as the person last left it.
     pub collapsed: bool,
+    /// How the accounts in it are ordered, which is what the group's menu ticks.
+    pub sorting: SortingDto,
     /// The accounts in it, in the order they are drawn. Identifiers rather than whole accounts:
     /// the sidebar already holds the accounts, and sending them twice would give it two versions
     /// of the same unread count.
@@ -51,9 +53,43 @@ pub async fn list_account_groups(
             name: group.name.as_str().to_owned(),
             place: group.position,
             collapsed: group.collapsed,
+            sorting: group.sorting.into(),
             accounts: group.accounts,
         })
         .collect())
+}
+
+/// How a group's mailboxes are ordered, as the window names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/shared/ipc/generated/")]
+pub enum SortingDto {
+    /// The order they were dragged into.
+    Manual,
+    /// The mailbox added first stands first.
+    DateAdded,
+    /// By the name the sidebar draws, whatever its case or its accents.
+    Name,
+}
+
+impl From<Sorting> for SortingDto {
+    fn from(sorting: Sorting) -> Self {
+        match sorting {
+            Sorting::Manual => Self::Manual,
+            Sorting::DateAdded => Self::DateAdded,
+            Sorting::Name => Self::Name,
+        }
+    }
+}
+
+impl From<SortingDto> for Sorting {
+    fn from(sorting: SortingDto) -> Self {
+        match sorting {
+            SortingDto::Manual => Self::Manual,
+            SortingDto::DateAdded => Self::DateAdded,
+            SortingDto::Name => Self::Name,
+        }
+    }
 }
 
 #[tauri::command]
@@ -191,6 +227,24 @@ pub async fn set_account_group_collapsed(
 
     tauri::async_runtime::spawn_blocking(move || {
         ArrangeAccounts::new(adapters::account_groups(pool)).set_collapsed(&group_id, collapsed)
+    })
+    .await
+    .map_err(background_task_failed)??;
+
+    Ok(())
+}
+
+/// Says how a group's mailboxes are ordered from now on.
+#[tauri::command]
+pub async fn sort_account_group(
+    state: State<'_, AppState>,
+    group_id: String,
+    sorting: SortingDto,
+) -> Result<(), CommandError> {
+    let pool = state.storage.profile()?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        ArrangeAccounts::new(adapters::account_groups(pool)).sort(&group_id, sorting.into())
     })
     .await
     .map_err(background_task_failed)??;

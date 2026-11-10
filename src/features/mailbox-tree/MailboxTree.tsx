@@ -2,33 +2,39 @@ import { CircleAlert, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  folderBadge,
-  folderName,
   unreadBadge,
   withReadChanges,
   type ReadChange,
 } from "@/entities/folder";
-import { isSameMailbox, type Mailbox } from "@/entities/mailbox";
+import type { Mailbox } from "@/entities/mailbox";
 import { describeError, useTranslation, type Translator } from "@/shared/i18n";
-import {
-  ContextMenu,
-  ContextMenuTrigger,
-} from "@/shared/ui/primitives/context-menu";
 import {
   arrangeSidebar,
   getMailboxTree,
   isCommandError,
   listAccountGroups,
+  placeAccountInGroup,
   reorderAccounts,
   setAccountCollapsed,
   setAccountGroupCollapsed,
   syncAccount,
 } from "@/shared/ipc/client";
 import { ColumnHeading } from "@/shared/ui/ColumnHeading";
-import { AccountMenu, movedWithin, type AccountActions } from "./AccountMenu";
+import { AccountBranch } from "./AccountBranch";
+import { movedWithin, type AccountActions } from "./AccountMenu";
 import { AddMenu } from "./AddMenu";
-import { GroupMenu } from "./GroupMenu";
-import { Folding, FOLDER, INDENT, Rail, RailRule, Row } from "./Row";
+import {
+  afterDrop,
+  END,
+  landingMark,
+  landingOn,
+  type Carried,
+  type Landing,
+  type Move,
+  type Placing,
+} from "./dropping";
+import { GroupBranch } from "./GroupBranch";
+import { Rail, RailRule, Row } from "./Row";
 import { Button } from "@/shared/ui/primitives/button";
 import { RailButton } from "@/shared/ui/RailButton";
 import type { AccountGroupDto } from "@/shared/ipc/generated/AccountGroupDto";
@@ -36,6 +42,7 @@ import type { AccountNodeDto } from "@/shared/ipc/generated/AccountNodeDto";
 import type { FolderDto } from "@/shared/ipc/generated/FolderDto";
 import type { CommandError } from "@/shared/ipc/generated/CommandError";
 import type { PlacedDto } from "@/shared/ipc/generated/PlacedDto";
+import type { SortingDto } from "@/shared/ipc/generated/SortingDto";
 
 /**
  * The sidebar.
@@ -55,14 +62,6 @@ import type { PlacedDto } from "@/shared/ipc/generated/PlacedDto";
 function inboxOf(account: AccountNodeDto): FolderDto | undefined {
   return account.folders.find((folder) => folder.role === "inbox");
 }
-
-/**
- * What a dragged row carries, under a type no other application knows.
- *
- * The drop decides from what this window is already holding, so nothing reads it back — it is here
- * because a drag with an empty payload never produces a drop at all.
- */
-const CARRYING_AN_ACCOUNT = "application/x-lyonoyl-account";
 
 /** No changes, as one value, so a tree given none does not lay them over its counts every draw. */
 const NO_CHANGES: ReadChange[] = [];
@@ -136,9 +135,14 @@ export function MailboxTree({
     error: CommandError;
   } | null>(null);
   const [syncing, setSyncing] = useState(false);
-  /** Which account is being carried by a drag, and which row it is over. */
-  const [carried, setCarried] = useState<string | null>(null);
-  const [over, setOver] = useState<string | null>(null);
+  /**
+   * What a drag is carrying, and where a drop would land. The handlers decide from the refs, which
+   * hold the answer the moment it changes; the state only draws it.
+   */
+  const [carried, setCarried] = useState<Carried | null>(null);
+  const [over, setOver] = useState<Landing | null>(null);
+  const carrying = useRef<Carried | null>(null);
+  const landing = useRef<Landing | null>(null);
   /** Accounts already asked for their mailboxes, so a server with none is not asked forever. */
   const asked = useRef(new Set<string>());
   /**
@@ -464,27 +468,64 @@ export function MailboxTree({
   const arrangement = arrangedBy(groups ?? [], counted);
 
   /**
-   * What is drawn beside this account, in the order it is drawn: the accounts in its group, or,
-   * for an account in no group, everything at the top of the sidebar, where a group is one place.
+   * What is drawn beside this row, in the order it is drawn: the accounts in its group, or, for an
+   * account in no group and for a group, everything at the top of the sidebar.
    *
-   * A drag and a menu entry both move a row inside its own run and never out of it: where an
-   * account belongs is the group menu's decision, and one gesture may not make two.
+   * Move up and Move down move a row inside its own run and never out of it. A drag can carry a
+   * mailbox into another run, and `afterDrop` says where.
    */
   const runHolding = (accountId: string): Run => {
     const group = (groups ?? []).find((one) =>
       one.accounts.includes(accountId),
     );
-    if (group !== undefined) return { ids: group.accounts, atTheTop: false };
+    if (group !== undefined) return { ids: group.accounts, groupId: group.id };
 
-    return { ids: arrangement.map((entry) => entry.id), atTheTop: true };
+    return { ids: arrangement.map((entry) => entry.id), groupId: null };
   };
 
-  /** Writes the new order down, and shows it at once so the row does not snap back on the way. */
-  const settle = (run: Run, ordered: string[]) => {
-    const places = new Map(ordered.map((id, place) => [id, place]));
+  /** The arrangement as a drop reads it: what is at the top, and the mailboxes in each group. */
+  const placing: Placing[] = arrangement.map((entry) =>
+    entry.kind === "group"
+      ? {
+          kind: "group",
+          id: entry.id,
+          accounts: entry.accounts.map((account) => account.accountId),
+        }
+      : { kind: "account", id: entry.id },
+  );
 
-    if (run.atTheTop) {
-      const grouping = new Set((groups ?? []).map((group) => group.id));
+  const regrouped = () => {
+    setReloads((count) => count + 1);
+    onArrangementChanged?.();
+  };
+
+  /**
+   * Shows a move at once, so a row does not snap back on the way, and writes it down: where the
+   * mailbox now belongs first, then the order it landed in, which names it there.
+   */
+  const land = ({ home, run }: Move) => {
+    setGroups((current) =>
+      current === null
+        ? current
+        : current.map((group) => {
+            // An order made by hand is the group's order now, as the core keeps it.
+            if (run !== undefined && run.groupId === group.id) {
+              return { ...group, accounts: run.ids, sorting: "manual" };
+            }
+            if (home === undefined) return group;
+
+            const left = group.accounts.filter((id) => id !== home.accountId);
+            if (home.groupId === group.id) {
+              return { ...group, accounts: [...left, home.accountId] };
+            }
+            return left.length === group.accounts.length
+              ? group
+              : { ...group, accounts: left };
+          }),
+    );
+
+    if (run !== undefined && run.groupId === null) {
+      const places = new Map(run.ids.map((id, place) => [id, place]));
       setAccounts((current) =>
         current.map((account) => ({
           ...account,
@@ -499,44 +540,38 @@ export function MailboxTree({
               place: places.get(group.id) ?? group.place,
             })),
       );
-
-      void arrangeSidebar(
-        ordered.map(
-          (id): PlacedDto =>
-            grouping.has(id) ? { kind: "group", id } : { kind: "account", id },
-        ),
-      ).catch(() => {
-        // The order that was actually written is the one to show, as below.
-        setReloads((count) => count + 1);
-      });
-      return;
     }
 
-    const inRun = new Set(run.ids);
+    const grouping = new Set((groups ?? []).map((group) => group.id));
+    const written = async () => {
+      if (home !== undefined) {
+        await placeAccountInGroup(home.accountId, home.groupId);
+      }
+      if (run === undefined) return;
+      await (run.groupId === null
+        ? arrangeSidebar(
+            run.ids.map(
+              (id): PlacedDto =>
+                grouping.has(id)
+                  ? { kind: "group", id }
+                  : { kind: "account", id },
+            ),
+          )
+        : reorderAccounts(run.ids));
+    };
 
-    setAccounts((current) =>
-      [...current].sort((one, other) => {
-        if (!inRun.has(one.accountId) || !inRun.has(other.accountId)) return 0;
-        return (
-          (places.get(one.accountId) ?? 0) - (places.get(other.accountId) ?? 0)
-        );
-      }),
+    void written().then(
+      () => {
+        // A group sorted by name or by date puts a mailbox that joins it in its own place, which
+        // the core says; and the settings beside this list who is in which group.
+        if (home !== undefined) regrouped();
+      },
+      () => {
+        // The order that was actually written is the one to show. Leaving the row where the drag
+        // put it would be a sidebar that disagrees with itself at the next start.
+        setReloads((count) => count + 1);
+      },
     );
-    setGroups((current) =>
-      current === null
-        ? current
-        : current.map((group) =>
-            group.accounts.some((id) => inRun.has(id))
-              ? { ...group, accounts: ordered }
-              : group,
-          ),
-    );
-
-    void reorderAccounts(ordered).catch(() => {
-      // The order that was actually written is the one to show. Leaving the row where the drag
-      // put it would be a sidebar that disagrees with itself at the next start.
-      setReloads((count) => count + 1);
-    });
   };
 
   const reordered = (accountId: string, by: -1 | 1) => {
@@ -547,47 +582,59 @@ export function MailboxTree({
     };
   };
 
+  const endDrag = () => {
+    carrying.current = null;
+    landing.current = null;
+    setCarried(null);
+    setOver(null);
+  };
+
+  /** Shows where a drop would land, redrawing only when that changed: a drag reports many times a second. */
+  const showLanding = (next: Landing | null) => {
+    const now = landing.current;
+    if (now?.id === next?.id && now?.where === next?.where) return;
+    landing.current = next;
+    setOver(next);
+  };
+
   const actions: AccountActions = {
     groups: groups ?? [],
     sync: (account) => void sync([account]),
     settings: onReconnect,
-    regrouped: () => {
-      setReloads((count) => count + 1);
-      onArrangementChanged?.();
-    },
+    regrouped,
     move: (accountId, by) => {
       const { run, ordered } = reordered(accountId, by);
-      if (ordered !== null) settle(run, ordered);
+      if (ordered !== null) land({ run: { ids: ordered, groupId: run.groupId } });
     },
     canMove: (accountId, by) => reordered(accountId, by).ordered !== null,
     drag: {
       carried,
       over,
-      start: setCarried,
-      hover: setOver,
-      drop: (target) => {
-        setOver(null);
-        setCarried(null);
-        if (carried === null || carried === target) return;
+      start: (what) => {
+        carrying.current = what;
+        setCarried(what);
+      },
+      // A row takes a drop only where it would change something, which `afterDrop` is the one
+      // answer to: a line drawn where nothing would move is a promise the drop does not keep.
+      hover: (target, fraction) => {
+        const what = carrying.current;
+        const at = what === null ? null : landingOn(target, what, fraction);
+        const takes =
+          what !== null && at !== null && afterDrop(placing, what, at) !== null;
+        showLanding(takes ? at : null);
+        return takes;
+      },
+      away: () => showLanding(null),
+      drop: () => {
+        const what = carrying.current;
+        const at = landing.current;
+        endDrag();
+        if (what === null || at === null) return;
 
-        // Only within one run, and the arithmetic is what says so: a row dropped on an account
-        // in another group is not in this run, so there is no place in it to put the row and the
-        // answer is nothing. A drag meaning two things at once — move it, and re-home it — is one
-        // gesture too few for two decisions, and the second is said in the menu. A group is a
-        // place in the run at the top of the sidebar, so a row from there dropped on one takes
-        // its place, as it would an account's.
-        const run = runHolding(carried);
-        const ordered = movedWithin(run.ids, carried, run.ids.indexOf(target));
-        if (ordered !== null) settle(run, ordered);
+        const move = afterDrop(placing, what, at);
+        if (move !== null) land(move);
       },
-      lands: (target) =>
-        carried !== null &&
-        carried !== target &&
-        runHolding(carried).ids.includes(target),
-      end: () => {
-        setCarried(null);
-        setOver(null);
-      },
+      end: endDrag,
     },
   };
 
@@ -695,6 +742,9 @@ export function MailboxTree({
         className={`no-gutter flex flex-col gap-0.5 overflow-x-hidden overflow-y-auto text-sm ${
           folded ? "w-full items-center py-1" : ""
         }`}
+        // Rows that take a drop keep their drag to themselves, so one that reaches here is over a
+        // folder or the space between rows, where nothing lands.
+        onDragOver={actions.drag.away}
       >
         {folded ? (
           <Rail
@@ -743,6 +793,29 @@ export function MailboxTree({
                   t={t}
                 />
               ),
+            )}
+
+            {/* Below everything at the top, while something is carried: a drop here puts it
+                last. No row above can offer that place when the last thing is an open group,
+                whose row has its mailboxes below it. Drawn under the rows, so none of them
+                moves when it appears. */}
+            {carried !== null && (
+              <div
+                aria-hidden="true"
+                data-end=""
+                className={`min-h-6 flex-1 ${landingMark(over?.id === END ? "before" : null)}`}
+                onDragOver={(event) => {
+                  event.stopPropagation();
+                  if (!actions.drag.hover({ kind: "end" }, null)) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  actions.drag.drop();
+                }}
+              />
             )}
           </>
         )}
@@ -826,156 +899,6 @@ function failureSentence(
   return describeError(failure.error, t);
 }
 
-function AccountBranch({
-  account,
-  single,
-  grouped = false,
-  actions,
-  selected,
-  onSelect,
-  onToggle,
-  t,
-}: {
-  account: AccountNodeDto;
-  single: boolean;
-  /** In a group, so its own row sits one level in. Its folders do not: see `INDENT`. */
-  grouped?: boolean;
-  actions: AccountActions;
-  selected: Mailbox | null;
-  onSelect: (mailbox: Mailbox) => void;
-  onToggle: (accountId: string, collapsed: boolean) => void;
-  t: Translator;
-}) {
-  const open = single || !account.collapsed;
-
-  return (
-    <>
-      {!single && (
-        <ContextMenu>
-          {/* The whole row is what is picked up, and what a row is dropped on. Not the button
-              inside it: a drag started on a control is a drag a person did not mean, and every
-              press would have to be told apart from a hold. */}
-          <ContextMenuTrigger
-            draggable
-            // Says this is the window moving something of its own, not the browser carrying it
-            // out. Without it the drag is cancelled at the document, one level above every
-            // handler below, and the row cannot be picked up at all.
-            data-drags=""
-            aria-grabbed={actions.drag.carried === account.accountId}
-            onDragStart={(event) => {
-              // Something has to be carried or the drop never fires. Under a type only this
-              // window knows, so a row dropped on another application carries nothing it can
-              // read: as plain text it was an identifier out of somebody's mailbox, handed to
-              // whatever was under the pointer.
-              event.dataTransfer.effectAllowed = "move";
-              event.dataTransfer.setData(
-                CARRYING_AN_ACCOUNT,
-                account.accountId,
-              );
-              actions.drag.start(account.accountId);
-            }}
-            onDragOver={(event) => {
-              if (actions.drag.carried === null) return;
-              // Refusing the default is what makes a drop possible at all.
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-              actions.drag.hover(account.accountId);
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              actions.drag.drop(account.accountId);
-            }}
-            onDragEnd={actions.drag.end}
-            // A line where the row would land, and nothing else moves until it does. Rows sliding
-            // out of the way under the pointer is a list that answers before the person has.
-            className={
-              actions.drag.over === account.accountId &&
-              actions.drag.carried !== null &&
-              actions.drag.carried !== account.accountId
-                ? "rounded-md ring-1 ring-primary/70"
-                : undefined
-            }
-          >
-            <Folding
-              depth={grouped ? 1 : 0}
-              label={t(
-                account.collapsed ? "shell.expandNamed" : "shell.collapseNamed",
-                { account: account.displayName.trim() || account.email },
-              )}
-              expanded={!account.collapsed}
-              onFold={() => onToggle(account.accountId, !account.collapsed)}
-            >
-              <Row
-                depth={grouped ? 1 : 0}
-                label={account.displayName.trim() || account.email}
-                title={account.email}
-                badge={unreadBadge(account.unread)}
-                selected={
-                  selected !== null &&
-                  isSameMailbox(selected, {
-                    kind: "account",
-                    accountId: account.accountId,
-                  })
-                }
-                onSelect={() =>
-                  onSelect({ kind: "account", accountId: account.accountId })
-                }
-                t={t}
-              />
-            </Folding>
-          </ContextMenuTrigger>
-          <AccountMenu account={account} actions={actions} t={t} />
-        </ContextMenu>
-      )}
-
-      {/* An account whose folders have not arrived is an account being read, not an account with
-          nothing in it. Left blank it reads as broken — which is what it looked like for the
-          minute a first pass over a hosted server takes.
-
-          And an account whose mail could not be read at all is neither: saying "reading folders"
-          about it would be a message that never comes true. */}
-      {open && account.folders.length === 0 && (
-        <p
-          role={account.answered ? undefined : "alert"}
-          className={`py-1.5 pe-2 text-xs ${INDENT[single ? 0 : FOLDER]} ${
-            account.answered ? "text-muted-foreground" : "text-destructive"
-          }`}
-        >
-          {t(account.answered ? "shell.readingFolders" : "shell.mailNotRead")}
-        </p>
-      )}
-
-      {open &&
-        account.folders.map((folder) => (
-          <Row
-            key={folder.folderId}
-            label={folderName(folder, t)}
-            badge={folderBadge(folder)}
-            depth={single ? 0 : FOLDER}
-            selected={
-              selected !== null &&
-              isSameMailbox(selected, {
-                kind: "folder",
-                accountId: account.accountId,
-                folderId: folder.folderId,
-                role: folder.role,
-              })
-            }
-            onSelect={() =>
-              onSelect({
-                kind: "folder",
-                accountId: account.accountId,
-                folderId: folder.folderId,
-                role: folder.role,
-              })
-            }
-            t={t}
-          />
-        ))}
-    </>
-  );
-}
-
 /** One thing at the top of the sidebar: a group with the accounts in it, or an account in none. */
 type AtTheTop =
   | {
@@ -983,12 +906,13 @@ type AtTheTop =
       id: string;
       name: string;
       collapsed: boolean;
+      sorting: SortingDto;
       accounts: AccountNodeDto[];
     }
   | { kind: "account"; id: string; account: AccountNodeDto };
 
-/** The rows a drag or a menu entry moves one among, and whether that is the top of the sidebar. */
-type Run = { ids: string[]; atTheTop: boolean };
+/** The rows a menu entry moves one among: a group's, or the top of the sidebar's for `null`. */
+type Run = { ids: string[]; groupId: string | null };
 
 /**
  * Everything at the top of the sidebar, in the order it is drawn: the groups and the accounts in
@@ -1021,6 +945,7 @@ function arrangedBy(
       id: group.id,
       name: group.name,
       collapsed: group.collapsed,
+      sorting: group.sorting,
       accounts: held,
     };
     return { place: group.place, entry };
@@ -1042,110 +967,4 @@ function arrangedBy(
   return [...drawn, ...loose]
     .sort((one, other) => one.place - other.place)
     .map(({ entry }) => entry);
-}
-
-/**
- * One group: a row that shows the mail of everything in it, and the mailboxes under it.
- *
- * The row is selectable as well as foldable, because the narrowing is the point — a person with
- * fifty mailboxes reads "Work" far more often than any one mailbox in it.
- */
-function GroupBranch({
-  group,
-  accounts,
-  selected,
-  onSelect,
-  onFold,
-  onToggleAccount,
-  actions,
-  t,
-}: {
-  group: { id: string; name: string; collapsed: boolean };
-  accounts: AccountNodeDto[];
-  selected: Mailbox | null;
-  onSelect: (mailbox: Mailbox) => void;
-  onFold: (groupId: string, collapsed: boolean) => void;
-  onToggleAccount: (accountId: string, collapsed: boolean) => void;
-  actions: AccountActions;
-  t: Translator;
-}) {
-  return (
-    <>
-      {/* Where a row from the top of the sidebar is dropped to take the group's place, as it would
-          take an account's. Only that: a drop never puts an account into a group, which is the
-          menu's decision. A row the group cannot take is not offered the drop at all. */}
-      <div
-        onDragOver={(event) => {
-          if (!actions.drag.lands(group.id)) return;
-          event.preventDefault();
-          event.dataTransfer.dropEffect = "move";
-          actions.drag.hover(group.id);
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          actions.drag.drop(group.id);
-        }}
-        className={
-          actions.drag.over === group.id && actions.drag.lands(group.id)
-            ? "rounded-md ring-1 ring-primary/70"
-            : undefined
-        }
-      >
-        <GroupMenu group={group} mailboxes={accounts.length} onGroupRemoved={actions.regrouped}>
-          <Folding
-            depth={0}
-            // Not the account's label: what a group hides is mailboxes, and "Hide folders" over a
-            // list of mailboxes names the wrong thing.
-            label={
-              group.collapsed ? t("shell.showMailboxes") : t("shell.hideMailboxes")
-            }
-            expanded={!group.collapsed}
-            onFold={() => onFold(group.id, !group.collapsed)}
-          >
-            <Row
-              label={group.name}
-              badge={unreadBadge(
-                accounts.reduce((sum, account) => sum + account.unread, 0),
-              )}
-              selected={
-                selected !== null &&
-                isSameMailbox(selected, { kind: "group", groupId: group.id })
-              }
-              onSelect={() => onSelect({ kind: "group", groupId: group.id })}
-              t={t}
-            />
-          </Folding>
-        </GroupMenu>
-      </div>
-
-      {/* A group somebody made and has not filled yet. Said rather than drawn as a blank, which
-          reads as a group whose mailboxes failed to load. */}
-      {!group.collapsed && accounts.length === 0 && (
-        <p
-          className={`py-1.5 pe-2 text-xs text-muted-foreground ${INDENT[FOLDER]}`}
-        >
-          {t("shell.groupIsEmpty")}
-        </p>
-      )}
-
-      {/* No wrapper, and no padding on one: an account in a group is drawn one level in by the
-          row itself. A container that indented them took the width off the surface a person
-          points at as well, so the thing that lit up under the pointer stopped short of the edge
-          and was a different width from every row outside a group. */}
-      {!group.collapsed &&
-        accounts.map((account) => (
-          <AccountBranch
-            key={account.accountId}
-            account={account}
-            single={false}
-            grouped
-            actions={actions}
-            selected={selected}
-            onSelect={onSelect}
-            onToggle={onToggleAccount}
-            t={t}
-          />
-        ))}
-    </>
-  );
 }

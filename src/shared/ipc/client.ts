@@ -24,6 +24,7 @@ import type { AccountGroupDto } from "./generated/AccountGroupDto";
 import type { AppIconDto } from "./generated/AppIconDto";
 import type { OpeningDto } from "./generated/OpeningDto";
 import type { PlacedDto } from "./generated/PlacedDto";
+import type { SortingDto } from "./generated/SortingDto";
 import type { SetAsideDto } from "@/shared/ipc/generated/SetAsideDto";
 import type { FoundSettingsDto } from "@/shared/ipc/generated/FoundSettingsDto";
 import type { ConnectionReportDto } from "./generated/ConnectionReportDto";
@@ -636,6 +637,14 @@ export function renameAccountGroup(
 /** Removes the group. The accounts in it take its place at the top of the sidebar. */
 export function removeAccountGroup(groupId: string): Promise<void> {
   return invoke("remove_account_group", { groupId });
+}
+
+/** Says how a group's mailboxes are ordered from now on: by the date each was added, or by name. */
+export function sortAccountGroup(
+  groupId: string,
+  sorting: SortingDto,
+): Promise<void> {
+  return invoke("sort_account_group", { groupId, sorting });
 }
 
 /**

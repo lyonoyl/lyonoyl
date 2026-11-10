@@ -1076,7 +1076,7 @@ fn records_the_schema_version_in_user_version() {
     // seen, so a migration quietly dropped from the list would leave older installations
     // reading a schema this build no longer writes. Adding one: bump this by one.
     assert_eq!(
-        version, 29,
+        version, 30,
         "the applied migration count is tracked in user_version"
     );
 }
@@ -3349,4 +3349,75 @@ fn a_profile_keeps_its_sidebar_when_groups_and_accounts_share_one_order() {
         ],
         "then the accounts in no group, in theirs; one inside a group keeps its place in it"
     );
+}
+
+/// The profile's version before a group could be sorted.
+///
+/// Named rather than counted back from the newest, which stops meaning this once a migration is
+/// added after it.
+const BEFORE_GROUPS_WERE_SORTED: usize = 29;
+
+#[test]
+fn every_group_made_before_sorting_existed_stays_sorted_by_hand() {
+    // The order a person dragged their mailboxes into is the one they see after the upgrade.
+    let mut connection = Connection::open_in_memory().expect("in-memory database opens");
+    profile_migrations()
+        .to_version(&mut connection, BEFORE_GROUPS_WERE_SORTED)
+        .expect("the previous schema applies");
+    connection
+        .execute(
+            "INSERT INTO account_groups (id, name, position) VALUES ('group-1', 'Work', 0)",
+            [],
+        )
+        .expect("a group written by the previous version");
+
+    migrate_profile(&mut connection, ":memory:").expect("upgrade applies");
+
+    let sorting: String = connection
+        .query_row(
+            "SELECT sorting FROM account_groups WHERE id = 'group-1'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the column exists");
+    assert_eq!(sorting, "manual");
+}
+
+#[test]
+fn a_sorting_nobody_wrote_a_rule_for_is_refused() {
+    let mut connection = Connection::open_in_memory().expect("in-memory database opens");
+    migrate_profile(&mut connection, ":memory:").expect("schema applies");
+
+    let refused = connection.execute(
+        "INSERT INTO account_groups (id, name, position, sorting)
+             VALUES ('group-1', 'Work', 0, 'by_mood')",
+        [],
+    );
+
+    assert!(
+        refused.is_err(),
+        "the column takes the three sortings and no other"
+    );
+}
+
+#[test]
+fn going_back_before_sorting_keeps_the_groups() {
+    let mut connection = Connection::open_in_memory().expect("in-memory database opens");
+    migrate_profile(&mut connection, ":memory:").expect("schema applies");
+    connection
+        .execute(
+            "INSERT INTO account_groups (id, name, position, sorting)
+                 VALUES ('group-1', 'Work', 0, 'name')",
+            [],
+        )
+        .expect("a sorted group");
+
+    profile_migrations()
+        .to_version(&mut connection, BEFORE_GROUPS_WERE_SORTED)
+        .expect("the column goes");
+
+    let kept: i64 = connection
+        .query_row("SELECT count(*) FROM account_groups", [], |row| row.get(0))
+        .expect("the table is still there");
+    assert_eq!(kept, 1);
 }

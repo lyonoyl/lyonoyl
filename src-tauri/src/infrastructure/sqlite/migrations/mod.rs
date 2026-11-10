@@ -780,6 +780,15 @@ fn profile_migrations() -> Migrations<'static> {
              DROP TABLE draft_original_pictures;
              DROP TABLE draft_originals;",
         ),
+        // 030: how the mailboxes in a group are sorted. By hand is the order a person dragged them
+        // into, and what every group had before; by the date each was added, or by name, is worked
+        // out each time the group is read, so a mailbox joining it takes its place by the same rule.
+        M::up(
+            "ALTER TABLE account_groups
+                 ADD COLUMN sorting TEXT NOT NULL DEFAULT 'manual'
+                 CHECK (sorting IN ('manual', 'date_added', 'name'));",
+        )
+        .down("ALTER TABLE account_groups DROP COLUMN sorting;"),
     ])
 }
 
