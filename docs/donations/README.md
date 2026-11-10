@@ -1,10 +1,14 @@
-# Donations
+# Support the Project
 
-Every address on this page is a wallet made for Lyonoyl Mail alone.
+Every donation keeps the cat fed, and a well-fed cat hunts bugs. It is a gift rather than a purchase: it buys no product, support, or say in what Lyonoyl Mail does, and it is not tax-deductible—all it brings back is a grateful purr.
 
-A donation is a gift to the project: it buys no product, support, or say in what Lyonoyl Mail does, is not tax-deductible, and cannot be returned. A payment on these networks is public, and anybody can see the address it came from.
+## GitHub Sponsors
+
+Feed the cat every month or just once on [GitHub Sponsors](https://github.com/sponsors/lyonoyl), at any level from Lil' Chomp to Supreme Cat Overlord. The maintainers see who sponsors, and a public sponsorship shows it to everyone.
 
 ## Crypto
+
+Every address below is a wallet made for Lyonoyl Mail alone, so each coin lands straight in the cat's bowl. A payment on these networks is public—anybody can see the address it came from—and once sent, it cannot be returned.
 
 <table>
 <tr><th>Network</th><th>Address</th><th>QR code</th></tr>
