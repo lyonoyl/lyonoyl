@@ -121,6 +121,7 @@ const KEYBOARD_LABELS = new Set([
 const SAME_AS_ENGLISH: Readonly<Record<string, readonly string[]>> = {
   de: [
     "account.port",
+    "group.menuSortByName",
     "settings.updates",
     "keys.nameEnter",
     "keys.nameEscape",

@@ -62,6 +62,7 @@ impl AccountGroups for InMemoryGroups {
             name: name.clone(),
             position,
             collapsed: false,
+            sorting: Sorting::Manual,
             accounts: Vec::new(),
         });
 
@@ -166,6 +167,56 @@ impl AccountGroups for InMemoryGroups {
         group.collapsed = collapsed;
         Ok(())
     }
+
+    fn sort(&self, group_id: &str, sorting: Sorting) -> Result<(), AccountGroupError> {
+        if let Some(AccountGroupError::Unavailable) = &self.refuses {
+            return Err(AccountGroupError::Unavailable);
+        }
+
+        let mut groups = self.groups.lock().expect("not poisoned");
+        let Some(group) = groups.iter_mut().find(|group| group.id == group_id) else {
+            return Err(AccountGroupError::NoSuchGroup);
+        };
+
+        group.sorting = sorting;
+        Ok(())
+    }
+}
+
+#[test]
+fn a_group_keeps_the_sorting_it_was_given() {
+    let store = std::sync::Arc::new(InMemoryGroups::default());
+    let arrange = ArrangeAccounts::new(store.clone());
+    let work = arrange.create("Work").expect("a group is made");
+
+    arrange
+        .sort(&work, Sorting::Name)
+        .expect("a group that is here can be sorted");
+
+    let groups = arrange.list().expect("the arrangement is readable");
+    assert_eq!(groups[0].sorting, Sorting::Name);
+}
+
+#[test]
+fn sorting_a_group_that_is_gone_is_said_rather_than_passed_over() {
+    // Removed in another window while the menu was open: a sort that quietly did nothing would
+    // leave the menu ticking an order nothing keeps.
+    let arrange = ArrangeAccounts::new(InMemoryGroups::default());
+
+    assert!(matches!(
+        arrange.sort("group-gone", Sorting::DateAdded),
+        Err(UseCaseError::UnknownGroup)
+    ));
+}
+
+#[test]
+fn a_store_that_cannot_be_reached_is_told_apart_when_sorting() {
+    let arrange = ArrangeAccounts::new(InMemoryGroups::refusing(AccountGroupError::Unavailable));
+
+    assert!(matches!(
+        arrange.sort("group-1", Sorting::Name),
+        Err(UseCaseError::StorageUnavailable)
+    ));
 }
 
 #[test]
@@ -326,6 +377,10 @@ impl AccountGroups for std::sync::Arc<InMemoryGroups> {
 
     fn set_collapsed(&self, group_id: &str, collapsed: bool) -> Result<(), AccountGroupError> {
         InMemoryGroups::set_collapsed(self, group_id, collapsed)
+    }
+
+    fn sort(&self, group_id: &str, sorting: Sorting) -> Result<(), AccountGroupError> {
+        InMemoryGroups::sort(self, group_id, sorting)
     }
 }
 

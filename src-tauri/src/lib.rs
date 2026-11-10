@@ -123,6 +123,7 @@ fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         commands::account_groups::arrange_sidebar,
         commands::message::opening_message,
         commands::account_groups::set_account_group_collapsed,
+        commands::account_groups::sort_account_group,
         commands::settings::get_preferences,
         commands::settings::set_preference,
         commands::settings::app_icons_wearable,

@@ -9,7 +9,7 @@
 
 use crate::application::error::UseCaseError;
 use crate::ports::account_groups::{AccountGroupError, AccountGroups};
-use lyonoyl_domain::account_group::{AccountGroup, GroupName, GroupNameError, Placed};
+use lyonoyl_domain::account_group::{AccountGroup, GroupName, GroupNameError, Placed, Sorting};
 
 /// Makes, names and empties the groups in the sidebar.
 pub struct ArrangeAccounts<G: AccountGroups> {
@@ -71,6 +71,11 @@ impl<G: AccountGroups> ArrangeAccounts<G> {
     /// Folds a group away, or opens it again.
     pub fn set_collapsed(&self, group_id: &str, collapsed: bool) -> Result<(), UseCaseError> {
         Ok(self.groups.set_collapsed(group_id, collapsed)?)
+    }
+
+    /// Says how the group's mailboxes are ordered from now on.
+    pub fn sort(&self, group_id: &str, sorting: Sorting) -> Result<(), UseCaseError> {
+        Ok(self.groups.sort(group_id, sorting)?)
     }
 }
 

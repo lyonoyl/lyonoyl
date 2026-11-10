@@ -24,10 +24,13 @@ export function GroupPanel({
   const form = useRef<HTMLFormElement>(null);
 
   // Before the window is drawn again, in both directions: given back a frame later, the focus
-  // sat on nothing for that frame, and a key pressed in it went nowhere.
+  // sat on nothing for that frame, and a key pressed in it went nowhere. What the field already
+  // holds is selected, so a name being changed is typed over rather than added to.
   useLayoutEffect(() => {
     const before = document.activeElement;
-    form.current?.querySelector("input")?.focus();
+    const field = form.current?.querySelector("input");
+    field?.focus();
+    field?.select();
     return () => {
       if (before instanceof HTMLElement && before.isConnected) before.focus();
     };

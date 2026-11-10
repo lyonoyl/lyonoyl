@@ -868,7 +868,7 @@ describe("SettingsScreen, arranging mailboxes into groups", () => {
 
   it("removes a group only once its name is typed, never on a near miss", async () => {
     arrangement.mockResolvedValue([
-      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: [] },
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: [] },
     ]);
     const { rearranged } = renderSettings();
 
@@ -898,9 +898,9 @@ describe("SettingsScreen, arranging mailboxes into groups", () => {
 
   it("says where the mailboxes go only for a group holding some of this device's", async () => {
     arrangement.mockResolvedValue([
-      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: ["acc-1"] },
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: ["acc-1"] },
       // Names only a mailbox this device no longer holds, so there is nothing to move.
-      { id: "g2", name: "Old", place: 1, collapsed: false, accounts: ["gone"] },
+      { id: "g2", name: "Old", place: 1, collapsed: false, sorting: "manual", accounts: ["gone"] },
     ]);
     renderSettings(STORED, [
       {
@@ -929,7 +929,7 @@ describe("SettingsScreen, arranging mailboxes into groups", () => {
 
   it("keeps a group the panel was left without removing, back on its Remove", async () => {
     arrangement.mockResolvedValue([
-      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: [] },
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: [] },
     ]);
     renderSettings();
     const asked = await screen.findByRole("button", {
@@ -968,7 +968,7 @@ describe("SettingsScreen, arranging mailboxes into groups", () => {
     await waitFor(() => expect(arrangement).toHaveBeenCalled());
     const readBefore = arrangement.mock.calls.length;
     arrangement.mockResolvedValue([
-      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: [] },
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: [] },
     ]);
 
     rerender(shown(1));
@@ -992,7 +992,7 @@ describe("SettingsScreen, arranging mailboxes into groups", () => {
 
   it("gives up an edited name on Escape and keeps the key to itself", async () => {
     arrangement.mockResolvedValue([
-      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: [] },
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: [] },
     ]);
     renderSettings();
 
@@ -1014,7 +1014,7 @@ describe("SettingsScreen, arranging mailboxes into groups", () => {
     // Taken unconditionally it would be a dead key in one field of one screen: nothing reverts,
     // and the screen it is on does not close either.
     arrangement.mockResolvedValue([
-      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: [] },
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: [] },
     ]);
     renderSettings();
 
@@ -1029,7 +1029,7 @@ describe("SettingsScreen, arranging mailboxes into groups", () => {
 
   it("writes a new name down when the field is left, and not on every letter", async () => {
     arrangement.mockResolvedValue([
-      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: [] },
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: [] },
     ]);
 
     renderSettings();
@@ -1082,7 +1082,7 @@ describe("SettingsScreen, arranging mailboxes into groups", () => {
     // so without the pane taking it away by hand the new name went nowhere and the screen closed
     // over it.
     arrangement.mockResolvedValue([
-      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: [] },
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: [] },
     ]);
 
     const { closed } = renderSettings();
@@ -1102,7 +1102,7 @@ describe("SettingsScreen, arranging mailboxes into groups", () => {
 
   it("keeps the stored name when somebody empties the field and leaves it", async () => {
     arrangement.mockResolvedValue([
-      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: [] },
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: [] },
     ]);
 
     renderSettings();
@@ -1126,6 +1126,7 @@ describe("SettingsScreen, arranging mailboxes into groups", () => {
         ...group,
         place: 0,
         collapsed: false,
+        sorting: "manual" as const,
         accounts: Object.keys(placed).filter(
           (account) => placed[account] === group.id,
         ),

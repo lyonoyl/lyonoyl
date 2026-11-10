@@ -48,6 +48,10 @@ rusqlite_migration = "2.6"
 thiserror = "2"
 ts-rs = "12"
 secrecy = "0.10"
+# Takes the accents off a mailbox's name before a group is sorted by it, so "école" stands among the
+# names in e. Already in the tree at this version under the addresses' IDNA, so it adds an edge and
+# not a package.
+icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
 # Named here to be silenced, and for no other reason. Both are already in the graph -- `log` under
 # twenty-five crates, `tracing` under the HTTP stack -- and both compile a level check into every
 # call site from a constant these features set. With the constant at `off` the macro expands to

@@ -381,8 +381,8 @@ fn an_order_naming_a_mailbox_that_is_gone_writes_none_of_it() {
 
 #[test]
 fn reordering_does_not_move_an_account_between_groups() {
-    // Where an account belongs is a different decision, made by a different call. An order that
-    // also re-homed accounts would be two things behind one gesture.
+    // Where an account belongs is a different decision, made by a different call: an order says
+    // where accounts stand, and putting one in a group is `place`.
     let database = TempDatabase::new("groups-reorder-home");
     database.with_account("acc-1").with_account("acc-2");
     let store = SqliteAccountGroups::new(database.pool.clone());
@@ -588,4 +588,149 @@ fn removing_a_group_that_is_not_here_is_said_and_moves_nothing() {
         Err(AccountGroupError::NoSuchGroup)
     );
     assert_eq!(database.top(), before);
+}
+
+impl TempDatabase {
+    /// Gives an account the name the sidebar draws it under, and the moment it was added.
+    fn naming(&self, id: &str, display_name: &str, added: &str) -> &Self {
+        self.pool
+            .get()
+            .expect("connection is available")
+            .execute(
+                "UPDATE mail_accounts SET display_name = ?2, created_at = ?3 WHERE id = ?1",
+                (id, display_name, added),
+            )
+            .expect("an account is renamed");
+        self
+    }
+}
+
+/// A group holding the four accounts, put in by hand in an order neither sort would choose.
+fn four_in_a_group(database: &TempDatabase) -> (SqliteAccountGroups, String) {
+    database
+        .with_account("acc-z")
+        .with_account("acc-e")
+        .with_account("acc-d")
+        .with_account("acc-a")
+        .naming("acc-z", "zulu", "2026-01-02 00:00:00")
+        .naming("acc-e", "École", "2026-01-04 00:00:00")
+        .naming("acc-d", "delta", "2026-01-01 00:00:00")
+        .naming("acc-a", "Alpha", "2026-01-03 00:00:00");
+    let store = SqliteAccountGroups::new(database.pool.clone());
+    let work = store.create(&name("Work")).expect("a group");
+    for id in ["acc-z", "acc-e", "acc-d", "acc-a"] {
+        store.place(id, Some(&work)).expect("joins");
+    }
+    (store, work)
+}
+
+#[test]
+fn a_group_is_sorted_by_hand_until_it_is_told_otherwise() {
+    let database = TempDatabase::new("sort-by-hand");
+    let (store, _work) = four_in_a_group(&database);
+
+    let groups = store.list().expect("readable");
+
+    assert_eq!(groups[0].sorting, Sorting::Manual);
+    assert_eq!(groups[0].accounts, ["acc-z", "acc-e", "acc-d", "acc-a"]);
+}
+
+#[test]
+fn a_group_sorted_by_name_reads_letters_whatever_their_case_or_accents() {
+    // "École" among the names in e, not after "zulu" where its first byte would put it, and
+    // "Alpha" before "delta" although a capital is a smaller number than a small letter.
+    let database = TempDatabase::new("sort-by-name");
+    let (store, work) = four_in_a_group(&database);
+
+    store.sort(&work, Sorting::Name).expect("sorted");
+
+    let groups = store.list().expect("readable");
+    assert_eq!(groups[0].sorting, Sorting::Name);
+    assert_eq!(groups[0].accounts, ["acc-a", "acc-d", "acc-e", "acc-z"]);
+}
+
+#[test]
+fn a_group_sorted_by_date_added_puts_the_first_mailbox_added_first() {
+    let database = TempDatabase::new("sort-by-date");
+    let (store, work) = four_in_a_group(&database);
+
+    store.sort(&work, Sorting::DateAdded).expect("sorted");
+
+    assert_eq!(
+        store.list().expect("readable")[0].accounts,
+        ["acc-d", "acc-z", "acc-a", "acc-e"]
+    );
+}
+
+#[test]
+fn a_mailbox_joining_a_sorted_group_takes_its_place_by_the_sort() {
+    // Not last, where joining puts a mailbox in a group sorted by hand.
+    let database = TempDatabase::new("sort-joins");
+    let (store, work) = four_in_a_group(&database);
+    store.sort(&work, Sorting::Name).expect("sorted");
+    database
+        .with_account("acc-b")
+        .naming("acc-b", "bravo", "2026-01-05 00:00:00");
+
+    store.place("acc-b", Some(&work)).expect("joins");
+
+    assert_eq!(
+        store.list().expect("readable")[0].accounts,
+        ["acc-a", "acc-b", "acc-d", "acc-e", "acc-z"]
+    );
+}
+
+#[test]
+fn a_mailbox_dragged_in_a_sorted_group_stays_where_it_was_put() {
+    // The order dragged into is the group's order from then on: kept sorted by name, the group
+    // would put the mailbox straight back.
+    let database = TempDatabase::new("sort-dragged");
+    let (store, work) = four_in_a_group(&database);
+    store.sort(&work, Sorting::Name).expect("sorted");
+
+    let dragged = ["acc-z", "acc-a", "acc-d", "acc-e"].map(str::to_owned);
+    store.reorder(&dragged).expect("written");
+
+    let groups = store.list().expect("readable");
+    assert_eq!(groups[0].sorting, Sorting::Manual);
+    assert_eq!(groups[0].accounts, dragged);
+}
+
+#[test]
+fn dragging_in_one_group_leaves_the_sorting_of_another_as_it_was() {
+    let database = TempDatabase::new("sort-other-group");
+    let (store, work) = four_in_a_group(&database);
+    let personal = store.create(&name("Personal")).expect("another group");
+    store.sort(&personal, Sorting::Name).expect("sorted");
+    store.sort(&work, Sorting::Name).expect("sorted");
+
+    store
+        .reorder(&["acc-z", "acc-a", "acc-d", "acc-e"].map(str::to_owned))
+        .expect("written");
+
+    let groups = store.list().expect("readable");
+    assert_eq!(groups[0].sorting, Sorting::Manual, "the group dragged in");
+    assert_eq!(groups[1].sorting, Sorting::Name, "the group left alone");
+}
+
+#[test]
+fn removing_a_sorted_group_puts_its_mailboxes_where_it_stood_as_they_were_drawn() {
+    // In the order the person was looking at, not the order they were once put in by hand.
+    let database = TempDatabase::new("sort-removed");
+    let (store, work) = four_in_a_group(&database);
+    store.sort(&work, Sorting::Name).expect("sorted");
+
+    store.remove(&work).expect("the group goes");
+
+    assert_eq!(database.top(), ["acc-a", "acc-d", "acc-e", "acc-z"]);
+}
+
+#[test]
+fn sorting_a_group_that_is_not_here_is_said_rather_than_passed_over() {
+    let store = SqliteAccountGroups::new(TempDatabase::new("sort-gone").pool.clone());
+
+    assert_eq!(
+        store.sort("group-gone", Sorting::Name),
+        Err(AccountGroupError::NoSuchGroup)
+    );
 }

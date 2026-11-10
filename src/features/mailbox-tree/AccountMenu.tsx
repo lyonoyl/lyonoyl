@@ -13,17 +13,23 @@ import {
   ContextMenuSubContent,
   ContextMenuSubTrigger,
 } from "@/shared/ui/primitives/context-menu";
+import type { Carried, DropTarget, Landing } from "./dropping";
 
-/** A drag in progress: which account is being carried, and where it is hovering. */
+/** A drag in progress: what is being carried, and where a drop would land. */
 type Dragging = {
-  carried: string | null;
-  /** The row under the pointer: an account, or a group at the top of the sidebar. */
-  over: string | null;
-  start: (accountId: string) => void;
-  hover: (target: string) => void;
-  drop: (target: string) => void;
-  /** Whether the row being carried would move if it were dropped here. */
-  lands: (target: string) => boolean;
+  carried: Carried | null;
+  /** Where a drop would land now, which is what the rows draw. */
+  over: Landing | null;
+  start: (carried: Carried) => void;
+  /**
+   * Says where a drop on this row would land, given where the pointer is on it, and shows it.
+   * Answers whether the row takes the drop at all: one that would change nothing takes none.
+   */
+  hover: (target: DropTarget, fraction: number | null) => boolean;
+  /** The pointer is over nothing that takes a drop, so nothing is shown landing. */
+  away: () => void;
+  /** Drops what is carried where it was last shown landing. */
+  drop: () => void;
   end: () => void;
 };
 
@@ -64,14 +70,14 @@ export function movedWithin(
 export type AccountActions = {
   groups: AccountGroupDto[];
   /**
-   * Puts this account one place earlier or later among the ones drawn beside it.
+   * Puts this account, or this group, one place earlier or later among the ones drawn beside it.
    *
    * Answers whether there was anywhere to go: the first account has no place above it, and a
    * menu entry that does nothing is worse than one that is not offered.
    */
-  move: (accountId: string, by: -1 | 1) => void;
+  move: (id: string, by: -1 | 1) => void;
   /** Whether there is anywhere to go that way, which is what greys the entry out. */
-  canMove: (accountId: string, by: -1 | 1) => boolean;
+  canMove: (id: string, by: -1 | 1) => boolean;
   /** Everything a drag needs, held in the tree because a run is what a drag moves within. */
   drag: Dragging;
   /** Read this one account now. */

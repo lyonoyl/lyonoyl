@@ -2423,6 +2423,7 @@ dependencies = [
  "dom_query",
  "flate2",
  "futures",
+ "icu_normalizer",
  "idna",
  "keyring",
  "log",

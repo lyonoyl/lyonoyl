@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use lyonoyl_domain::account_group::{AccountGroup, GroupName, Placed};
+use lyonoyl_domain::account_group::{AccountGroup, GroupName, Placed, Sorting};
 
 /// Failures the store of account groups can report.
 ///
@@ -29,7 +29,8 @@ pub enum AccountGroupError {
 /// The mail index never hears about any of this: a group is a name over a set of accounts, and
 /// moving an account between groups moves no message at all.
 pub trait AccountGroups: Send + Sync {
-    /// Every group, in the order they are drawn, each with its accounts in theirs.
+    /// Every group, in the order they are drawn, each with its accounts in the order its sorting
+    /// draws them.
     fn list(&self) -> Result<Vec<AccountGroup>, AccountGroupError>;
 
     /// Makes a group and returns the identifier it was given. It starts empty, and last at the
@@ -56,8 +57,12 @@ pub trait AccountGroups: Send + Sync {
     /// windows dragging at once would each be right about a list neither of them has. A list is
     /// the answer itself: whatever was there before, this is the order now.
     ///
-    /// It moves nothing between groups. Where an account belongs is [`AccountGroups::place`], and
-    /// an order that also re-homed accounts would be two decisions behind one gesture.
+    /// It moves nothing between groups: where an account belongs is [`AccountGroups::place`], one
+    /// decision to a call. A drag that carries a mailbox into another group asks for both, the
+    /// place first, so that the order names an account already in the group it orders.
+    ///
+    /// A group the run is in is sorted by hand from then on: the mailbox just dragged stays where
+    /// it was put, rather than a sort by name or by date taking it straight back.
     fn reorder(&self, account_ids: &[String]) -> Result<(), AccountGroupError>;
 
     /// Writes down the order of everything at the top of the sidebar: the groups and the accounts
@@ -74,4 +79,10 @@ pub trait AccountGroups: Send + Sync {
     /// Kept beside the group rather than on this machine: somebody who folds away the twelve
     /// mailboxes they read once a month has said so about the group, not about this desk.
     fn set_collapsed(&self, group_id: &str, collapsed: bool) -> Result<(), AccountGroupError>;
+
+    /// Says how the group's mailboxes are ordered from now on.
+    ///
+    /// By hand keeps the order they were dragged into. By date or by name is worked out each time
+    /// the group is read, so a mailbox that joins it later takes its place by the same rule.
+    fn sort(&self, group_id: &str, sorting: Sorting) -> Result<(), AccountGroupError>;
 }

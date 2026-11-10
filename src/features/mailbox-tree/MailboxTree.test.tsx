@@ -1,5 +1,6 @@
 import {
   act,
+  createEvent,
   fireEvent,
   render,
   screen,
@@ -34,6 +35,8 @@ vi.mock("@/shared/ipc/client", async () => {
     syncAccount: vi.fn(),
     createAccountGroup: vi.fn(),
     removeAccountGroup: vi.fn(),
+    renameAccountGroup: vi.fn(),
+    sortAccountGroup: vi.fn(),
   };
 });
 
@@ -48,6 +51,8 @@ const reorder = vi.mocked(client.reorderAccounts);
 const arrangeTop = vi.mocked(client.arrangeSidebar);
 const makeGroup = vi.mocked(client.createAccountGroup);
 const dropGroup = vi.mocked(client.removeAccountGroup);
+const renameGroup = vi.mocked(client.renameAccountGroup);
+const sortGroup = vi.mocked(client.sortAccountGroup);
 
 /** The sidebar as the core answers it, read before anything was asked for. */
 function sidebar(accounts: AccountNodeDto[]): MailboxTreeDto {
@@ -156,6 +161,10 @@ beforeEach(() => {
   makeGroup.mockResolvedValue("g1");
   dropGroup.mockReset();
   dropGroup.mockResolvedValue(undefined);
+  renameGroup.mockReset();
+  renameGroup.mockResolvedValue(undefined);
+  sortGroup.mockReset();
+  sortGroup.mockResolvedValue(undefined);
   sync.mockReset();
   sync.mockResolvedValue({
     folders: 0,
@@ -497,7 +506,7 @@ describe("MailboxTree", () => {
     await waitFor(() => expect(arrangement).toHaveBeenCalled());
     const readBefore = arrangement.mock.calls.length;
     arrangement.mockResolvedValue([
-      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: [] },
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: [] },
     ]);
 
     fireEvent.pointerDown(
@@ -1046,7 +1055,7 @@ describe("MailboxTree, arranged into groups", () => {
     accounts: string[],
     collapsed = false,
   ) {
-    return { id, name, place: 0, collapsed, accounts };
+    return { id, name, place: 0, collapsed, sorting: "manual" as const, accounts };
   }
 
   it("gives every row the same surface, in a group or out of one", async () => {
@@ -1349,8 +1358,7 @@ describe("MailboxTree, arranged into groups", () => {
     undo();
   });
 
-  it("does not reorder across a group boundary", async () => {
-    // Where an account belongs is the group menu's decision. One gesture may not make two.
+  it("puts a mailbox dropped beside one in a group into that group, where it was dropped", async () => {
     tree.mockResolvedValue(
       sidebar([
         account("acc-1", "one@example.com", [INBOX]),
@@ -1371,10 +1379,15 @@ describe("MailboxTree, arranged into groups", () => {
     fireEvent.dragOver(onto, { dataTransfer: { dropEffect: "" } });
     fireEvent.drop(onto);
 
-    // Given time to happen, and then shown not to have. A bare assertion here would pass before
-    // the drop had a chance to write anything.
-    await new Promise((settle) => setTimeout(settle, 60));
-    expect(reorder).not.toHaveBeenCalled();
+    // Where it belongs first, then where it stands in it: the order names it in the group, which
+    // it is not in until the first is written.
+    await waitFor(() =>
+      expect(reorder).toHaveBeenCalledWith(["acc-2", "acc-1"]),
+    );
+    expect(regroup).toHaveBeenCalledWith("acc-2", "g1");
+    expect(regroup.mock.invocationCallOrder[0]).toBeLessThan(
+      reorder.mock.invocationCallOrder[0],
+    );
     expect(arrangeTop).not.toHaveBeenCalled();
   });
 
@@ -1457,7 +1470,8 @@ describe("MailboxTree, arranged into groups", () => {
     expect(reorder).not.toHaveBeenCalled();
   });
 
-  it("puts an account in no group where a group stands when it is dropped on the group", async () => {
+  it("puts a mailbox dropped on a group into the group", async () => {
+    // The row lit up under the pointer, and nothing went in: what a person read as broken.
     tree.mockResolvedValue(
       sidebar([
         account("acc-1", "one@example.com", [INBOX], { place: 0 }),
@@ -1472,6 +1486,7 @@ describe("MailboxTree, arranged into groups", () => {
     const carried = (await screen.findByTitle("two@example.com")).parentElement!
       .parentElement!;
     const onto = await screen.findByRole("button", { name: /Work/ });
+    const readsBefore = arrangement.mock.calls.length;
 
     fireEvent.dragStart(carried, {
       dataTransfer: { setData: vi.fn(), effectAllowed: "" },
@@ -1479,16 +1494,72 @@ describe("MailboxTree, arranged into groups", () => {
     fireEvent.dragOver(onto, { dataTransfer: { dropEffect: "" } });
     fireEvent.drop(onto);
 
+    await waitFor(() => expect(regroup).toHaveBeenCalledWith("acc-2", "g1"));
+    // Where it stands in the group is the group's own order, which the core says when the
+    // sidebar reads it again: nothing writes an order of its own over it.
+    await waitFor(() =>
+      expect(arrangement.mock.calls.length).toBeGreaterThan(readsBefore),
+    );
+    expect(reorder).not.toHaveBeenCalled();
+    expect(arrangeTop).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Drags a row over another with the pointer `at` a part of the way down it, from 0 at its top to
+   * 1 at its bottom, and drops it there. jsdom lays nothing out, so every row is given a height.
+   */
+  function dragOnto(carried: HTMLElement, onto: HTMLElement, at: number) {
+    const measured = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        bottom: 20,
+        right: 200,
+        width: 200,
+        height: 20,
+        toJSON: () => ({}),
+      } as DOMRect);
+    fireEvent.dragStart(carried, {
+      dataTransfer: { setData: vi.fn(), effectAllowed: "" },
+    });
+    const over = createEvent.dragOver(onto, { dataTransfer: { dropEffect: "" } });
+    Object.defineProperty(over, "clientY", { value: at * 20 });
+    fireEvent(onto, over);
+    fireEvent.drop(onto);
+    measured.mockRestore();
+  }
+
+  it("puts a mailbox above a group when it is dropped on the top edge of the group's row", async () => {
+    tree.mockResolvedValue(
+      sidebar([
+        account("acc-1", "one@example.com", [INBOX], { place: 0 }),
+        account("acc-2", "two@example.com", [SENT], { place: 1 }),
+      ]),
+    );
+    arrangement.mockResolvedValue([
+      { ...group("g1", "Work", ["acc-1"]), place: 0 },
+    ]);
+    renderTree();
+
+    dragOnto(
+      (await screen.findByTitle("two@example.com")).parentElement!.parentElement!,
+      await screen.findByRole("button", { name: /Work/ }),
+      0.05,
+    );
+
     await waitFor(() =>
       expect(arrangeTop).toHaveBeenCalledWith([
         { kind: "account", id: "acc-2" },
         { kind: "group", id: "g1" },
       ]),
     );
+    expect(regroup).not.toHaveBeenCalled();
   });
 
-  it("does not let an account in a group be dropped on a group", async () => {
-    // Out of a group and into another place is two decisions, and a drop makes one.
+  it("moves a mailbox from one group into another dropped on its row", async () => {
     tree.mockResolvedValue(
       sidebar([
         account("acc-1", "one@example.com", [INBOX]),
@@ -1513,11 +1584,240 @@ describe("MailboxTree, arranged into groups", () => {
     });
     fireEvent.drop(onto);
 
-    // A drag over a place that takes nothing is not cancelled, which is how the window says no.
+    // Cancelled, which is how a place says it takes the drop.
+    expect(offered).toBe(false);
+    await waitFor(() => expect(regroup).toHaveBeenCalledWith("acc-1", "g2"));
+    expect(reorder).not.toHaveBeenCalled();
+  });
+
+  it("takes nothing where a drop would change nothing, and says so by not taking it", async () => {
+    // A mailbox over the group it is already in: a lit row there is a promise the drop breaks.
+    tree.mockResolvedValue(
+      sidebar([
+        account("acc-1", "one@example.com", [INBOX]),
+        account("acc-2", "two@example.com", [SENT]),
+      ]),
+    );
+    arrangement.mockResolvedValue([group("g1", "Work", ["acc-1"])]);
+    renderTree();
+
+    const carried = (await screen.findByTitle("one@example.com")).parentElement!
+      .parentElement!;
+    const onto = await screen.findByRole("button", { name: /Work/ });
+
+    fireEvent.dragStart(carried, {
+      dataTransfer: { setData: vi.fn(), effectAllowed: "" },
+    });
+    const offered = fireEvent.dragOver(onto, {
+      dataTransfer: { dropEffect: "" },
+    });
+    fireEvent.drop(onto);
+
+    expect(offered).toBe(true);
+    await new Promise((settle) => setTimeout(settle, 60));
+    expect(regroup).not.toHaveBeenCalled();
+    expect(reorder).not.toHaveBeenCalled();
+    expect(arrangeTop).not.toHaveBeenCalled();
+  });
+
+  it("takes a mailbox out of its group to where it is dropped at the top", async () => {
+    tree.mockResolvedValue(
+      sidebar([
+        account("acc-1", "one@example.com", [INBOX], { place: 0 }),
+        account("acc-2", "two@example.com", [SENT], { place: 1 }),
+      ]),
+    );
+    arrangement.mockResolvedValue([
+      { ...group("g1", "Work", ["acc-1"]), place: 0 },
+    ]);
+    renderTree();
+
+    dragOnto(
+      (await screen.findByTitle("one@example.com")).parentElement!.parentElement!,
+      screen.getByTitle("two@example.com").parentElement!.parentElement!,
+      0.9,
+    );
+
+    await waitFor(() =>
+      expect(arrangeTop).toHaveBeenCalledWith([
+        { kind: "group", id: "g1" },
+        { kind: "account", id: "acc-2" },
+        { kind: "account", id: "acc-1" },
+      ]),
+    );
+    expect(regroup).toHaveBeenCalledWith("acc-1", null);
+    expect(regroup.mock.invocationCallOrder[0]).toBeLessThan(
+      arrangeTop.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("moves a group with everything in it", async () => {
+    tree.mockResolvedValue(
+      sidebar([
+        account("acc-1", "one@example.com", [INBOX]),
+        account("acc-2", "two@example.com", [SENT]),
+      ]),
+    );
+    arrangement.mockResolvedValue([
+      { ...group("g1", "Work", ["acc-1"]), place: 0 },
+      { ...group("g2", "Home", ["acc-2"]), place: 1 },
+    ]);
+    renderTree();
+
+    const home = (await screen.findByRole("button", { name: /Home/ })).closest(
+      "[draggable]",
+    ) as HTMLElement;
+    dragOnto(home, screen.getByRole("button", { name: /Work/ }), 0.5);
+
+    await waitFor(() =>
+      expect(arrangeTop).toHaveBeenCalledWith([
+        { kind: "group", id: "g2" },
+        { kind: "group", id: "g1" },
+      ]),
+    );
+    // Its mailbox goes with it: Home and what is in it now stand above Work and what is in it.
+    const drawn = screen
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("title") ?? button.textContent ?? "");
+    const at = (label: RegExp) => drawn.findIndex((one) => label.test(one));
+    expect(at(/Home/)).toBeLessThan(at(/two@example\.com/));
+    expect(at(/two@example\.com/)).toBeLessThan(at(/Work/));
+    expect(at(/Work/)).toBeLessThan(at(/one@example\.com/));
+    expect(regroup).not.toHaveBeenCalled();
+  });
+
+  it("takes a mailbox out of a group to the end, below the last group open", async () => {
+    // No row can offer that place: below an open group's row is its first mailbox.
+    tree.mockResolvedValue(
+      sidebar([
+        account("acc-1", "one@example.com", [INBOX], { place: 0 }),
+        account("acc-2", "two@example.com", [SENT], { place: 0 }),
+      ]),
+    );
+    arrangement.mockResolvedValue([
+      { ...group("g1", "Work", ["acc-2"]), place: 1 },
+    ]);
+    renderTree();
+
+    fireEvent.dragStart(
+      (await screen.findByTitle("two@example.com")).parentElement!.parentElement!,
+      { dataTransfer: { setData: vi.fn(), effectAllowed: "" } },
+    );
+    const end = screen
+      .getByRole("navigation", { name: "Mailboxes" })
+      .querySelector("[data-end]") as HTMLElement;
+    const offered = fireEvent.dragOver(end, { dataTransfer: { dropEffect: "" } });
+    fireEvent.drop(end);
+
+    expect(offered).toBe(false);
+    await waitFor(() =>
+      expect(arrangeTop).toHaveBeenCalledWith([
+        { kind: "account", id: "acc-1" },
+        { kind: "group", id: "g1" },
+        { kind: "account", id: "acc-2" },
+      ]),
+    );
+    expect(regroup).toHaveBeenCalledWith("acc-2", null);
+    // Gone once the drag is over: nothing below the rows takes the space it held.
+    expect(
+      screen.getByRole("navigation", { name: "Mailboxes" }).querySelector("[data-end]"),
+    ).toBeNull();
+  });
+
+  it("moves a group up the sidebar from its menu, and offers no way up from the top", async () => {
+    // A drag is a thing only a mouse can do, and the order of a sidebar is not a mouse-only setting.
+    tree.mockResolvedValue(
+      sidebar([
+        account("acc-1", "one@example.com", [INBOX]),
+        account("acc-2", "two@example.com", [SENT]),
+      ]),
+    );
+    arrangement.mockResolvedValue([
+      { ...group("g1", "Work", ["acc-1"]), place: 0 },
+      { ...group("g2", "Home", ["acc-2"]), place: 1 },
+    ]);
+    renderTree();
+
+    openTheMenuOn(await screen.findByRole("button", { name: /Work/ }));
+    expect(
+      (await screen.findByRole("menuitem", { name: "Move up" })).getAttribute("aria-disabled"),
+    ).toBe("true");
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+
+    openTheMenuOn(screen.getByRole("button", { name: /Home/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Move up" }));
+
+    await waitFor(() =>
+      expect(arrangeTop).toHaveBeenCalledWith([
+        { kind: "group", id: "g2" },
+        { kind: "group", id: "g1" },
+      ]),
+    );
+    expect(regroup).not.toHaveBeenCalled();
+  });
+
+  it("puts no group inside another", async () => {
+    tree.mockResolvedValue(
+      sidebar([
+        account("acc-1", "one@example.com", [INBOX]),
+        account("acc-2", "two@example.com", [SENT]),
+      ]),
+    );
+    arrangement.mockResolvedValue([
+      { ...group("g1", "Work", ["acc-1"]), place: 0 },
+      { ...group("g2", "Home", ["acc-2"]), place: 1 },
+    ]);
+    renderTree();
+
+    const home = (await screen.findByRole("button", { name: /Home/ })).closest(
+      "[draggable]",
+    ) as HTMLElement;
+    fireEvent.dragStart(home, {
+      dataTransfer: { setData: vi.fn(), effectAllowed: "" },
+    });
+    const onto =
+      screen.getByTitle("one@example.com").parentElement!.parentElement!;
+    const offered = fireEvent.dragOver(onto, {
+      dataTransfer: { dropEffect: "" },
+    });
+    fireEvent.drop(onto);
+
     expect(offered).toBe(true);
     await new Promise((settle) => setTimeout(settle, 60));
     expect(arrangeTop).not.toHaveBeenCalled();
-    expect(reorder).not.toHaveBeenCalled();
+    expect(regroup).not.toHaveBeenCalled();
+  });
+
+  it("marks where a drop lands inside the row, where the sidebar cannot cut it off", async () => {
+    // A ring drawn round the outside of a row was clipped at both sides by the sidebar.
+    tree.mockResolvedValue(
+      sidebar([
+        account("acc-1", "one@example.com", [INBOX], { place: 0 }),
+        account("acc-2", "two@example.com", [SENT], { place: 1 }),
+      ]),
+    );
+    arrangement.mockResolvedValue([
+      { ...group("g1", "Work", ["acc-1"]), place: 0 },
+    ]);
+    renderTree();
+
+    fireEvent.dragStart(
+      (await screen.findByTitle("two@example.com")).parentElement!.parentElement!,
+      { dataTransfer: { setData: vi.fn(), effectAllowed: "" } },
+    );
+    const work = screen.getByRole("button", { name: /Work/ });
+    fireEvent.dragOver(work, { dataTransfer: { dropEffect: "" } });
+
+    const lit = work.closest("[draggable]") as HTMLElement;
+    await waitFor(() => expect(lit.className).toContain("after:ring-inset"));
+    expect(lit.className).not.toMatch(/(^|\s)ring-1(\s|$)/);
+
+    const above = screen.getByTitle("one@example.com").parentElement!
+      .parentElement!;
+    fireEvent.dragOver(above, { dataTransfer: { dropEffect: "" } });
+    await waitFor(() => expect(above.className).toContain("before:h-0.5"));
+    expect(lit.className).not.toContain("after:ring-inset");
   });
 
   it("draws a group over the mailboxes in it, and leaves the rest where they were", async () => {
@@ -1800,7 +2100,7 @@ describe("MailboxTree, when a group stops existing", () => {
       ]),
     );
     arrangement.mockResolvedValue([
-      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: ["acc-1"] },
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: ["acc-1"] },
     ]);
     const onArrangementChanged = vi.fn();
     render(
@@ -1847,12 +2147,116 @@ describe("MailboxTree, when a group stops existing", () => {
     expect(onArrangementChanged).toHaveBeenCalledTimes(1);
   });
 
+  it("ticks the order a group is kept in, and neither while it is in the order dragged", async () => {
+    tree.mockResolvedValue(
+      sidebar([
+        account("acc-1", "one@example.com", [INBOX]),
+        account("acc-2", "two@example.com", [OTHER_INBOX]),
+      ]),
+    );
+    arrangement.mockResolvedValue([
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "name", accounts: ["acc-1"] },
+      { id: "g2", name: "Home", place: 1, collapsed: false, sorting: "manual", accounts: ["acc-2"] },
+    ]);
+    renderGroups();
+
+    fireEvent.contextMenu(await screen.findByRole("button", { name: /Work/ }));
+    fireEvent.click(await screen.findByText("Sort by"));
+    expect(
+      (await screen.findByRole("menuitemradio", { name: "Name" })).getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("menuitemradio", { name: "Date added" }).getAttribute("aria-checked"),
+    ).toBe("false");
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /Home/ }));
+    fireEvent.click(await screen.findByText("Sort by"));
+    const radios = await screen.findAllByRole("menuitemradio");
+    expect(radios.map((radio) => radio.getAttribute("aria-checked"))).toEqual([
+      "false",
+      "false",
+    ]);
+  });
+
+  it("sorts a group by the date its mailboxes were added, and reads the order back", async () => {
+    tree.mockResolvedValue(
+      sidebar([
+        account("acc-1", "one@example.com", [INBOX]),
+        account("acc-2", "two@example.com", [OTHER_INBOX]),
+      ]),
+    );
+    arrangement.mockResolvedValue([
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: ["acc-1", "acc-2"] },
+    ]);
+    const { onArrangementChanged } = renderGroups();
+    const readsBefore = () => arrangement.mock.calls.length;
+
+    fireEvent.contextMenu(await screen.findByRole("button", { name: /Work/ }));
+    fireEvent.click(await screen.findByText("Sort by"));
+    const before = readsBefore();
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Date added" }));
+
+    await waitFor(() => expect(sortGroup).toHaveBeenCalledWith("g1", "dateAdded"));
+    // The order is the core's to work out, so the sidebar asks for it rather than guessing.
+    await waitFor(() => expect(arrangement.mock.calls.length).toBeGreaterThan(before));
+    expect(onArrangementChanged).toHaveBeenCalled();
+  });
+
+  it("renames a group from its row, starting from the name it has", async () => {
+    tree.mockResolvedValue(
+      sidebar([
+        account("acc-1", "one@example.com", [INBOX]),
+        account("acc-2", "two@example.com", [OTHER_INBOX]),
+      ]),
+    );
+    arrangement.mockResolvedValue([
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: ["acc-1"] },
+    ]);
+    renderGroups();
+
+    fireEvent.contextMenu(await screen.findByRole("button", { name: /Work/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+    const field = (await screen.findByRole("textbox", { name: "Group name" })) as HTMLInputElement;
+    expect(field.value).toBe("Work");
+    // Given the focus once the menu has gone, as Remove's panel is.
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    arrangement.mockResolvedValue([
+      { id: "g1", name: "Office", place: 0, collapsed: false, sorting: "manual", accounts: ["acc-1"] },
+    ]);
+
+    fireEvent.change(field, { target: { value: "Office" } });
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+
+    await waitFor(() => expect(renameGroup).toHaveBeenCalledWith("g1", "Office"));
+    expect(await screen.findByRole("button", { name: /Office/ })).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  /** The tree over groups, with the callback the settings hear a change through. */
+  function renderGroups() {
+    const onArrangementChanged = vi.fn();
+    render(
+      <I18nProvider initial="en">
+        <MailboxTree
+          selected={null}
+          onSelect={vi.fn()}
+          onAddAccount={vi.fn()}
+          onReconnect={vi.fn()}
+          onArrangementChanged={onArrangementChanged}
+        />
+      </I18nProvider>,
+    );
+    return { onArrangementChanged };
+  }
+
   it("stays on a group that is still there", async () => {
     tree.mockResolvedValue(
       sidebar([account("acc-1", "one@example.com", [INBOX])]),
     );
     arrangement.mockResolvedValue([
-      { id: "g1", name: "Work", place: 0, collapsed: false, accounts: ["acc-1"] },
+      { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual", accounts: ["acc-1"] },
     ]);
 
     const { onSelect } = renderTree({ kind: "group", groupId: "g1" });
@@ -2134,7 +2538,7 @@ describe("MailboxTree, folded into a rail", () => {
       sidebar([account("acc-1", "zeta@example.com", [INBOX, ARCHIVE])]),
     );
     arrangement.mockResolvedValue([
-      { id: "g-1", name: "Work", place: 0, collapsed: true, accounts: ["acc-1"] },
+      { id: "g-1", name: "Work", place: 0, collapsed: true, sorting: "manual", accounts: ["acc-1"] },
     ]);
     renderRail();
 
