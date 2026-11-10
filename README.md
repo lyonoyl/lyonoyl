@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="src-tauri/icons/128x128@2x.png" width="128" alt="Lyonoyl Mail icon for a modern, open-source desktop email client built with Rust">
+<img src="src-tauri/icons/128x128@2x.png" width="128" alt="Lyonoyl Mail icon for an open-source desktop email client built with Rust">
 
 # Lyonoyl Mail
 
@@ -14,7 +14,7 @@
 
 </div>
 
-A modern, open-source desktop email client built with Rust, designed for privacy, performance, and simplicity.
+An open-source desktop email client built with Rust, designed for privacy, performance, and simplicity.
 
 ![Lyonoyl Mail in a dark theme](docs/screenshots/dark.png)
 
