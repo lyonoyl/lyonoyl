@@ -1,8 +1,8 @@
 What this changes, and why.
 
-- [ ] The title follows Conventional Commits: `type(scope): summary`.
-- [ ] `scripts/preflight.sh` is green, or this says which steps could not run here.
-- [ ] A change in behavior comes with a test that fails without it.
-- [ ] Every new or changed string is in every catalog, or this names the languages left to the maintainers.
-- [ ] Nothing identifies anybody.
-- [ ] A new dependency has a reason and a license that allows selling the product.
+`scripts/preflight.sh` runs every check below: a box is ticked for each one it passed, and a box left empty says why that check could not run here.
+
+- [ ] Rust: formatting, Clippy, and the tests against the development mail server
+- [ ] Frontend: types, tests, and the bundle
+- [ ] Gates: layer boundaries, forbidden APIs, CSP, anonymity, generated bindings, licenses, and advisories
+- [ ] The release profile compiles, and the application builds
