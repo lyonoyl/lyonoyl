@@ -5,7 +5,7 @@ use ts_rs::TS;
 
 use crate::application::accounts::{AddAccount, TestConnection};
 use crate::application::error::UseCaseError;
-use crate::application::find_server_settings::{FindServerSettings, Settings};
+use crate::application::find_server_settings::{FindServerSettings, ServersHere, Settings};
 use crate::application::remove_account::RemoveAccount;
 use crate::application::what_is_held::WhatIsHeld;
 use crate::bootstrap::adapters;
@@ -866,6 +866,48 @@ pub async fn find_server_settings(
     Ok(FoundSettingsDto { settings: found })
 }
 
+/// The servers of the mailboxes already on this device, each set once, written for the address
+/// being added.
+///
+/// Nothing leaves this machine. The user names are spelled out of the address being added and the
+/// shape each answer carries, as for an answer found by the lookup, so nothing one account signs in
+/// with reaches the form of another.
+/// One set of servers already here, named by the mailbox it was taken from.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/shared/ipc/generated/")]
+pub struct ServersHereDto {
+    /// The address of the mailbox these servers were taken from.
+    pub like: String,
+    /// The servers, with the user names spelled for the address being added.
+    pub settings: AccountSettingsDto,
+}
+
+#[tauri::command]
+pub async fn servers_here(
+    email: String,
+    correcting: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ServersHereDto>, CommandError> {
+    let profile = state.storage.profile()?;
+
+    let here = tauri::async_runtime::spawn_blocking(move || {
+        ServersHere::new(adapters::accounts(profile))
+            .execute(correcting.as_deref())
+            .map_err(CommandError::from)
+    })
+    .await
+    .map_err(background_task_failed)??;
+
+    Ok(here
+        .into_iter()
+        .map(|one| ServersHereDto {
+            like: one.like,
+            settings: settings_for(&email, one.servers, one.sign_in),
+        })
+        .collect())
+}
+
 /// What was found, in the form's own shape.
 ///
 /// The user names are spelled here out of the address being added and the shape the answer
@@ -880,9 +922,16 @@ fn found_settings(email: &str, looked: Settings) -> Option<AccountSettingsDto> {
         return None;
     };
 
-    let servers = *servers;
+    Some(settings_for(email, *servers, sign_in))
+}
 
-    Some(AccountSettingsDto {
+/// Servers and what to sign in to them as, in the form's own shape, for the address being added.
+fn settings_for(
+    email: &str,
+    servers: lyonoyl_domain::provider::ServerSettings,
+    sign_in: crate::application::find_server_settings::SignIn,
+) -> AccountSettingsDto {
+    AccountSettingsDto {
         email: email.to_owned(),
         display_name: String::new(),
         imap_host: servers.imap_host,
@@ -895,5 +944,5 @@ fn found_settings(email: &str, looked: Settings) -> Option<AccountSettingsDto> {
             encryption: sending.encryption.into(),
             username: sign_in.submission.user_name_for(email),
         }),
-    })
+    }
 }

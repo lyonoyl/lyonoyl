@@ -1,11 +1,15 @@
 import { CircleCheck, CircleX, Loader2 } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
   type FormEvent,
 } from "react";
+
+import { groupOf } from "@/entities/group";
+import type { Mailbox } from "@/entities/mailbox";
 
 import {
   describeError,
@@ -17,7 +21,15 @@ import { AddAccount } from "./AddAccount";
 import { secretStoreName } from "@/shared/platform";
 import { Field } from "./Field";
 import { Button } from "@/shared/ui/primitives/button";
-import { findServerSettings } from "@/shared/ipc/client";
+import {
+  findServerSettings,
+  listAccountGroups,
+  placeAccountInGroup,
+  serversHere,
+} from "@/shared/ipc/client";
+import { Chooser } from "@/shared/ui/Chooser";
+import type { AccountGroupDto } from "@/shared/ipc/generated/AccountGroupDto";
+import type { ServersHereDto } from "@/shared/ipc/generated/ServersHereDto";
 import { Input } from "@/shared/ui/primitives/input";
 import { Label } from "@/shared/ui/primitives/label";
 import {
@@ -73,7 +85,13 @@ export function AccountSetup({
   secretsInAFile = false,
   address,
   passwordMissing,
+  from = null,
 }: {
+  /**
+   * What the sidebar had chosen when the screen opened. A new mailbox goes into its group — the
+   * group itself, or the group of the mailbox chosen — unless another is chosen here.
+   */
+  from?: Mailbox | null;
   onAdded: (account: MailAccountSummaryDto) => void;
   onCancel: () => void;
   /**
@@ -163,7 +181,114 @@ export function AccountSetup({
   }, [reconnecting]);
   /** Once the port is typed in by hand, changing the encryption stops overwriting it. */
   const [portEdited, setPortEdited] = useState(false);
-  const { outcome, busy, test, add, portFor, reset } = useAccountSetup(onAdded);
+
+  /**
+   * The groups a new mailbox can go into, and the one it goes into.
+   *
+   * `null` while they are read, and left so where they could not be: the chooser is then not
+   * offered, and the mailbox goes in no group, as it did before there were groups. The choice is
+   * read from a ref when the mailbox is stored, since that moment belongs to a render long gone.
+   */
+  const [groups, setGroups] = useState<AccountGroupDto[] | null>(null);
+  const [group, setGroup] = useState<string | null>(null);
+  const groupChosen = useRef<string | null>(null);
+  const chooseGroup = (next: string | null) => {
+    groupChosen.current = next;
+    setGroup(next);
+  };
+
+  useEffect(() => {
+    if (reconnecting) return;
+    let active = true;
+    listAccountGroups()
+      .then((read) => {
+        if (!active) return;
+        setGroups(read);
+        const starting = groupOf(from, read);
+        groupChosen.current = starting;
+        setGroup(starting);
+      })
+      .catch(() => {
+        // No groups offered: the mailbox is added all the same, in none.
+      });
+    return () => {
+      active = false;
+    };
+    // Read once, as the screen opens: nothing behind a screen can change what it was opened from.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reconnecting]);
+
+  /**
+   * Into the group chosen for it, before the window hears it was added, so the sidebar draws it
+   * there the first time it draws it at all. Where that cannot be written, it is added all the same
+   * and stands in no group, where a mailbox's menu moves it.
+   */
+  const addedInItsGroup = useCallback(
+    (account: MailAccountSummaryDto) => {
+      const into = groupChosen.current;
+      if (reconnecting !== undefined || into === null) {
+        onAdded(account);
+        return;
+      }
+      void placeAccountInGroup(account.id, into)
+        .catch(() => {})
+        .finally(() => onAdded(account));
+    },
+    [onAdded, reconnecting],
+  );
+  const { outcome, busy, test, add, portFor, reset } =
+    useAccountSetup(addedInItsGroup);
+
+  /**
+   * The servers of the mailboxes already here, offered on the long form of a new one, each named
+   * by the mailbox it was taken from. Read as that form opens: it is where a person lands when
+   * nobody knew the address, which is when another mailbox's servers are worth having.
+   */
+  const [alike, setAlike] = useState<ServersHereDto[] | null>(null);
+  const [like, setLike] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (reconnecting || step !== "settings") return;
+    let active = true;
+    serversHere(draft.email.trim())
+      .then((here) => {
+        if (active) setAlike(here);
+      })
+      .catch(() => {
+        if (active) setAlike([]);
+      });
+    return () => {
+      active = false;
+    };
+    // The address as the form opens; one typed after it is read again when a mailbox is chosen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reconnecting, step]);
+
+  /**
+   * Fills the servers in from the mailbox chosen, with the user names spelled for this address. Asked
+   * again where the address changed since the list was read, so a user name follows the address on
+   * screen and not the one before it.
+   */
+  const fillFrom = (mailbox: string | null) => {
+    setLike(mailbox);
+    if (mailbox === null) return;
+    const email = draft.email.trim();
+    const listed = alike ?? [];
+    const answer =
+      listed.length > 0 && listed[0].settings.email === email
+        ? Promise.resolve(listed)
+        : serversHere(email);
+    void answer
+      .then((here) => {
+        const chosen = here.find((one) => one.like === mailbox);
+        if (chosen === undefined) return;
+        setDraft((current) => withServers(current, chosen.settings));
+        if (outcome.status !== "idle") reset();
+      })
+      .catch(() => {
+        // Nothing filled in: the fields are there to type into, as they were.
+      });
+  };
 
   /** Leaving, and not while the form is in the middle of something. */
   function leave() {
@@ -309,6 +434,9 @@ export function AccountSetup({
               ? "looking"
               : null
         }
+        groups={groups}
+        group={group}
+        onGroup={chooseGroup}
       />
     );
   }
@@ -385,6 +513,26 @@ export function AccountSetup({
         <legend className="px-0 text-sm font-medium">
           {t("account.server")}
         </legend>
+
+        {/* Another mailbox's servers, for a mailbox on a server one of them is already on: six
+            domains on one server are six mailboxes whose servers nobody should type six times. */}
+        {!reconnecting && alike !== null && alike.length > 0 && (
+          <Field id="account-servers-like" label={t("account.serversLike")}>
+            <Chooser
+              label={t("account.serversLike")}
+              value={like}
+              options={[
+                { value: null, label: t("account.serversLikeNone") },
+                ...alike.map((one) => ({
+                  value: one.like,
+                  label: one.like,
+                  dir: "auto" as const,
+                })),
+              ]}
+              onChoose={fillFrom}
+            />
+          </Field>
+        )}
 
         <div className="flex gap-3">
           <div className="flex-1">

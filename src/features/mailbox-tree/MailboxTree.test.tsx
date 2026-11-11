@@ -1227,6 +1227,31 @@ describe("MailboxTree, arranged into groups", () => {
     await waitFor(() => expect(regroup).toHaveBeenCalledWith("acc-1", "g1"));
   });
 
+  it("lists the groups to move to by name, whatever order the sidebar keeps them in", async () => {
+    // A list to find a name in. The sidebar's own order is the person's arrangement, a different
+    // question.
+    tree.mockResolvedValue(
+      sidebar([
+        account("acc-1", "one@example.com", [INBOX]),
+        account("acc-2", "two@example.com", [SENT]),
+      ]),
+    );
+    arrangement.mockResolvedValue([
+      { ...group("g1", "Work", ["acc-2"]), place: 0 },
+      { ...group("g2", "Home", []), place: 1 },
+      { ...group("g3", "Archive", []), place: 2 },
+    ]);
+    renderTree();
+
+    openTheMenuOn(await screen.findByTitle("one@example.com"));
+    fireEvent.click(await screen.findByText("Move to group"));
+    await screen.findByRole("menuitemradio", { name: "Work" });
+
+    expect(
+      screen.getAllByRole("menuitemradio").map((item) => item.textContent),
+    ).toEqual(["Not in a group", "Archive", "Home", "Work"]);
+  });
+
   it("takes an account out of every group", async () => {
     // The way back. Without it a mailbox put in a group by accident stays there.
     tree.mockResolvedValue(

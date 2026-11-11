@@ -549,3 +549,123 @@ fn an_account_that_will_not_read_or_has_gone_is_passed_over() {
     assert_eq!(found, Found::OnThisDevice);
     assert_eq!(servers.imap_host, "imap.whole.example.net");
 }
+
+/// An account reading from a server of the test's choosing, so that two can share one.
+fn account_on(id: &str, email: &str, host: &str) -> MailAccount {
+    MailAccount::new(
+        MailAccountSummary::new(id, email, "Zeta Quorin", "imap").expect("well-formed"),
+        Server::new(host.to_owned(), 993, Encryption::Tls).expect("well-formed"),
+        email,
+    )
+    .expect("well-formed")
+}
+
+fn hosts(here: &[Here]) -> Vec<&str> {
+    here.iter()
+        .map(|one| one.servers.imap_host.as_str())
+        .collect()
+}
+
+#[test]
+fn the_servers_here_are_offered_once_each_in_the_order_they_were_added() {
+    // Two domains on one mail server are one choice, not two: the person picks a server.
+    let accounts = Accounts::holding(vec![
+        account_on("a", "zeta@one.example", "mail.shared.example"),
+        account_on("b", "kappa@two.example", "imap.other.example"),
+        account_on("c", "sigma@three.example", "mail.shared.example"),
+    ]);
+
+    let here = ServersHere::new(&accounts).execute(None).expect("listed");
+
+    assert_eq!(hosts(&here), ["mail.shared.example", "imap.other.example"]);
+    // Named by the first mailbox on each, which is the one somebody typed the servers in for.
+    let named: Vec<&str> = here.iter().map(|one| one.like.as_str()).collect();
+    assert_eq!(named, ["zeta@one.example", "kappa@two.example"]);
+}
+
+#[test]
+fn servers_that_send_differently_are_another_choice() {
+    // The same reading server with a sending server, and without one, fill the form differently.
+    let accounts = Accounts::holding(vec![
+        account_on("a", "zeta@one.example", "mail.shared.example"),
+        sending(
+            account_on("b", "kappa@two.example", "mail.shared.example"),
+            "kappa@two.example",
+        ),
+    ]);
+
+    let here = ServersHere::new(&accounts).execute(None).expect("listed");
+
+    assert_eq!(here.len(), 2);
+    assert!(here[0].servers.smtp.is_none());
+    assert!(here[1].servers.smtp.is_some());
+}
+
+#[test]
+fn the_account_being_corrected_is_not_offered() {
+    // Its own servers are what is being corrected, so they are no answer about where its mail is.
+    let accounts = Accounts::holding(vec![
+        account("a", "zeta@one.example", "zeta@one.example"),
+        account("b", "kappa@two.example", "kappa@two.example"),
+    ]);
+
+    let here = ServersHere::new(&accounts)
+        .execute(Some("a"))
+        .expect("listed");
+
+    assert_eq!(hosts(&here), ["imap.b.example.net"]);
+}
+
+#[test]
+fn what_an_account_signs_in_as_travels_as_a_shape_and_never_as_a_name() {
+    // A user name that is the local part comes across as "the local part"; one only its owner
+    // knows comes across as nothing at all, and the new address is signed in with whole.
+    let accounts = Accounts::holding(vec![
+        sending(account("a", "zeta@one.example", "zeta"), "zeta"),
+        account("b", "kappa@two.example", "operator-7731"),
+    ]);
+
+    let here = ServersHere::new(&accounts).execute(None).expect("listed");
+
+    assert_eq!(here[0].sign_in.imap, SignInAs::LocalPart);
+    assert_eq!(here[0].sign_in.submission, SignInAs::LocalPart);
+    assert_eq!(here[1].sign_in.imap, SignInAs::Address);
+    assert_eq!(
+        here[1].sign_in.imap.user_name_for("sigma@three.example"),
+        "sigma@three.example"
+    );
+}
+
+#[test]
+fn an_account_that_will_not_read_is_passed_over_and_the_rest_are_offered() {
+    let mut accounts = Accounts::holding(vec![
+        account("a", "zeta@one.example", "zeta@one.example"),
+        account("b", "kappa@two.example", "kappa@two.example"),
+        account("c", "sigma@three.example", "sigma@three.example"),
+    ]);
+    accounts.unreadable = vec!["a"];
+    accounts.gone = vec!["c"];
+
+    let here = ServersHere::new(&accounts).execute(None).expect("listed");
+
+    assert_eq!(hosts(&here), ["imap.b.example.net"]);
+}
+
+#[test]
+fn nothing_here_offers_nothing() {
+    let here = ServersHere::new(&Accounts::none())
+        .execute(None)
+        .expect("listed");
+
+    assert!(here.is_empty());
+}
+
+#[test]
+fn a_store_that_cannot_be_read_is_said_rather_than_answered_with_nothing() {
+    // "No mailboxes here" and "the mailboxes could not be read" are two answers; the window offers
+    // nothing for either, but only one of them is true.
+    let mut accounts = Accounts::none();
+    accounts.unavailable = true;
+
+    assert!(ServersHere::new(&accounts).execute(None).is_err());
+}

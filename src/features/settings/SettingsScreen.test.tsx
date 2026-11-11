@@ -1187,8 +1187,9 @@ describe("SettingsScreen, arranging mailboxes into groups", () => {
     ]);
 
     const list = await openChooser("The group Sigma Ordrin is in");
-    // Nothing to be in yet comes first, then the groups in their own order.
-    expect(offered(list)).toEqual(["No group", "Work", "Home"]);
+    // Nothing to be in comes first, then the groups by name: a list to find a name in, unlike the
+    // sidebar, which keeps the order a person arranged.
+    expect(offered(list)).toEqual(["No group", "Home", "Work"]);
     fireEvent.click(within(list).getByRole("option", { name: "Home" }));
 
     await waitFor(() =>

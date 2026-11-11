@@ -19,6 +19,7 @@ import { listen } from "@tauri-apps/api/event";
 
 import type { MailboxTreeDto } from "./generated/MailboxTreeDto";
 import type { AccountSettingsDto } from "./generated/AccountSettingsDto";
+import type { ServersHereDto } from "./generated/ServersHereDto";
 import type { CommandError } from "./generated/CommandError";
 import type { AccountGroupDto } from "./generated/AccountGroupDto";
 import type { AppIconDto } from "./generated/AppIconDto";
@@ -540,6 +541,20 @@ export function findServerSettings(
   correcting?: string,
 ): Promise<FoundSettingsDto> {
   return invoke<FoundSettingsDto>("find_server_settings", {
+    email,
+    correcting: correcting ?? null,
+  });
+}
+
+/**
+ * The servers of the mailboxes already on this device, each set once, written for the address being
+ * added. Nothing leaves the machine, and no other account's user name comes back.
+ */
+export function serversHere(
+  email: string,
+  correcting?: string,
+): Promise<ServersHereDto[]> {
+  return invoke<ServersHereDto[]>("servers_here", {
     email,
     correcting: correcting ?? null,
   });

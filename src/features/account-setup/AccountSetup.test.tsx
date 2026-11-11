@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,6 +23,9 @@ vi.mock("@/shared/ipc/client", async () => {
     getAccountSettings: vi.fn(),
     findServerSettings: vi.fn(),
     accountHint: vi.fn(),
+    listAccountGroups: vi.fn(),
+    placeAccountInGroup: vi.fn(),
+    serversHere: vi.fn(),
   };
 });
 
@@ -35,6 +38,9 @@ const {
   getAccountSettings,
   findServerSettings,
   accountHint,
+  listAccountGroups,
+  placeAccountInGroup,
+  serversHere,
 } = await import("@/shared/ipc/client");
 const add = vi.mocked(addAccount);
 const change = vi.mocked(changeAccount);
@@ -44,6 +50,9 @@ const remove = vi.mocked(removeAccount);
 const settingsOf = vi.mocked(getAccountSettings);
 const looking = vi.mocked(findServerSettings);
 const hinting = vi.mocked(accountHint);
+const groupsRead = vi.mocked(listAccountGroups);
+const placing = vi.mocked(placeAccountInGroup);
+const alike = vi.mocked(serversHere);
 
 const ACCOUNT = {
   id: "acc-1",
@@ -181,6 +190,12 @@ function fillRequired() {
 }
 
 beforeEach(() => {
+  groupsRead.mockReset();
+  groupsRead.mockResolvedValue([]);
+  placing.mockReset();
+  placing.mockResolvedValue(undefined);
+  alike.mockReset();
+  alike.mockResolvedValue([]);
   looking.mockReset();
   looking.mockResolvedValue({ settings: null });
   add.mockReset();
@@ -1458,5 +1473,174 @@ describe("AccountSetup, the two screens of adding one", () => {
       // And the field is still there with its ordinary hint, rather than gone.
       expect(screen.getByLabelText(/^Password$/)).toBeTruthy();
     });
+  });
+});
+
+describe("AccountSetup, the group a new mailbox goes into", () => {
+  const WORK = { id: "g1", name: "Work", place: 0, collapsed: false, sorting: "manual" as const, accounts: ["acc-9"] };
+  const HOME = { id: "g2", name: "Home", place: 1, collapsed: false, sorting: "manual" as const, accounts: [] };
+
+  function renderStart(from: Parameters<typeof AccountSetup>[0]["from"] = null, onAdded = vi.fn()) {
+    render(
+      <I18nProvider initial="en">
+        <AccountSetup step="start" onStep={vi.fn()} onAdded={onAdded} onCancel={vi.fn()} from={from} />
+      </I18nProvider>,
+    );
+    return { onAdded };
+  }
+
+  async function chooser() {
+    return screen.findByRole("combobox", { name: "Group" });
+  }
+
+  it("offers the groups by name, starting from the group chosen in the sidebar", async () => {
+    groupsRead.mockResolvedValue([WORK, HOME]);
+    renderStart({ kind: "group", groupId: "g1" });
+
+    const control = await chooser();
+    await waitFor(() => expect(control.textContent).toContain("Work"));
+
+    fireEvent.click(control);
+    const list = await screen.findByRole("listbox");
+    expect(within(list).getAllByRole("option").map((one) => one.textContent)).toEqual([
+      "No group",
+      "Home",
+      "Work",
+    ]);
+  });
+
+  it("starts from the group of the mailbox chosen in the sidebar", async () => {
+    groupsRead.mockResolvedValue([WORK, HOME]);
+    renderStart({ kind: "account", accountId: "acc-9" });
+
+    const control = await chooser();
+    await waitFor(() => expect(control.textContent).toContain("Work"));
+  });
+
+  it("starts from no group where the sidebar stood on everything at once", async () => {
+    groupsRead.mockResolvedValue([WORK, HOME]);
+    renderStart({ kind: "everything" });
+
+    const control = await chooser();
+    await waitFor(() => expect(control.textContent).toContain("No group"));
+  });
+
+  it("puts the new mailbox in the group chosen before the window hears it was added", async () => {
+    groupsRead.mockResolvedValue([WORK, HOME]);
+    looking.mockResolvedValue({
+      settings: {
+        email: "zeta@example.com",
+        displayName: "",
+        imapHost: "imap.example.com",
+        imapPort: 993,
+        imapEncryption: "tls",
+        imapUsername: "zeta@example.com",
+        submission: null,
+      },
+    });
+    const added = { id: "acc-1", email: "zeta@example.com", displayName: "", provider: "imap", canSend: false };
+    add.mockResolvedValue(added);
+    const { onAdded } = renderStart({ kind: "group", groupId: "g2" });
+
+    await waitFor(async () => expect((await chooser()).textContent).toContain("Home"));
+    type(/^Email address$/, "zeta@example.com");
+    type(/^Password$/, "secret");
+    fireEvent.click(button("Continue"));
+
+    await waitFor(() => expect(onAdded).toHaveBeenCalledWith(added));
+    expect(placing).toHaveBeenCalledWith("acc-1", "g2");
+    expect(placing.mock.invocationCallOrder[0]).toBeLessThan(onAdded.mock.invocationCallOrder[0]);
+  });
+
+  it("adds the mailbox in no group where none is chosen, and asks nothing more", async () => {
+    groupsRead.mockResolvedValue([WORK]);
+    looking.mockResolvedValue({
+      settings: {
+        email: "zeta@example.com",
+        displayName: "",
+        imapHost: "imap.example.com",
+        imapPort: 993,
+        imapEncryption: "tls",
+        imapUsername: "zeta@example.com",
+        submission: null,
+      },
+    });
+    const added = { id: "acc-1", email: "zeta@example.com", displayName: "", provider: "imap", canSend: false };
+    add.mockResolvedValue(added);
+    const { onAdded } = renderStart(null);
+
+    await chooser();
+    type(/^Email address$/, "zeta@example.com");
+    type(/^Password$/, "secret");
+    fireEvent.click(button("Continue"));
+
+    await waitFor(() => expect(onAdded).toHaveBeenCalledWith(added));
+    expect(placing).not.toHaveBeenCalled();
+  });
+
+  it("offers no chooser where there are no groups", async () => {
+    // A list whose one entry is "No group" is a control that cannot change anything.
+    renderStart(null);
+
+    await waitFor(() => expect(groupsRead).toHaveBeenCalled());
+    await new Promise((settle) => setTimeout(settle, 20));
+    expect(screen.queryByRole("combobox", { name: "Group" })).toBeNull();
+  });
+});
+
+describe("AccountSetup, servers already here", () => {
+  const SHARED = {
+    like: "kappa@example.net",
+    settings: {
+      email: "user@example.com",
+      displayName: "",
+      imapHost: "mail.example.net",
+      imapPort: 993,
+      imapEncryption: "tls" as const,
+      imapUsername: "user@example.com",
+      submission: { host: "mail.example.net", port: 465, encryption: "tls" as const, username: "user@example.com" },
+    },
+  };
+
+  it("fills the servers in from the mailbox chosen, with the user names of this address", async () => {
+    alike.mockResolvedValue([SHARED]);
+    renderForm();
+
+    type(/^Email address$/, "user@example.com");
+    fireEvent.click(await screen.findByRole("combobox", { name: "Same servers as" }));
+    fireEvent.click(within(await screen.findByRole("listbox")).getByRole("option", { name: "kappa@example.net" }));
+
+    await waitFor(() => expect(field(/^Server address$/).value).toBe("mail.example.net"));
+  });
+
+  it("asks again for an address changed since the list was read, so the user names follow it", async () => {
+    alike.mockResolvedValueOnce([SHARED]).mockResolvedValueOnce([
+      { ...SHARED, settings: { ...SHARED.settings, email: "sigma@example.org", imapUsername: "sigma" } },
+    ]);
+    renderForm();
+
+    type(/^Email address$/, "sigma@example.org");
+    fireEvent.click(await screen.findByRole("combobox", { name: "Same servers as" }));
+    fireEvent.click(within(await screen.findByRole("listbox")).getByRole("option", { name: "kappa@example.net" }));
+
+    await waitFor(() => expect(alike).toHaveBeenLastCalledWith("sigma@example.org"));
+    await waitFor(() => expect(field(/^Server address$/).value).toBe("mail.example.net"));
+  });
+
+  it("offers nothing where no mailbox is here yet", async () => {
+    renderForm();
+
+    await waitFor(() => expect(alike).toHaveBeenCalled());
+    await new Promise((settle) => setTimeout(settle, 20));
+    expect(screen.queryByRole("combobox", { name: "Same servers as" })).toBeNull();
+  });
+
+  it("offers nothing while an account already here is being corrected", async () => {
+    alike.mockResolvedValue([SHARED]);
+    renderEdit();
+
+    await new Promise((settle) => setTimeout(settle, 20));
+    expect(alike).not.toHaveBeenCalled();
+    expect(screen.queryByRole("combobox", { name: "Same servers as" })).toBeNull();
   });
 });

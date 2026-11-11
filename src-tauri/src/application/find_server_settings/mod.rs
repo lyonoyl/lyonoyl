@@ -147,12 +147,7 @@ impl<A: AccountRepository, D: ProviderDirectory> FindServerSettings<A, D> {
         if let Some(beside) = self.beside(address, &domain, correcting) {
             return Ok(Settings::Known {
                 servers: Box::new(servers_of(&beside)),
-                sign_in: SignIn {
-                    imap: SignInAs::of(beside.imap_username(), beside.summary().email()),
-                    submission: beside.submission().map_or(SignInAs::Address, |sending| {
-                        SignInAs::of(sending.username(), beside.summary().email())
-                    }),
-                },
+                sign_in: sign_in_of(&beside),
                 found: Found::OnThisDevice,
             });
         }
@@ -216,6 +211,72 @@ impl<A: AccountRepository, D: ProviderDirectory> FindServerSettings<A, D> {
             .position(|account| account.submission().is_some());
 
         at_this_domain.into_iter().nth(able_to_send.unwrap_or(0))
+    }
+}
+
+/// One set of servers a mailbox already on this device reads and sends through, and what it signs
+/// in to them as — a shape, never a user name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Here {
+    pub servers: ServerSettings,
+    pub sign_in: SignIn,
+    /// The address of the mailbox they were taken from, which is how a person knows them: by the
+    /// mailbox, rather than by a host name they may never have typed.
+    pub like: String,
+}
+
+/// The servers the mailboxes already on this device use, each set once, offered for a new mailbox
+/// whatever its domain.
+///
+/// Six domains on one mail server are six mailboxes added one after another, and the lookup above
+/// answers only for the same domain: from the second domain on, every server would be typed again.
+/// Nobody is asked anything — these are servers that have already answered on this machine.
+pub struct ServersHere<A: AccountRepository> {
+    accounts: A,
+}
+
+impl<A: AccountRepository> ServersHere<A> {
+    pub fn new(accounts: A) -> Self {
+        Self { accounts }
+    }
+
+    /// Each distinct set of servers once, in the order the store lists the accounts, which is the
+    /// order they were added: the first mailbox on a server is the one somebody typed it in for.
+    ///
+    /// The account being corrected is no answer about where its own mail lives, as in the lookup
+    /// above, and one that will not read whole is passed over rather than allowed to stop the rest.
+    pub fn execute(&self, correcting: Option<&str>) -> Result<Vec<Here>, UseCaseError> {
+        let mut here: Vec<Here> = Vec::new();
+
+        for listed in self.accounts.list()? {
+            if Some(listed.id()) == correcting {
+                continue;
+            }
+            let Ok(Some(account)) = self.accounts.find(listed.id()) else {
+                continue;
+            };
+            let servers = servers_of(&account);
+            if here.iter().any(|known| known.servers == servers) {
+                continue;
+            }
+            here.push(Here {
+                servers,
+                sign_in: sign_in_of(&account),
+                like: account.summary().email().to_owned(),
+            });
+        }
+
+        Ok(here)
+    }
+}
+
+/// What an account signs in to its servers as, as shapes of its own address.
+fn sign_in_of(account: &MailAccount) -> SignIn {
+    SignIn {
+        imap: SignInAs::of(account.imap_username(), account.summary().email()),
+        submission: account.submission().map_or(SignInAs::Address, |sending| {
+            SignInAs::of(sending.username(), account.summary().email())
+        }),
     }
 }
 

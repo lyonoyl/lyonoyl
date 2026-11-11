@@ -1,9 +1,11 @@
 import { Eye, Loader2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
+import { inOrderOfNames } from "@/entities/group";
 import { accountHint } from "@/shared/ipc/client";
 import { keyTheCoreSent, useI18n, type TranslationKey } from "@/shared/i18n";
 import { secretStoreName } from "@/shared/platform";
+import { Chooser } from "@/shared/ui/Chooser";
 import { Button } from "@/shared/ui/primitives/button";
 import { Input } from "@/shared/ui/primitives/input";
 import { typedDirection } from "@/shared/ui/direction";
@@ -29,16 +31,24 @@ export function AddAccount({
   onEdit,
   onContinue,
   working,
+  groups,
+  group,
+  onGroup,
 }: {
   /** Whether a password goes to a file a master password opens rather than the system's store. */
   secretsInAFile: boolean;
+  /** The groups the mailbox can go into, or `null` while there is nothing to offer. */
+  groups: ReadonlyArray<{ id: string; name: string }> | null;
+  /** The group it goes into, or `null` for none. */
+  group: string | null;
+  onGroup: (group: string | null) => void;
   draft: Draft;
   onEdit: (field: keyof Draft, value: string) => void;
   /** Look the address up and, if anybody knows it, connect. */
   onContinue: () => void;
   working: Working;
 }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const whereItGoes = secretsInAFile
     ? t("account.passwordHintFile")
     : t("account.passwordHint", { store: t(secretStoreName()) });
@@ -189,6 +199,26 @@ export function AddAccount({
             )}
           </div>
         </Field>
+
+        {/* Only where there is a group to put it in: a list whose one entry is "No group" is a
+            control that cannot change anything. */}
+        {groups !== null && groups.length > 0 && (
+          <Field id="start-group" label={t("account.group")}>
+            <Chooser
+              label={t("account.group")}
+              value={group}
+              options={[
+                { value: null, label: t("account.groupNone") },
+                ...inOrderOfNames(groups, language).map((one) => ({
+                  value: one.id,
+                  label: one.name,
+                  dir: "auto" as const,
+                })),
+              ]}
+              onChoose={onGroup}
+            />
+          </Field>
+        )}
       </fieldset>
 
       <div className="flex items-center gap-3">
