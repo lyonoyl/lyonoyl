@@ -55,10 +55,13 @@ import { typedDirection } from "@/shared/ui/direction";
 
 import {
   EMPTY_DRAFT,
+  holdsServers,
+  serversOf,
   useAccountSetup,
   withServers,
   type Draft,
   type Outcome,
+  type Servers,
 } from "./useAccountSetup";
 
 const ENCRYPTIONS: { value: EncryptionDto; label: TranslationKey }[] = [
@@ -86,12 +89,19 @@ export function AccountSetup({
   address,
   passwordMissing,
   from = null,
+  arrangedElsewhere,
 }: {
   /**
    * What the sidebar had chosen when the screen opened. A new mailbox goes into its group — the
    * group itself, or the group of the mailbox chosen — unless another is chosen here.
    */
   from?: Mailbox | null;
+  /**
+   * Changes when the groups changed in the sidebar, which is when they are read here again: the
+   * sidebar stays usable beside this screen, and a group made, renamed, or removed there while it
+   * stands open would otherwise be offered here as it was.
+   */
+  arrangedElsewhere?: number;
   onAdded: (account: MailAccountSummaryDto) => void;
   onCancel: () => void;
   /**
@@ -192,6 +202,7 @@ export function AccountSetup({
   const [groups, setGroups] = useState<AccountGroupDto[] | null>(null);
   const [group, setGroup] = useState<string | null>(null);
   const groupChosen = useRef<string | null>(null);
+  const groupsRead = useRef(false);
   const chooseGroup = (next: string | null) => {
     groupChosen.current = next;
     setGroup(next);
@@ -204,19 +215,30 @@ export function AccountSetup({
       .then((read) => {
         if (!active) return;
         setGroups(read);
-        const starting = groupOf(from, read);
-        groupChosen.current = starting;
-        setGroup(starting);
+        // The first answer starts from where the screen was opened. A later one, read because the
+        // sidebar changed its groups, keeps what was chosen while that group is still there, and
+        // falls back to none once it is gone rather than offering a group nobody can go into.
+        const wanted = groupsRead.current
+          ? groupChosen.current
+          : groupOf(from, read);
+        groupsRead.current = true;
+        chooseGroup(
+          wanted !== null && read.some((one) => one.id === wanted)
+            ? wanted
+            : null,
+        );
       })
       .catch(() => {
-        // No groups offered: the mailbox is added all the same, in none.
+        // No groups offered, or the last ones read still offered: the mailbox is added all the
+        // same, in none where there are none.
       });
     return () => {
       active = false;
     };
-    // Read once, as the screen opens: nothing behind a screen can change what it was opened from.
+    // `from` as the screen opened: the sidebar beside it moves on as a person clicks through it,
+    // and the group a new mailbox starts in is the one the screen was opened from.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reconnecting]);
+  }, [reconnecting, arrangedElsewhere]);
 
   /**
    * Into the group chosen for it, before the window hears it was added, so the sidebar draws it
@@ -245,7 +267,21 @@ export function AccountSetup({
    * nobody knew the address, which is when another mailbox's servers are worth having.
    */
   const [alike, setAlike] = useState<ServersHereDto[] | null>(null);
-  const [like, setLike] = useState<string | null>(null);
+  /**
+   * The mailbox whose servers the fields hold now, worked out from the fields rather than kept from
+   * the last choice: a server typed over after choosing is no longer that mailbox's, and a list
+   * still naming it would be a second answer about which servers this one is going to use.
+   */
+  const like =
+    alike?.find((one) => holdsServers(draft, one.settings))?.like ?? null;
+  /**
+   * What the fields held before a mailbox was first chosen -- what was typed, or what the lookup
+   * found -- for None to put back. None that left another mailbox's servers in every field would
+   * read as taking the choice back and not do it.
+   */
+  const beforeChoosing = useRef<Servers | null>(null);
+  /** The choice an answer is for: one overtaken by a later choice fills nothing in. */
+  const choosing = useRef(0);
 
   useEffect(() => {
     if (reconnecting || step !== "settings") return;
@@ -267,11 +303,19 @@ export function AccountSetup({
   /**
    * Fills the servers in from the mailbox chosen, with the user names spelled for this address. Asked
    * again where the address changed since the list was read, so a user name follows the address on
-   * screen and not the one before it.
+   * screen and not the one before it. None puts back what the fields held before the first choice.
    */
   const fillFrom = (mailbox: string | null) => {
-    setLike(mailbox);
-    if (mailbox === null) return;
+    const asked = ++choosing.current;
+    if (mailbox === null) {
+      const before = beforeChoosing.current;
+      beforeChoosing.current = null;
+      if (before === null) return;
+      setDraft((current) => ({ ...current, ...before }));
+      if (outcome.status !== "idle") reset();
+      return;
+    }
+    beforeChoosing.current ??= serversOf(draft);
     const email = draft.email.trim();
     const listed = alike ?? [];
     const answer =
@@ -280,8 +324,12 @@ export function AccountSetup({
         : serversHere(email);
     void answer
       .then((here) => {
+        if (asked !== choosing.current) return;
         const chosen = here.find((one) => one.like === mailbox);
         if (chosen === undefined) return;
+        // Kept as spelled for this address, so the list goes on naming the mailbox whose servers
+        // the fields now hold.
+        setAlike(here);
         setDraft((current) => withServers(current, chosen.settings));
         if (outcome.status !== "idle") reset();
       })
@@ -506,17 +554,12 @@ export function AccountSetup({
         </Field>
       </fieldset>
 
-      <fieldset
-        className="flex flex-col gap-4 border-t border-border pt-6"
-        disabled={busy}
-      >
-        <legend className="px-0 text-sm font-medium">
-          {t("account.server")}
-        </legend>
-
-        {/* Another mailbox's servers, for a mailbox on a server one of them is already on: six
-            domains on one server are six mailboxes whose servers nobody should type six times. */}
-        {!reconnecting && alike !== null && alike.length > 0 && (
+      {/* Another mailbox's servers, for a mailbox on a server one of them is already on: six
+          domains on one server are six mailboxes whose servers nobody should type six times.
+          Above the incoming half rather than in it, since it fills the sending half too, and a
+          fieldset of its own so that the form at work greys it out with every other field. */}
+      {!reconnecting && alike !== null && alike.length > 0 && (
+        <fieldset className="flex flex-col" disabled={busy}>
           <Field id="account-servers-like" label={t("account.serversLike")}>
             <Chooser
               label={t("account.serversLike")}
@@ -532,7 +575,16 @@ export function AccountSetup({
               onChoose={fillFrom}
             />
           </Field>
-        )}
+        </fieldset>
+      )}
+
+      <fieldset
+        className="flex flex-col gap-4 border-t border-border pt-6"
+        disabled={busy}
+      >
+        <legend className="px-0 text-sm font-medium">
+          {t("account.server")}
+        </legend>
 
         <div className="flex gap-3">
           <div className="flex-1">

@@ -974,6 +974,7 @@ function App() {
               }
               onCancel={() => setAddingAccount(false)}
               from={mailbox}
+              arrangedElsewhere={regroupedInSidebar}
               onAdded={(account) => {
                 setAddingAccount(false);
                 // The new account brings folders with it, so both the sidebar and the list are read
