@@ -2,6 +2,7 @@ import { ArrowLeft, X } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
 
 import { leaveScreen } from "@/app/leave-screen";
+import { systemHere, type System } from "@/shared/platform";
 import { Button } from "@/shared/ui/primitives/button";
 
 /**
@@ -24,8 +25,15 @@ export function ScreenPane({
   onBack = null,
   backLabel = "",
   inFront = true,
+  system = systemHere(),
   children,
 }: {
+  /**
+   * Which system draws the window, which decides the cross's corner: on macOS the start of the
+   * line, where the window's own buttons are, with the arrow back beside it; elsewhere the end, as
+   * Windows and Linux put a window's close.
+   */
+  system?: System;
   /** The pane takes the focus when it opens, so tabbing continues inside what just appeared. */
   paneRef: RefObject<HTMLElement | null>;
   /**
@@ -65,6 +73,41 @@ export function ScreenPane({
   inFront?: boolean;
   children: ReactNode;
 }) {
+  const back = (
+    <div className="p-3">
+      {onBack && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={backLabel}
+          title={backLabel}
+          className="bg-background/80 backdrop-blur"
+          onClick={onBack}
+        >
+          <ArrowLeft className="rtl:-scale-x-100" />
+        </Button>
+      )}
+    </div>
+  );
+  const close = (
+    <div className="p-3">
+      {onClose && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={closeLabel}
+          title={closeLabel}
+          className="bg-background/80 backdrop-blur"
+          onClick={() => leaveScreen(onClose)}
+        >
+          <X />
+        </Button>
+      )}
+    </div>
+  );
+
   return (
     <section
       ref={paneRef}
@@ -81,37 +124,24 @@ export function ScreenPane({
           the top, so it is still there once a long screen has been scrolled; backed and blurred,
           so it is still a button when the screen scrolls under it. */}
       {(onClose || onBack) && (
-        <div className="sticky top-0 z-10 flex h-0 justify-between">
-          <div className="p-3">
-            {onBack && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={backLabel}
-                title={backLabel}
-                className="bg-background/80 backdrop-blur"
-                onClick={onBack}
-              >
-                <ArrowLeft className="rtl:-scale-x-100" />
-              </Button>
-            )}
-          </div>
-          <div className="p-3">
-            {onClose && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={closeLabel}
-                title={closeLabel}
-                className="bg-background/80 backdrop-blur"
-                onClick={() => leaveScreen(onClose)}
-              >
-                <X />
-              </Button>
-            )}
-          </div>
+        // On macOS the cross takes the corner the window's own buttons are in, with the arrow back
+        // beside it; elsewhere the two keep opposite corners.
+        <div
+          className={`sticky top-0 z-10 flex h-0 ${
+            system === "mac" ? "justify-start" : "justify-between"
+          }`}
+        >
+          {system === "mac" ? (
+            <>
+              {close}
+              {back}
+            </>
+          ) : (
+            <>
+              {back}
+              {close}
+            </>
+          )}
         </div>
       )}
 

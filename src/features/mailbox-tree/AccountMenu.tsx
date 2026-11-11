@@ -1,7 +1,8 @@
 import type { AccountGroupDto } from "@/shared/ipc/generated/AccountGroupDto";
 import type { AccountNodeDto } from "@/shared/ipc/generated/AccountNodeDto";
 import { placeAccountInGroup } from "@/shared/ipc/client";
-import type { Translator } from "@/shared/i18n";
+import { inOrderOfNames } from "@/entities/group";
+import { useI18n, type Translator } from "@/shared/i18n";
 import {
   ContextMenuContent,
   ContextMenuItem,
@@ -98,6 +99,7 @@ export function AccountMenu({
   t: Translator;
 }) {
   const { groups } = actions;
+  const { language } = useI18n();
   const email = account.email;
   const holding =
     groups.find((group) => group.accounts.includes(account.accountId))?.id ??
@@ -136,7 +138,7 @@ export function AccountMenu({
                 {t("account.noGroup")}
               </ContextMenuRadioItem>
               <ContextMenuSeparator />
-              {groups.map((group) => (
+              {inOrderOfNames(groups, language).map((group) => (
                 <ContextMenuRadioItem key={group.id} value={group.id}>
                   <span dir="auto">{group.name}</span>
                 </ContextMenuRadioItem>

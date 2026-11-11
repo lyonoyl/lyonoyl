@@ -85,6 +85,58 @@ export function withServers(draft: Draft, found: AccountSettingsDto): Draft {
   };
 }
 
+/** The fields of a draft that say where its mail is read and sent: all of it but who it is. */
+export type Servers = Pick<
+  Draft,
+  | "imapHost"
+  | "imapPort"
+  | "imapEncryption"
+  | "imapUsername"
+  | "smtpHost"
+  | "smtpPort"
+  | "smtpEncryption"
+  | "smtpUsername"
+>;
+
+export function serversOf(draft: Draft): Servers {
+  return {
+    imapHost: draft.imapHost,
+    imapPort: draft.imapPort,
+    imapEncryption: draft.imapEncryption,
+    imapUsername: draft.imapUsername,
+    smtpHost: draft.smtpHost,
+    smtpPort: draft.smtpPort,
+    smtpEncryption: draft.smtpEncryption,
+    smtpUsername: draft.smtpUsername,
+  };
+}
+
+/**
+ * Whether the draft holds these servers now, read as it would be sent: a host in any case, and a
+ * blank user name as the address it stands for.
+ *
+ * Sending is compared only where these servers have it. `withServers` leaves the draft's own
+ * sending fields alone for servers without it, so a draft just filled from them holds them all the
+ * same.
+ */
+export function holdsServers(draft: Draft, servers: AccountSettingsDto): boolean {
+  const held = settingsOf(draft);
+  const host = (name: string) => name.trim().toLowerCase();
+  const reading =
+    host(held.imapHost) === host(servers.imapHost) &&
+    held.imapPort === servers.imapPort &&
+    held.imapEncryption === servers.imapEncryption &&
+    held.imapUsername === servers.imapUsername;
+  if (!reading || servers.submission === null) return reading;
+  return (
+    held.submission !== null &&
+    host(held.submission.host) === host(servers.submission.host) &&
+    held.submission.port === servers.submission.port &&
+    held.submission.encryption === servers.submission.encryption &&
+    held.submission.username === servers.submission.username
+  );
+}
+
 /** The user name defaults to the address, which is what most servers expect. */
 export function settingsOf(draft: Draft): AccountSettingsDto {
   return {

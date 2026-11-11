@@ -94,6 +94,7 @@ fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         commands::accounts::default_port_for,
         commands::accounts::test_account_connection,
         commands::accounts::find_server_settings,
+        commands::accounts::servers_here,
         commands::recovery::set_aside_local_storage,
         commands::recovery::restart_after_setting_aside,
         commands::accounts::add_account,

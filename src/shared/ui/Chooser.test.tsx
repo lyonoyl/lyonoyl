@@ -324,4 +324,20 @@ describe("Chooser", () => {
       expect(windowSaw).toEqual([]);
     });
   });
+
+  it("keeps its choice in a form when an entry comes in before it", () => {
+    // In a form the list keeps a hidden select of its own, which hears of the new place before the
+    // entry for it is drawn and answers with no place at all. Nobody chose that.
+    const chose = vi.fn();
+    const inForm = (options: typeof OPTIONS) => (
+      <form>
+        <Chooser label="Group" value="g3" options={options} onChoose={chose} />
+      </form>
+    );
+    const { rerender } = render(inForm(OPTIONS));
+    rerender(inForm([OPTIONS[0], { value: "g0", label: "Archive" }, ...OPTIONS.slice(1)]));
+
+    expect(chose).not.toHaveBeenCalled();
+    expect(screen.getByRole("combobox", { name: "Group" }).textContent).toContain("Questions");
+  });
 });

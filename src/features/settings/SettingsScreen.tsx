@@ -5,6 +5,7 @@ import { AppIcons } from "@/shared/ui/AppIcons";
 import { isDark, useSystemIsDark } from "@/shared/ui/darkness";
 import { Checkbox } from "@/shared/ui/Checkbox";
 import { Chooser } from "@/shared/ui/Chooser";
+import { inOrderOfNames } from "@/entities/group";
 import { Button } from "@/shared/ui/primitives/button";
 import { Check, Pencil } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
@@ -412,7 +413,8 @@ export function SettingsScreen({
                         }
                         options={[
                           { value: null, label: t("settings.noGroup") },
-                          ...groups.map((group) => ({
+                          // By name: a list to find a group in, unlike the sidebar's own order.
+                          ...inOrderOfNames(groups, language).map((group) => ({
                             value: group.id,
                             label: group.name,
                             dir: "auto" as const,

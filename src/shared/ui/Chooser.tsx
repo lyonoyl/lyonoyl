@@ -115,6 +115,10 @@ export function Chooser<T extends string | null>({
     <Select
       value={chosen === -1 ? "" : String(chosen)}
       onValueChange={(place) => {
+        // No place is no choice. In a form the list keeps a hidden select of its own, and when an
+        // entry comes in before the one chosen it hears of the new place before the entry for it
+        // is drawn, and answers with nothing -- which read as the first entry, and chose it.
+        if (place === "") return;
         const option = options[Number(place)];
         if (option) onChoose(option.value);
       }}
