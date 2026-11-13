@@ -1,4 +1,7 @@
-/// Telling the window how far a pass has got, while it is still getting there.
+use crate::ports::account_sync::AccountChanged;
+
+/// Telling the window what a pass has got to while it is still going: how far, and its inbox once
+/// it is written down.
 ///
 /// One mailbox is read at once with every other, so a round is nine things starting together and
 /// finishing together: counted by mailbox, "how far" is nought for five seconds and then nine.
@@ -13,6 +16,16 @@ pub trait Progress: Send + Sync {
 
     /// One more folder of that account is done.
     fn folder_read(&self, account_id: &str);
+
+    /// The account's inbox is read and written down, and this is what reading it changed.
+    ///
+    /// Said the moment it is so, before the inbox's older mail, its messages read whole and every
+    /// other folder: mail a server has just said arrived is in the inbox, and the window can show
+    /// it seconds before the pass ends. Nothing is said by default, which is what a pass with
+    /// nobody listening for it wants.
+    fn inbox_read(&self, account_id: &str, changed: AccountChanged) {
+        let _ = (account_id, changed);
+    }
 }
 
 /// Nothing is told. What a test uses, and what a pass nobody is watching gets.
@@ -28,5 +41,9 @@ impl<T: Progress + ?Sized> Progress for &T {
 
     fn folder_read(&self, account_id: &str) {
         (**self).folder_read(account_id);
+    }
+
+    fn inbox_read(&self, account_id: &str, changed: AccountChanged) {
+        (**self).inbox_read(account_id, changed);
     }
 }

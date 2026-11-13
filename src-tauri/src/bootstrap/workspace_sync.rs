@@ -303,9 +303,10 @@ fn seconds_now() -> i64 {
 impl WorkspaceSync {
     /// One reading pass over the account: its mailboxes, then what is in them.
     ///
-    /// Told to nobody while it runs. Nobody asked for it — a round on the timer, a server saying
-    /// something arrived, or a push reading back what it moved — and the foot of the window speaks
-    /// only for what a person asked for.
+    /// Tells `progress` what it has got to while it runs: how far, which the foot of the window
+    /// shows for what a person asked for, and the inbox once it is written down, which a read a
+    /// server's word about new mail started passes on to the window at once. A round on the timer,
+    /// and a push reading back what it moved, tell nobody.
     fn read(
         &self,
         account_id: &str,
@@ -489,8 +490,9 @@ impl AccountSync for WorkspaceSync {
 }
 
 impl WorkspaceSync {
-    /// One pass over one account, a round's or the one at launch, telling `progress` how far it
-    /// has got: nothing, for a round nobody is waiting on.
+    /// One pass over one account, telling `progress` what it has got to as it goes: how far, for
+    /// the round at launch, and the inbox once it is written down, for a read a server's word
+    /// about new mail started. Nothing, for a round nobody is waiting on.
     fn pass(
         &self,
         account_id: &str,

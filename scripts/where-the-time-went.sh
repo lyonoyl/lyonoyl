@@ -3,9 +3,10 @@
 # What the last run spent reading mail, out of its own journal.
 #
 # The question "why is updating so slow" has one honest answer and it is not a guess: the journal
-# records what each pass cost and where its time went (sync.read), what each push told the server
-# and handed over (push.finished), what reading back a burst of pushes cost (push.readBack), and
-# how many times the application said hello to a server. This reads the newest journal and says it
+# records what each pass cost and where its time went (sync.read), what each watch heard and how long
+# it waited (watch.ended), what each push told the server and handed over (push.finished), what
+# reading back a burst of pushes cost (push.readBack), and how many times the application said
+# hello to a server. This reads the newest journal and says it
 # in one screen.
 #
 # Nothing here reaches a network or a mailbox. It reads counts and durations, which is all the
@@ -61,6 +62,15 @@ echo
 if [ "$rounds" != "0" ]; then
     echo "Each round — every account together:"
     grep "round.finished" "$newest" | tail -10 | sed 's/^/  /'
+    echo
+fi
+
+# What each watch heard and how long it lasted. A line that heard `arrived` is, by its own clock,
+# when a server spoke of new mail. No record names an account, so a watch is matched with the pass
+# it started by order alone only where a single account is watched.
+if grep -q "watch.ended" "$newest"; then
+    echo "Each watch — what the server said while it waited, and for how long:"
+    grep "watch.ended" "$newest" | tail -10 | sed 's/^/  /'
     echo
 fi
 

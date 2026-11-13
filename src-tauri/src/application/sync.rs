@@ -5,6 +5,7 @@
 use crate::application::error::UseCaseError;
 use crate::application::mailboxes::SyncMailboxes;
 use crate::ports::account_repository::AccountRepository;
+use crate::ports::account_sync::AccountChanged;
 use crate::ports::credential::Credential;
 use crate::ports::credential_store::{CredentialPurpose, CredentialRef, CredentialStore};
 use crate::ports::mail_index::{AppliedSummary, MailIndex, Reading, UidScope};
@@ -240,6 +241,23 @@ pub struct AccountPass {
     /// Messages read whole during this pass, so they open with no network and can be searched by
     /// what they say rather than by what they open with.
     pub bodies_read: u32,
+    /// How long after this pass began reading, once the account's index and key were open, its
+    /// inbox was written down. A read a server's word about new mail started tells the window
+    /// then; a round and a press of refresh tell it when they end. Nothing where the inbox could
+    /// not be read.
+    pub inbox_written: Option<std::time::Duration>,
+}
+
+/// What reading the inbox changed, in the words a pass's whole answer uses: its mail, and no
+/// folder found and no message read whole, which the rest of the pass says.
+fn inbox_changed(outcome: &SyncOutcome) -> AccountChanged {
+    AccountChanged {
+        arrived: outcome.summary.added as u32,
+        updated: outcome.summary.updated as u32,
+        removed: outcome.summary.removed as u32,
+        unseen_in_inbox: outcome.unseen_arrivals,
+        ..AccountChanged::default()
+    }
 }
 
 /// Reads one account: which mailboxes it has, then what is in each of them.
@@ -260,7 +278,8 @@ where
     accounts: R,
     credentials: C,
     providers: F,
-    /// Told how far this pass has got, while it is still getting there.
+    /// Told how far this pass has got while it is still getting there, and what its inbox
+    /// changed the moment it is written down.
     progress: P,
     index: I,
     operations: L,
@@ -423,7 +442,8 @@ where
 
                     // Only the inbox. `recorded.inbox` is computed on every pass and was read by
                     // nothing until now.
-                    if recorded.inbox == Some(folder) {
+                    let the_inbox = recorded.inbox == Some(folder);
+                    if the_inbox {
                         pass.unseen_in_inbox += outcome.unseen_arrivals;
                     }
 
@@ -453,6 +473,16 @@ where
                             .operations
                             .folder_found(account_id, folder)
                             .unwrap_or(0) as u32;
+                    }
+
+                    // Said the moment the inbox is written down, before its older mail, its
+                    // messages read whole and every other folder: mail a server has just said
+                    // arrived is on screen when the inbox is written rather than when the pass
+                    // ends.
+                    if the_inbox {
+                        pass.inbox_written = Some(began_pass.elapsed());
+                        self.progress
+                            .inbox_read(account_id, inbox_changed(&outcome));
                     }
                 }
                 Err(_) if !again => {
@@ -1163,6 +1193,12 @@ mod tests {
             recorded_short: Vec<u64>,
             /// Folders the pass told the index no longer to take as having stopped short.
             forgot_short: std::sync::Arc<Mutex<Vec<FolderId>>>,
+            /// Whether every folder has been read before, so mail arriving in it is news rather
+            /// than a mailbox arriving.
+            continuing: bool,
+            /// Where reading messages whole leaves a line, among what the pass says, so a test can
+            /// tell when it ran.
+            said: Option<std::sync::Arc<Mutex<Vec<String>>>>,
         }
 
         /// How many folders had been read when the sweep ran, and the messages it was told to keep.
@@ -1220,13 +1256,24 @@ mod tests {
         impl MailIndex for Index {
             fn not_read_whole(
                 &self,
-                _folder_id: FolderId,
+                folder_id: FolderId,
                 _at_most: u32,
             ) -> Result<Vec<(lyonoyl_domain::message::MessageId, Uid)>, MailIndexError>
             {
                 // Asked once per folder by the round that reads messages whole, so this is inside
                 // the bodies phase and nowhere else.
                 std::thread::sleep(self.bodies_take);
+                if let Some(said) = &self.said {
+                    let name = self
+                        .folders
+                        .iter()
+                        .find(|(_, id)| *id == folder_id)
+                        .map(|(name, _)| name.as_str())
+                        .unwrap_or_default();
+                    said.lock()
+                        .expect("test lock")
+                        .push(format!("bodies of {name}"));
+                }
                 Ok(Vec::new())
             }
             fn record_folders(
@@ -1250,7 +1297,7 @@ mod tests {
                         .map(|(name, _)| name.clone())
                         .unwrap_or_else(|| "INBOX".to_owned()),
                     uid_validity: Some(self.generation),
-                    cursor: None,
+                    cursor: self.continuing.then(|| SyncCursor::new("7")),
                     known_window: None,
                     highest_modseq: None,
                     history_complete: true,
@@ -1298,12 +1345,15 @@ mod tests {
 
             fn apply(
                 &self,
-                _d: &FolderDelta,
+                delta: &FolderDelta,
                 _deletions: &[Uid],
                 _c: &SyncCursor,
                 _s: FlagScope,
             ) -> Result<AppliedSummary, MailIndexError> {
-                Ok(AppliedSummary::default())
+                Ok(AppliedSummary {
+                    added: delta.arrived.len(),
+                    ..AppliedSummary::default()
+                })
             }
 
             fn reset_folder(&self, _f: FolderId, _g: UidValidity) -> Result<(), MailIndexError> {
@@ -1357,6 +1407,8 @@ mod tests {
             failing_once: Mutex<Vec<FolderId>>,
             /// Folders whose pass reads only as far as one window of new mail.
             stopping_short: Vec<FolderId>,
+            /// Folders one new letter has arrived in, unread.
+            arriving: Vec<FolderId>,
             /// How many times each folder has been asked for. A pass that would ask for one for
             /// ever fails the test that runs it, rather than leaving it running.
             asked: Mutex<Vec<FolderId>>,
@@ -1399,7 +1451,10 @@ mod tests {
                         uid_validity: self.generation,
                         covered_from: None,
                         stopped_short: self.stopping_short.contains(&request.folder_id),
-                        arrived: Vec::new(),
+                        arrived: match self.arriving.contains(&request.folder_id) {
+                            true => vec![super::arrival(8)],
+                            false => Vec::new(),
+                        },
                         flag_updates: Vec::new(),
                         vanished: VanishedReport::Exact(Vec::new()),
                     }],
@@ -1435,7 +1490,7 @@ mod tests {
         /// Everything the pass said about how far it had got, in the order it said it.
         #[derive(Default)]
         struct Watching {
-            said: Mutex<Vec<String>>,
+            said: std::sync::Arc<Mutex<Vec<String>>>,
         }
 
         impl crate::ports::progress::Progress for &Watching {
@@ -1452,6 +1507,13 @@ mod tests {
                     .expect("test lock")
                     .push(format!("{account_id} read one"));
             }
+
+            fn inbox_read(&self, account_id: &str, changed: AccountChanged) {
+                self.said.lock().expect("test lock").push(format!(
+                    "{account_id} inbox: {} arrived, {} unseen",
+                    changed.arrived, changed.unseen_in_inbox
+                ));
+            }
         }
 
         struct Factory {
@@ -1466,6 +1528,7 @@ mod tests {
             refusing: Vec<FolderId>,
             failing_once: Vec<FolderId>,
             stopping_short: Vec<FolderId>,
+            arriving: Vec<FolderId>,
         }
 
         impl ProviderFactory for Factory {
@@ -1480,6 +1543,7 @@ mod tests {
                     refusing: self.refusing.clone(),
                     failing_once: Mutex::new(self.failing_once.clone()),
                     stopping_short: self.stopping_short.clone(),
+                    arriving: self.arriving.clone(),
                     asked: Mutex::new(Vec::new()),
                 }))
             }
@@ -1869,6 +1933,7 @@ mod tests {
                         .iter()
                         .map(|id| FolderId::new(*id).expect("non-zero"))
                         .collect(),
+                    arriving: Vec::new(),
                 },
                 Index {
                     generation: generation(stored),
@@ -1880,6 +1945,8 @@ mod tests {
                     unplaced: std::sync::Arc::new(Mutex::new(unplaced)),
                     recorded_short: recorded_short.to_vec(),
                     forgot_short: forgot_short.clone(),
+                    continuing: false,
+                    said: None,
                 },
                 queue.clone(),
                 NoBodies,
@@ -2592,6 +2659,151 @@ mod tests {
             assert_eq!(
                 read,
                 vec!["INBOX", "Archive", "Trash", "Junk", "Sent", "Drafts"],
+            );
+        }
+
+        /// A pass over an account read before, in which one letter nobody has seen arrives in each
+        /// of `arriving`, telling everything it says to the recorder it answers with.
+        fn pass_with_mail_arriving_in(
+            named: &[&str],
+            arriving: &[&str],
+            refusing: &[&str],
+            failing_once: &[&str],
+        ) -> (AccountPass, Vec<String>) {
+            let folders: Vec<(String, FolderId)> = named
+                .iter()
+                .enumerate()
+                .map(|(at, name)| {
+                    (
+                        (*name).to_owned(),
+                        FolderId::new(at as u64 + 1).expect("non-zero"),
+                    )
+                })
+                .collect();
+            let ids = |chosen: &[&str]| -> Vec<FolderId> {
+                folders
+                    .iter()
+                    .filter(|(name, _)| chosen.contains(&name.as_str()))
+                    .map(|(_, id)| *id)
+                    .collect()
+            };
+            let told = Watching::default();
+
+            let pass = SyncAccount::new(
+                Accounts,
+                Credentials,
+                Factory {
+                    generation: generation(7),
+                    named: named.iter().map(|name| (*name).to_owned()).collect(),
+                    built: std::sync::Arc::default(),
+                    refusing: ids(refusing),
+                    failing_once: ids(failing_once),
+                    stopping_short: Vec::new(),
+                    arriving: ids(arriving),
+                },
+                Index {
+                    generation: generation(7),
+                    folders: folders.clone(),
+                    visited: std::sync::Arc::default(),
+                    bodies_take: std::time::Duration::ZERO,
+                    holding: Vec::new(),
+                    forgotten: std::sync::Arc::new(Mutex::new(None)),
+                    unplaced: std::sync::Arc::new(Mutex::new(Vec::new())),
+                    recorded_short: Vec::new(),
+                    forgot_short: std::sync::Arc::default(),
+                    continuing: true,
+                    said: Some(std::sync::Arc::clone(&told.said)),
+                },
+                Queue::default(),
+                NoBodies,
+                &told,
+            )
+            .execute("acc-1", 1)
+            .expect("the pass runs");
+
+            let said = told.said.lock().expect("test lock").clone();
+            (pass, said)
+        }
+
+        fn told_of_the_inbox(said: &[String]) -> Vec<&str> {
+            said.iter()
+                .map(String::as_str)
+                .filter(|one| one.starts_with("acc-1 inbox:"))
+                .collect()
+        }
+
+        #[test]
+        fn the_inbox_is_told_of_before_its_messages_are_read_whole_and_before_the_other_folders() {
+            // Told of the moment it is written down, the inbox's new letter is on screen while the
+            // pass goes on to read messages whole and to read every other folder.
+            let (pass, said) =
+                pass_with_mail_arriving_in(&["Archive", "INBOX", "Sent"], &["INBOX"], &[], &[]);
+
+            assert_eq!(
+                said,
+                vec![
+                    "acc-1 has 3",
+                    "acc-1 inbox: 1 arrived, 1 unseen",
+                    "bodies of INBOX",
+                    "acc-1 read one",
+                    "bodies of Archive",
+                    "acc-1 read one",
+                    "bodies of Sent",
+                    "acc-1 read one",
+                ],
+                "the inbox was not told of first, or not once, or not with its letter"
+            );
+            assert_eq!(pass.arrived, 1, "the whole pass counts the same letter");
+            assert!(
+                pass.inbox_written.is_some(),
+                "the journal is not told when the inbox could be shown"
+            );
+        }
+
+        #[test]
+        fn mail_in_another_folder_is_not_told_of_as_the_inbox() {
+            // A letter filed straight into Archive is the rest of the pass's news: told as the
+            // inbox's, it would ring the bell before the window has read where it is.
+            let (pass, said) =
+                pass_with_mail_arriving_in(&["INBOX", "Archive"], &["Archive"], &[], &[]);
+
+            assert_eq!(
+                told_of_the_inbox(&said),
+                vec!["acc-1 inbox: 0 arrived, 0 unseen"]
+            );
+            assert_eq!(pass.arrived, 1);
+            assert_eq!(pass.unseen_in_inbox, 0);
+        }
+
+        #[test]
+        fn an_inbox_that_cannot_be_read_is_never_told_of() {
+            let (pass, said) =
+                pass_with_mail_arriving_in(&["INBOX", "Archive"], &["INBOX"], &["INBOX"], &[]);
+
+            assert!(
+                told_of_the_inbox(&said).is_empty(),
+                "an inbox that was not written down was said to be: {said:?}"
+            );
+            assert_eq!(pass.inbox_written, None);
+        }
+
+        #[test]
+        fn an_inbox_read_again_at_the_end_of_the_pass_is_told_of_then_and_once() {
+            // The first reading failed, so nothing was written and nothing could be shown; the
+            // second, after the other folders, is the one that has the letter.
+            let (_, said) =
+                pass_with_mail_arriving_in(&["INBOX", "Archive"], &["INBOX"], &[], &["INBOX"]);
+
+            assert_eq!(
+                said,
+                vec![
+                    "acc-1 has 2",
+                    "bodies of Archive",
+                    "acc-1 read one",
+                    "acc-1 inbox: 1 arrived, 1 unseen",
+                    "bodies of INBOX",
+                    "acc-1 read one",
+                ],
             );
         }
 

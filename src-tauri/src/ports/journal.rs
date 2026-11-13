@@ -126,6 +126,14 @@ pub enum Word {
     TheIndexWouldNotOpen,
     TheMessageKeyWasRefused,
     SomethingNobodyExpected,
+    // What a watch heard before it ended: the server saying mail arrived, or that something already
+    // there changed; nothing for as long as it lasted; a server that cannot push; or a watch that
+    // failed, which is most often a connection the network dropped.
+    Arrived,
+    Changed,
+    Quiet,
+    CannotPush,
+    Failed,
 }
 
 impl Word {
@@ -158,6 +166,11 @@ impl Word {
             Self::TheIndexWouldNotOpen => "theIndexWouldNotOpen",
             Self::TheMessageKeyWasRefused => "theMessageKeyWasRefused",
             Self::SomethingNobodyExpected => "somethingNobodyExpected",
+            Self::Arrived => "arrived",
+            Self::Changed => "changed",
+            Self::Quiet => "quiet",
+            Self::CannotPush => "cannotPush",
+            Self::Failed => "failed",
         }
     }
 }
@@ -216,6 +229,11 @@ mod tests {
             Word::HostUnreachable,
             Word::TooLarge,
             Word::TooLongToRead,
+            Word::Arrived,
+            Word::Changed,
+            Word::Quiet,
+            Word::CannotPush,
+            Word::Failed,
         ];
 
         let mut written: Vec<&str> = all.iter().map(|word| word.as_str()).collect();

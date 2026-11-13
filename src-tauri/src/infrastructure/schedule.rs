@@ -17,7 +17,8 @@ use tokio::sync::Semaphore;
 use crate::ports::account_sync::{
     AccountChanged, AccountSync, AccountSyncError, AccountWatch, Watched, Watermark,
 };
-use crate::ports::journal::{Journal, Note, Value};
+use crate::ports::journal::{Journal, Note, Value, Word};
+use crate::ports::progress::Progress;
 
 /// How many accounts may be talking to their servers at once.
 ///
@@ -724,6 +725,7 @@ async fn watching_one<S: AccountSync, W: AccountWatch>(
             Err(_) => return Ended::Released,
         }
 
+        let began = std::time::Instant::now();
         let watching = {
             let watch = Arc::clone(&watch);
             let account_id = account_id.clone();
@@ -742,6 +744,7 @@ async fn watching_one<S: AccountSync, W: AccountWatch>(
                 seen = ended.seen.or(seen.take());
                 ended.watched
             });
+        wrote_down_a_watch(&answer, began.elapsed());
 
         match step(answer) {
             // What this device has just pushed, coming back: the index holds it already. Judged
@@ -755,6 +758,7 @@ async fn watching_one<S: AccountSync, W: AccountWatch>(
                     &in_flight,
                     &runtime,
                     &at_once,
+                    &announce,
                 )
                 .await
                 {
@@ -769,6 +773,7 @@ async fn watching_one<S: AccountSync, W: AccountWatch>(
                     &in_flight,
                     &runtime,
                     &at_once,
+                    &announce,
                 )
                 .await
                 {
@@ -792,6 +797,11 @@ async fn watching_one<S: AccountSync, W: AccountWatch>(
 ///
 /// `why` is [`Why::Arrival`] for mail arriving and [`Why::Background`] for anything else, and
 /// [`turn`] says what each waits for.
+///
+/// Mail a server said arrived reaches the window through `announce` the moment the pass has written
+/// the inbox down, and what is answered is the rest of what the pass changed. Anything else a watch
+/// heard is answered whole when the pass ends: told after the inbox alone, a message another device
+/// moved out of it would be in no folder at all until the folder it went to was read.
 async fn read_now<S: AccountSync>(
     account_id: &str,
     why: Why,
@@ -799,6 +809,7 @@ async fn read_now<S: AccountSync>(
     in_flight: &InFlight,
     runtime: &tokio::runtime::Handle,
     at_once: &Arc<Semaphore>,
+    announce: &Announce,
 ) -> Option<AccountChanged> {
     let _permit = at_once.acquire().await.ok()?;
     // A push that took the account after the news arrived is waited out rather than the news
@@ -807,10 +818,16 @@ async fn read_now<S: AccountSync>(
     let claim = in_flight.claim_waiting(account_id, why).await?;
     let sync = Arc::clone(sync);
     let account_id = account_id.to_owned();
+    let told = (why == Why::Arrival).then(|| InboxFirst::telling(Arc::clone(announce)));
 
     let changed = runtime
         .spawn_blocking(move || {
-            let changed = sync.sync(&account_id);
+            let changed = match &told {
+                Some(told) => sync
+                    .sync_telling(&account_id, told)
+                    .map(|whole| told.rest_of(whole)),
+                None => sync.sync(&account_id),
+            };
             drop(claim);
             changed
         })
@@ -819,6 +836,95 @@ async fn read_now<S: AccountSync>(
         .ok()?;
 
     changed.is_anything().then_some(changed)
+}
+
+/// What a pass started by mail arriving has told the window before it ended: its inbox, the moment
+/// it was written down.
+///
+/// The inbox is read first, and the mail the server spoke of is in it, so the window shows it then
+/// rather than after the inbox's older mail, its messages read whole and every other folder. The
+/// pass's own answer at its end is the rest and no more: each announcement carries only what is new,
+/// and the window and the bell hear of one letter once.
+struct InboxFirst {
+    announce: Announce,
+    told: Mutex<AccountChanged>,
+}
+
+impl InboxFirst {
+    fn telling(announce: Announce) -> Self {
+        Self {
+            announce,
+            told: Mutex::new(AccountChanged::default()),
+        }
+    }
+
+    /// The whole of what the pass changed, less what the window has heard already.
+    ///
+    /// The folders as well, once the inbox was told of: they were written down before the inbox was
+    /// read, so the window read them when it read the inbox, and told of them again it reads every
+    /// list a second time for one letter.
+    fn rest_of(&self, whole: AccountChanged) -> AccountChanged {
+        let told = *self.told.lock().expect("the lock is never poisoned");
+        AccountChanged {
+            arrived: whole.arrived.saturating_sub(told.arrived),
+            updated: whole.updated.saturating_sub(told.updated),
+            removed: whole.removed.saturating_sub(told.removed),
+            folders: match told.is_anything() {
+                true => 0,
+                false => whole.folders,
+            },
+            bodies_read: whole.bodies_read,
+            unseen_in_inbox: whole.unseen_in_inbox.saturating_sub(told.unseen_in_inbox),
+        }
+    }
+}
+
+impl Progress for InboxFirst {
+    // How far a pass has got is the foot of the window's business, and only for a pass a person
+    // is waiting on. Nobody is waiting on this one.
+    fn reading(&self, _account_id: &str, _folders: u32) {}
+    fn folder_read(&self, _account_id: &str) {}
+
+    fn inbox_read(&self, account_id: &str, changed: AccountChanged) {
+        // A quiet inbox is said nothing about: the end of the pass says whatever else there is.
+        if !changed.is_anything() {
+            return;
+        }
+        *self.told.lock().expect("the lock is never poisoned") = changed;
+        (self.announce)(account_id, changed);
+    }
+}
+
+/// What one watch heard, and how long it lasted.
+///
+/// The only record of a watch there is. A letter that came late is late on one of two sides —
+/// before it reached the mailbox, or after — and which is answered only by when the server said so
+/// on the watch, beside when the pass that read it began.
+fn wrote_down_a_watch(answer: &Result<Watched, AccountSyncError>, lasted: Duration) {
+    let journal = crate::infrastructure::journal::journal();
+    if !journal.keeps(Note::Detail) {
+        return;
+    }
+
+    journal.write_down(
+        Note::Detail,
+        "watch.ended",
+        &[
+            ("heard", Value::Word(heard_on(answer))),
+            ("lasted", Value::Millis(lasted.as_millis() as u64)),
+        ],
+    );
+}
+
+/// What a watch heard, in the journal's own words.
+fn heard_on(answer: &Result<Watched, AccountSyncError>) -> Word {
+    match answer {
+        Ok(Watched::Arrived) => Word::Arrived,
+        Ok(Watched::Changed) => Word::Changed,
+        Ok(Watched::Quiet) => Word::Quiet,
+        Ok(Watched::CannotPush) => Word::CannotPush,
+        Err(_) => Word::Failed,
+    }
 }
 
 /// Which accounts are being watched, and which are not worth watching.
@@ -1424,6 +1530,196 @@ mod tests {
             HowFar::default(),
             "and the line goes when it ends"
         );
+    }
+
+    /// A pass with its inbox to tell of before it ends, and what it changed altogether, which
+    /// writes down what the window had heard by the moment the pass was about to end.
+    struct InboxThenRest {
+        inbox: AccountChanged,
+        whole: AccountChanged,
+        heard: Heard,
+        heard_before_the_end: Mutex<Option<Vec<(String, AccountChanged)>>>,
+    }
+
+    impl InboxThenRest {
+        fn new(inbox: AccountChanged, whole: AccountChanged, heard: &Heard) -> Self {
+            Self {
+                inbox,
+                whole,
+                heard: Arc::clone(heard),
+                heard_before_the_end: Mutex::new(None),
+            }
+        }
+
+        fn ending(&self) -> Result<AccountChanged, AccountSyncError> {
+            *self.heard_before_the_end.lock().expect("test lock") =
+                Some(self.heard.lock().expect("test lock").clone());
+            Ok(self.whole)
+        }
+    }
+
+    impl AccountSync for InboxThenRest {
+        fn accounts(&self) -> Result<Vec<String>, AccountSyncError> {
+            Ok(vec!["acc-1".to_owned()])
+        }
+
+        fn sync(&self, _account_id: &str) -> Result<AccountChanged, AccountSyncError> {
+            self.ending()
+        }
+
+        fn sync_telling(
+            &self,
+            account_id: &str,
+            progress: &dyn crate::ports::progress::Progress,
+        ) -> Result<AccountChanged, AccountSyncError> {
+            progress.inbox_read(account_id, self.inbox);
+            self.ending()
+        }
+    }
+
+    type Heard = Arc<Mutex<Vec<(String, AccountChanged)>>>;
+
+    fn heard_by(heard: &Heard) -> Announce {
+        let heard = Arc::clone(heard);
+        Arc::new(move |account_id: &str, changed| {
+            heard
+                .lock()
+                .expect("test lock")
+                .push((account_id.to_owned(), changed));
+        })
+    }
+
+    /// The read a watch starts, over that pass, and what it answered for the end of the pass.
+    async fn read_as_a_watch_asked(
+        why: Why,
+        pass: &Arc<InboxThenRest>,
+        heard: &Heard,
+    ) -> Option<AccountChanged> {
+        read_now(
+            "acc-1",
+            why,
+            pass,
+            &InFlight::default(),
+            &tokio::runtime::Handle::current(),
+            &Arc::new(Semaphore::new(AT_ONCE)),
+            &heard_by(heard),
+        )
+        .await
+    }
+
+    fn a_letter() -> AccountChanged {
+        AccountChanged {
+            arrived: 1,
+            unseen_in_inbox: 1,
+            ..AccountChanged::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn mail_a_server_spoke_of_is_announced_while_the_pass_still_runs_and_once() {
+        // Each announcement carries only what is new: the inbox while the pass reads on, the rest
+        // when it ends. The letter is not told of again, and neither are the folders the window
+        // read when it read the inbox.
+        let whole = AccountChanged {
+            arrived: 2,
+            updated: 1,
+            folders: 6,
+            bodies_read: 1,
+            unseen_in_inbox: 1,
+            ..AccountChanged::default()
+        };
+        let heard = Heard::default();
+        let pass = Arc::new(InboxThenRest::new(a_letter(), whole, &heard));
+
+        let rest = read_as_a_watch_asked(Why::Arrival, &pass, &heard).await;
+
+        assert_eq!(
+            *pass.heard_before_the_end.lock().expect("test lock"),
+            Some(vec![("acc-1".to_owned(), a_letter())]),
+            "the window heard of the inbox only once the pass had ended"
+        );
+        assert_eq!(
+            rest,
+            Some(AccountChanged {
+                arrived: 1,
+                updated: 1,
+                removed: 0,
+                folders: 0,
+                bodies_read: 1,
+                unseen_in_inbox: 0,
+            }),
+            "the end of the pass told again what the window had heard"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_letter_the_inbox_told_of_is_not_told_of_again_when_the_pass_ends() {
+        // Nothing else changed in the pass. Told of the folders again, the window would read every
+        // list a second time for the one letter it already shows.
+        let whole = AccountChanged {
+            folders: 6,
+            ..a_letter()
+        };
+        let heard = Heard::default();
+        let pass = Arc::new(InboxThenRest::new(a_letter(), whole, &heard));
+
+        let rest = read_as_a_watch_asked(Why::Arrival, &pass, &heard).await;
+
+        assert_eq!(heard.lock().expect("test lock").len(), 1);
+        assert_eq!(
+            rest, None,
+            "the window was told twice of one letter: {rest:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_quiet_inbox_is_not_announced_before_the_pass_ends() {
+        // Nothing to show is nothing to say: the list would be drawn again under the reader for
+        // nothing, and the end of the pass says whatever else there is.
+        let whole = AccountChanged {
+            folders: 6,
+            removed: 2,
+            ..AccountChanged::default()
+        };
+        let heard = Heard::default();
+        let pass = Arc::new(InboxThenRest::new(AccountChanged::default(), whole, &heard));
+
+        let rest = read_as_a_watch_asked(Why::Arrival, &pass, &heard).await;
+
+        assert!(heard.lock().expect("test lock").is_empty());
+        assert_eq!(rest, Some(whole));
+    }
+
+    #[tokio::test]
+    async fn a_change_a_watch_heard_is_told_of_only_when_its_pass_ends() {
+        // A message another device moved out of the inbox is in no folder between the inbox being
+        // read and the folder it went to: told of then, the window shows it nowhere.
+        let moved = AccountChanged {
+            removed: 1,
+            ..AccountChanged::default()
+        };
+        let whole = AccountChanged {
+            removed: 1,
+            arrived: 1,
+            folders: 6,
+            ..AccountChanged::default()
+        };
+        let heard = Heard::default();
+        let pass = Arc::new(InboxThenRest::new(moved, whole, &heard));
+
+        let rest = read_as_a_watch_asked(Why::Background, &pass, &heard).await;
+
+        assert!(heard.lock().expect("test lock").is_empty());
+        assert_eq!(rest, Some(whole));
+    }
+
+    #[test]
+    fn a_watch_is_written_down_by_what_it_heard() {
+        assert_eq!(heard_on(&Ok(Watched::Arrived)), Word::Arrived);
+        assert_eq!(heard_on(&Ok(Watched::Changed)), Word::Changed);
+        assert_eq!(heard_on(&Ok(Watched::Quiet)), Word::Quiet);
+        assert_eq!(heard_on(&Ok(Watched::CannotPush)), Word::CannotPush);
+        assert_eq!(heard_on(&Err(AccountSyncError::Failed)), Word::Failed);
     }
 
     /// A pass that says which way it was asked to read: telling how far it has got, or not.
