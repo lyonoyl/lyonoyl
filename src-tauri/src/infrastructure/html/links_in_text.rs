@@ -5,7 +5,8 @@
 //! the first character an address in a sentence does not hold, and leaves behind what a sentence
 //! puts after one — a full stop, a comma, a quote, a closing bracket it did not open. What is left
 //! is read by the URL standard's parser, and an address it cannot read, or one this build does not
-//! open, stays text.
+//! open, stays text. Once four beginnings in one stretch, from one such stop to the next, have
+//! opened nothing, the rest of that stretch stays text as well.
 //!
 //! Somebody to write to counts written alone too, `zeta@example.com`, and opens as `mailto:`: a
 //! name of letters, digits and `._+-`, an `@`, and a domain of letters, digits, dots and hyphens,
@@ -49,6 +50,12 @@ const ENDS: [char; 35] = [
 /// What a sentence puts after an address, and an address almost never ends with.
 const AFTER: [char; 10] = ['.', ',', ';', ':', '!', '?', '\'', '"', '*', '\u{2026}'];
 
+/// The most beginnings one stretch refuses before the rest of it stays text. Each one refused is
+/// read to where the stretch stops and handed to the parser, so a stretch made of nothing else,
+/// read for every one, would cost its length squared; a person writes one that opens nothing before
+/// an address with no space between them, not four.
+const MOST_REFUSED_IN_A_STRETCH: usize = 4;
+
 /// The longest somebody to write to can be, as mail carries one: 254 characters of ASCII, which is
 /// all such an address holds, counted without the full stop a sentence puts after it.
 const LONGEST_TO_WRITE_TO: usize = 254;
@@ -69,13 +76,17 @@ const FILE_KINDS: [&str; 15] = [
 
 /// Every address in `text`, in order.
 ///
-/// One pass: each byte is looked at a bounded number of times, so a text of nothing but almost
-/// addresses costs what any text of its length costs.
+/// Each byte is looked at a bounded number of times: where a stretch stops is read once for every
+/// beginning in it, and at most [`MOST_REFUSED_IN_A_STRETCH`] of them are read to that stop and
+/// refused, so a text of nothing but almost addresses costs what any text of its length costs.
 pub fn links_in(text: &str) -> Vec<TextLink> {
     let lower = text.to_ascii_lowercase();
     let bytes = lower.as_bytes();
     let mut found = Vec::new();
     let mut at = 0;
+    // The stretch the last beginning was in: where it stops, and how many in it opened nothing.
+    let mut stops = 0;
+    let mut refused = 0;
 
     while at < bytes.len() {
         let Some(beginning) = beginning_at(text, bytes, at) else {
@@ -88,13 +99,25 @@ pub fn links_in(text: &str) -> Vec<TextLink> {
             continue;
         };
 
-        let end = trimmed(text, at, beginning.len(), end_of_address(text, at));
+        // No stop lies between two beginnings of one stretch, so the first one's is every one's.
+        if at >= stops {
+            stops = end_of_address(text, at);
+            refused = 0;
+        }
+        let end = trimmed(text, at, beginning.len(), stops);
         match opens(&text[at..end], beginning) {
             Some(url) => {
                 found.push(TextLink { at: at..end, url });
                 at = end;
             }
-            None => at += beginning.len(),
+            None => {
+                refused += 1;
+                at = if refused < MOST_REFUSED_IN_A_STRETCH {
+                    at + beginning.len()
+                } else {
+                    stops
+                };
+            }
         }
     }
 
@@ -139,20 +162,33 @@ fn end_of_address(text: &str, start: usize) -> usize {
 /// The end of the address at `start` once what a sentence put after it is left behind: the marks in
 /// [`AFTER`], and a closing bracket the address did not open. Never into its beginning, which is
 /// `beginning` bytes long.
+///
+/// The brackets are counted once, and the count kept as the end moves back: counted again for every
+/// bracket left behind, a run of them after an address costs its length squared. A bracket is ASCII,
+/// so its bytes are its characters.
 fn trimmed(text: &str, start: usize, beginning: usize, mut end: usize) -> usize {
+    let written = &text.as_bytes()[start..end];
+    let held = |bracket: u8| written.iter().filter(|&&byte| byte == bracket).count();
+    let (opened, opened_square) = (held(b'('), held(b'['));
+    let (mut closed, mut closed_square) = (held(b')'), held(b']'));
+
     while end > start + beginning {
-        let written = &text[start..end];
-        let Some(last) = written.chars().next_back() else {
+        let Some(last) = text[start..end].chars().next_back() else {
             break;
         };
         let unopened = match last {
-            ')' => written.matches(')').count() > written.matches('(').count(),
-            ']' => written.matches(']').count() > written.matches('[').count(),
+            ')' => closed > opened,
+            ']' => closed_square > opened_square,
             _ => false,
         };
 
         if !AFTER.contains(&last) && !unopened {
             break;
+        }
+        match last {
+            ')' => closed -= 1,
+            ']' => closed_square -= 1,
+            _ => {}
         }
         end -= last.len_utf8();
     }

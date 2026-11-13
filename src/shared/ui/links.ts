@@ -6,12 +6,14 @@
  * markup it sends beside a message's text, and above a message passed on in its own form: an
  * address is written whole, beginning `http://`, `https://` or `mailto:`, or `www.` at the start of
  * a word; it runs to the first space or the first character an address in a sentence does not hold,
- * and leaves behind what a sentence puts after one. Somebody to write to counts written alone too,
- * `zeta@example.com`: a name of letters, digits and `._+-`, an `@`, and a domain of letters,
- * digits, dots and hyphens, read for as long as they last and no further. It starts only where no
- * name could be going on, ends only where nothing could go on with it, and has the shape mail is
- * sent to, which `isSomebodyToWriteTo` describes. Two copies of a rule drift apart, so both answer
- * the same examples, `tests/fixtures/links-in-text.json`, and the tests on both sides read them.
+ * and leaves behind what a sentence puts after one. Once four beginnings in one stretch, from one
+ * such stop to the next, have opened nothing, the rest of that stretch stays text as well. Somebody
+ * to write to counts written alone too, `zeta@example.com`: a name of letters, digits and `._+-`, an
+ * `@`, and a domain of letters, digits, dots and hyphens, read for as long as they last and no
+ * further. It starts only where no name could be going on, ends only where nothing could go on with
+ * it, and has the shape mail is sent to, which `isSomebodyToWriteTo` describes. Two copies of a rule
+ * drift apart, so both answer the same examples, `tests/fixtures/links-in-text.json`, and the tests
+ * on both sides read them.
  *
  * Positions are in the string's own units, so a slice of the text is the address as written.
  */
@@ -37,6 +39,14 @@ const ENDS = new Set([
 /** What a sentence puts after an address, and an address almost never ends with. */
 const AFTER = new Set([".", ",", ";", ":", "!", "?", "'", '"', "*", "…"]);
 
+/**
+ * The most beginnings one stretch refuses before the rest of it stays text. Each one refused is read
+ * to where the stretch stops and handed to the parser, so a stretch made of nothing else, read for
+ * every one, would cost its length squared; a person writes one that opens nothing before an
+ * address with no space between them, not four.
+ */
+const MOST_REFUSED_IN_A_STRETCH = 4;
+
 /** The characters the core counts as spaces: Unicode's White_Space, and nothing besides. */
 const SPACES = new Set([
   ..."\t\n\u000B\f\r \u0085      　",
@@ -61,10 +71,17 @@ const FILE_KINDS = new Set([
   "js", "json",
 ]);
 
-/** Every address in `text`, in order. One pass, whatever the text is made of. */
+/**
+ * Every address in `text`, in order. Each unit is looked at a bounded number of times: where a
+ * stretch stops is read once for every beginning in it, and at most `MOST_REFUSED_IN_A_STRETCH` of
+ * them are read to that stop and refused, whatever the text is made of.
+ */
 export function linksIn(text: string): TextLink[] {
   const found: TextLink[] = [];
   let at = 0;
+  // The stretch the last beginning was in: where it stops, and how many in it opened nothing.
+  let stops = 0;
+  let refused = 0;
 
   while (at < text.length) {
     const beginning = beginningAt(text, at);
@@ -79,12 +96,18 @@ export function linksIn(text: string): TextLink[] {
       continue;
     }
 
-    const end = trimmed(text, at, beginning.length, endOfAddress(text, at));
+    // No stop lies between two beginnings of one stretch, so the first one's is every one's.
+    if (at >= stops) {
+      stops = endOfAddress(text, at);
+      refused = 0;
+    }
+    const end = trimmed(text, at, beginning.length, stops);
     if (opens(text.slice(at, end), beginning)) {
       found.push({ start: at, end });
       at = end;
     } else {
-      at += beginning.length;
+      refused += 1;
+      at = refused < MOST_REFUSED_IN_A_STRETCH ? at + beginning.length : stops;
     }
   }
 
@@ -118,6 +141,11 @@ function endOfAddress(text: string, start: number): number {
 /**
  * The end of the address at `start` once what a sentence put after it is left behind: the marks in
  * `AFTER`, and a closing bracket the address did not open. Never into its beginning.
+ *
+ * The brackets are counted once, and the count kept as the end moves back; nothing is copied on the
+ * way. Counted or copied again for every mark left behind, a run of them after an address costs its
+ * length squared. Every mark left behind is one unit, so the last unit decides: half of a pair of
+ * units is none of them.
  */
 function trimmed(
   text: string,
@@ -125,22 +153,30 @@ function trimmed(
   beginning: number,
   end: number,
 ): number {
+  let opened = 0;
+  let closed = 0;
+  let openedSquare = 0;
+  let closedSquare = 0;
+  for (let at = start; at < end; at += 1) {
+    const unit = text[at];
+    if (unit === "(") opened += 1;
+    else if (unit === ")") closed += 1;
+    else if (unit === "[") openedSquare += 1;
+    else if (unit === "]") closedSquare += 1;
+  }
+
   while (end > start + beginning) {
-    const written = text.slice(start, end);
-    const characters = Array.from(written);
-    const last = characters[characters.length - 1] ?? "";
+    const last = text[end - 1] ?? "";
     const unopened =
-      (last === ")" && count(written, ")") > count(written, "(")) ||
-      (last === "]" && count(written, "]") > count(written, "["));
+      (last === ")" && closed > opened) ||
+      (last === "]" && closedSquare > openedSquare);
 
     if (!AFTER.has(last) && !unopened) break;
-    end -= last.length;
+    if (last === ")") closed -= 1;
+    else if (last === "]") closedSquare -= 1;
+    end -= 1;
   }
   return end;
-}
-
-function count(text: string, character: string): number {
-  return text.split(character).length - 1;
 }
 
 /**
