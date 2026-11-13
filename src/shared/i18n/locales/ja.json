@@ -291,9 +291,11 @@
   "reading.bodyEmptyWayOut": "安全に表示できる部分がまったくない形で書かれたメッセージもあります。メッセージ自体は残っているので、表示方法を切り替えて確認できます",
   "reading.bodyLoading": "メッセージを取得中…",
   "reading.bodyTruncated": "このメッセージは冒頭部分だけが表示されています",
+  "reading.copy": "Cc",
   "reading.date": "受信日時",
   "reading.delete": "ゴミ箱に移動",
   "reading.fetchingPictures": "画像を取得中…",
+  "reading.fewerRecipients": "折りたたむ",
   "reading.folders": "フォルダー",
   "reading.forward": "転送",
   "reading.forwardWays": "転送方法",
@@ -304,6 +306,9 @@
     "other": "{count} 枚の画像を読み込んでいません"
   },
   "reading.missing": "このメッセージはもうローカルインデックスにありません",
+  "reading.moreRecipients": {
+    "other": "ほか {count} 人"
+  },
   "reading.moveNowhere": "メッセージを移動できるフォルダーがほかにありません",
   "reading.moveTo": "フォルダーに移動…",
   "reading.nothingSelected": "読みたいメッセージを選択してください",
@@ -324,7 +329,7 @@
   "reading.saveAttachment": "「{name}」を保存",
   "reading.savedAs": "「{name}」として保存しました",
   "reading.showPictures": "画像を表示",
-  "reading.size": "サイズ",
+  "reading.to": "宛先",
   "reading.tryPicturesAgain": "再試行",
   "recovery.body": "メールはサーバーから再びダウンロードできますが、アカウント設定と未送信のメッセージはこのデバイスにしかありません。もう一度試す前に、アプリを終了して、上記のファイルが読み取れる状態か確認してください",
   "recovery.couldNotMove": "ファイルを移動できませんでした。上記のフォルダーに書き込めるか確認してください",

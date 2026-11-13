@@ -291,9 +291,11 @@
   "reading.bodyEmptyWayOut": "有些邮件的写法导致其中任何内容都无法安全显示。邮件本身仍在，可以换一种方式查看",
   "reading.bodyLoading": "正在获取邮件…",
   "reading.bodyTruncated": "仅显示了此邮件的开头部分",
+  "reading.copy": "抄送",
   "reading.date": "接收时间",
   "reading.delete": "移到废纸篓",
   "reading.fetchingPictures": "正在获取图片…",
+  "reading.fewerRecipients": "收起",
   "reading.folders": "所在文件夹",
   "reading.forward": "转发",
   "reading.forwardWays": "转发方式",
@@ -304,6 +306,9 @@
     "other": "{count} 张图片未加载"
   },
   "reading.missing": "此邮件已不在本地索引中",
+  "reading.moreRecipients": {
+    "other": "另外 {count} 人"
+  },
   "reading.moveNowhere": "没有其他可移入的文件夹",
   "reading.moveTo": "移到…",
   "reading.nothingSelected": "选择要阅读的邮件",
@@ -324,7 +329,7 @@
   "reading.saveAttachment": "保存附件“{name}”",
   "reading.savedAs": "已存为“{name}”",
   "reading.showPictures": "显示图片",
-  "reading.size": "大小",
+  "reading.to": "收件人",
   "reading.tryPicturesAgain": "重试",
   "recovery.body": "邮件可以从服务器重新下载，但邮箱设置和未发送的邮件只存在于此设备上。退出应用，确认上方的文件可以读取，然后再试",
   "recovery.couldNotMove": "无法移动这些文件。检查上方的文件夹是否允许写入",

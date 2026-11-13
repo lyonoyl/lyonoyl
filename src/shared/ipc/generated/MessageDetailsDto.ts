@@ -2,6 +2,7 @@
 import type { BodyStateDto } from "./BodyStateDto";
 import type { MessageIdDto } from "./MessageIdDto";
 import type { MessagePlacementDto } from "./MessagePlacementDto";
+import type { RecipientsDto } from "./RecipientsDto";
 
 export type MessageDetailsDto = { messageId: MessageIdDto, subject: string | null, 
 /**
@@ -14,9 +15,13 @@ sender: string | null,
  */
 senderAddress: string | null, 
 /**
+ * Who the message is for, and who is kept informed.
+ */
+to: RecipientsDto, cc: RecipientsDto, 
+/**
  * Unix seconds.
  */
-receivedAt: number, size: number | null, unread: boolean, bodyState: BodyStateDto, 
+receivedAt: number, unread: boolean, bodyState: BodyStateDto, 
 /**
  * What an answer to this message has to carry: the name it goes under, and the conversation it
  * said it belongs to. Absent for a message that arrived without a name of its own, which
@@ -33,10 +38,9 @@ accountId: string | null,
 /**
  * Whether this message named anybody besides the person reading it.
  *
- * A flag rather than the addresses. Answering everybody is decided below this boundary, where
- * the person's own addresses are known, and the window needs to know only whether there is a
- * second answer to offer — so the people on somebody else's message stay out of the one place
- * in this application where hostile input is rendered every day.
+ * Answering everybody is decided below this boundary, where the person's own addresses are
+ * known, and the window needs to know only whether there is a second answer to offer: what it
+ * is shown of the people a message names decides nothing.
  *
  * Conservative where a message reached the person by blind copy: it names one other person,
  * so the second button is not offered even though answering everybody would reach them. The

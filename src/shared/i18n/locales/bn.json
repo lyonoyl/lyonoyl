@@ -300,9 +300,11 @@
   "reading.bodyEmptyWayOut": "কিছু বার্তা এমনভাবে লেখা হয় যে নিরাপদে সেগুলোর কিছুই দেখানো যায় না। তবে বার্তাটি নিজে এখনো আছে, চাইলে দেখে নিতে পারেন",
   "reading.bodyLoading": "বার্তাটি আনা হচ্ছে…",
   "reading.bodyTruncated": "এই বার্তার শুধু শুরুর অংশ দেখানো হচ্ছে",
+  "reading.copy": "অনুলিপি",
   "reading.date": "প্রাপ্তির সময়",
   "reading.delete": "ট্র্যাশে সরান",
   "reading.fetchingPictures": "ছবি আনা হচ্ছে…",
+  "reading.fewerRecipients": "কম দেখান",
   "reading.folders": "ফোল্ডারে",
   "reading.forward": "ফরোয়ার্ড করুন",
   "reading.forwardWays": "ফরোয়ার্ড করার উপায়",
@@ -314,6 +316,10 @@
     "other": "{count}টি ছবি লোড করা হয়নি"
   },
   "reading.missing": "এই বার্তাটি আর স্থানীয় সূচিতে নেই",
+  "reading.moreRecipients": {
+    "one": "আরও {count} জন",
+    "other": "আরও {count} জন"
+  },
   "reading.moveNowhere": "অন্য কোনো ফোল্ডারে বার্তা সরানো যায় না",
   "reading.moveTo": "ফোল্ডারে সরান…",
   "reading.nothingSelected": "পড়ার জন্য একটি বার্তা বেছে নিন",
@@ -337,7 +343,7 @@
   "reading.saveAttachment": "{name} সংরক্ষণ করুন",
   "reading.savedAs": "{name} নামে সংরক্ষিত হয়েছে",
   "reading.showPictures": "ছবি দেখান",
-  "reading.size": "আকার",
+  "reading.to": "প্রতি",
   "reading.tryPicturesAgain": "আবার চেষ্টা করুন",
   "recovery.body": "মেল আবার সার্ভার থেকে ডাউনলোড করা যায়, কিন্তু অ্যাকাউন্টের সেটিংস আর না-পাঠানো বার্তা শুধু এই ডিভাইসেই থাকে। আবার চেষ্টা করার আগে অ্যাপটি বন্ধ করুন এবং দেখে নিন উপরের ফাইলটি পড়া যায় কি না",
   "recovery.couldNotMove": "ফাইলগুলো সরানো যায়নি। দেখে নিন উপরের ফোল্ডারে লেখা যায় কি না",

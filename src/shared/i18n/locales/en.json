@@ -300,9 +300,11 @@
   "reading.bodyEmptyWayOut": "Some messages are written so that nothing can be shown of them safely. The message itself is still there to look at",
   "reading.bodyLoading": "Fetching the message…",
   "reading.bodyTruncated": "Only the beginning of this message is shown",
+  "reading.copy": "Copy to",
   "reading.date": "Received",
   "reading.delete": "Move to trash",
   "reading.fetchingPictures": "Fetching pictures…",
+  "reading.fewerRecipients": "Show fewer",
   "reading.folders": "In folders",
   "reading.forward": "Forward",
   "reading.forwardWays": "Ways to forward",
@@ -314,6 +316,10 @@
     "other": "{count} pictures were not loaded"
   },
   "reading.missing": "This message is no longer in the local index",
+  "reading.moreRecipients": {
+    "one": "{count} more",
+    "other": "{count} more"
+  },
   "reading.moveNowhere": "No other folder takes messages",
   "reading.moveTo": "Move to…",
   "reading.nothingSelected": "Select a message to read it",
@@ -337,7 +343,7 @@
   "reading.saveAttachment": "Save {name}",
   "reading.savedAs": "Saved as {name}",
   "reading.showPictures": "Show pictures",
-  "reading.size": "Size",
+  "reading.to": "To",
   "reading.tryPicturesAgain": "Try again",
   "recovery.body": "Mail can be downloaded again from the server, but account settings and unsent messages live only on this device. Quit the app and check that the file above is readable before trying again",
   "recovery.couldNotMove": "The files could not be moved. Check that the folder above is writable",

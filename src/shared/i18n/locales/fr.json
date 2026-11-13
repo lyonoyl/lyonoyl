@@ -309,9 +309,11 @@
   "reading.bodyEmptyWayOut": "Certains messages sont écrits de telle façon que rien ne peut en être affiché sans risque. Le message lui-même reste consultable",
   "reading.bodyLoading": "Récupération du message…",
   "reading.bodyTruncated": "Seul le début de ce message est affiché",
+  "reading.copy": "Copie à",
   "reading.date": "Reçu",
   "reading.delete": "Placer dans la corbeille",
   "reading.fetchingPictures": "Chargement des images…",
+  "reading.fewerRecipients": "Afficher moins",
   "reading.folders": "Dossiers",
   "reading.forward": "Transférer",
   "reading.forwardWays": "Options de transfert",
@@ -324,6 +326,11 @@
     "other": "{count} images n’ont pas été chargées"
   },
   "reading.missing": "Ce message ne figure plus dans l’index local",
+  "reading.moreRecipients": {
+    "one": "{count} autre",
+    "many": "{count} d’autres",
+    "other": "{count} autres"
+  },
   "reading.moveNowhere": "Aucun autre dossier ne peut recevoir de messages",
   "reading.moveTo": "Déplacer vers…",
   "reading.nothingSelected": "Sélectionnez un message pour le lire",
@@ -350,7 +357,7 @@
   "reading.saveAttachment": "Enregistrer {name}",
   "reading.savedAs": "Enregistré sous {name}",
   "reading.showPictures": "Afficher les images",
-  "reading.size": "Taille",
+  "reading.to": "À",
   "reading.tryPicturesAgain": "Réessayer",
   "recovery.body": "Le courrier peut être téléchargé de nouveau depuis le serveur, mais les réglages des comptes et les messages non envoyés n’existent que sur cet appareil. Quittez l’application et vérifiez que le fichier ci-dessus est lisible avant de réessayer",
   "recovery.couldNotMove": "Impossible de déplacer les fichiers. Vérifiez que le dossier ci-dessus est accessible en écriture",

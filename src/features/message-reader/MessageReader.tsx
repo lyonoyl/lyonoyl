@@ -20,7 +20,6 @@ import {
   type Answer,
 } from "@/entities/message";
 import { describeError, listOf, useI18n } from "@/shared/i18n";
-import { inRoundNumbers } from "@/shared/ui/bytes";
 import {
   answerAudience,
   archiveMessage,
@@ -46,6 +45,7 @@ import {
   TooltipTrigger,
 } from "@/shared/ui/primitives/tooltip";
 import { MessageBody } from "./MessageBody";
+import { Recipients } from "./Recipients";
 import type { CommandError } from "@/shared/ipc/generated/CommandError";
 import type { FolderDto } from "@/shared/ipc/generated/FolderDto";
 import type { MessageDetailsDto } from "@/shared/ipc/generated/MessageDetailsDto";
@@ -701,21 +701,31 @@ export function MessageReader({
           <dt className="text-muted-foreground">{t("reading.from")}</dt>
           <dd dir="auto">{message.sender ?? t("list.unknownSender")}</dd>
 
+          {/* Who the message is for, and who is kept informed: each a list of its own, folded
+              while it is long, and opened folded on the next message. */}
+          {message.to.shown.length > 0 && (
+            <>
+              <dt className="text-muted-foreground">{t("reading.to")}</dt>
+              <dd className="min-w-0 [overflow-wrap:anywhere]">
+                <Recipients recipients={message.to} />
+              </dd>
+            </>
+          )}
+          {message.cc.shown.length > 0 && (
+            <>
+              <dt className="text-muted-foreground">{t("reading.copy")}</dt>
+              <dd className="min-w-0 [overflow-wrap:anywhere]">
+                <Recipients recipients={message.cc} />
+              </dd>
+            </>
+          )}
+
           <dt className="text-muted-foreground">{t("reading.date")}</dt>
           <dd>
             <time dateTime={new Date(message.receivedAt * 1000).toISOString()}>
               {dates.format(new Date(message.receivedAt * 1000))}
             </time>
           </dd>
-
-          {message.size !== null && (
-            <>
-              <dt className="text-muted-foreground">{t("reading.size")}</dt>
-              <dd>
-                {inRoundNumbers(String(message.size), language, t)}
-              </dd>
-            </>
-          )}
 
           <dt className="text-muted-foreground">{t("reading.folders")}</dt>
           <dd>

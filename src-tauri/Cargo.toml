@@ -101,7 +101,7 @@ mail-builder = "0.5"
 # (RUSTSEC-2026-0373). It is one layer of four, never the boundary itself.
 # Its parser — html5ever and markup5ever — is already in the tree through Tauri, so what this adds
 # is two crates.
-ammonia = "4.1.8"
+ammonia = "4.1.9"
 # Writing a message passed on in its own form: its markup read into a tree and written back out as
 # one document, with the place its drawing begins known from the pieces. Already in the tree through
 # Tauri, at this version and with these features, so it adds no crate.

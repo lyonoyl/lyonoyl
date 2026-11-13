@@ -17,6 +17,7 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | A link opens only after its real address is shown, read by the same parser that opens it | `the_host_a_person_is_asked_about_is_the_host_that_opens`, `an_address_nothing_can_read_is_not_offered` |
 | An address written alone in text opens only as `mailto:` and the address itself, a name of ASCII letters, digits and `._+-` and a domain of letters, digits, dots and hyphens, so it carries no header and no second address | `every_shared_example_is_found_as_written_and_opens_what_it_says`, `src/shared/ui/links.test.ts` |
 | A link in a message's text is drawn left to right and set apart, so a character that turns text around cannot show one address over the one that opens | `an_address_after_a_character_that_turns_text_around_is_drawn_as_it_opens` |
+| An address a message names is shown without the characters that turn text around, so one built for them cannot read as somebody else's | `an_address_is_shown_without_the_characters_that_turn_text_around` |
 | `unsafe` Rust stands in one file, for one call into AppKit | `scripts/check-layering.sh` |
 
 ## The mail is not lost
@@ -63,7 +64,6 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | No address outside the public internet is asked, every redirect is judged again, and none leaves encryption | `every_address_that_is_not_the_public_internet_is_refused_by_the_shipped_client`, `a_redirect_to_this_machine_is_refused_and_nothing_is_sent_there`, `a_redirect_never_leaves_encryption` |
 | An IPv4 address carried inside an IPv6 one is judged as what it carries | `an_ipv4_address_carried_inside_an_ipv6_one_is_judged_as_what_it_carries` |
 | On macOS, checking a certificate fetches nothing the certificate names | `the_evaluation_is_made_to_fetch_nothing_before_it_runs` |
-| Other people's addresses never cross into the window to decide what it draws | `the_addresses_themselves_do_not_cross_the_boundary` |
 | A reply carries a bounded chain of references, and a message's boundary says nothing about anybody | `a_chain_that_fits_is_kept_whole_and_one_more_costs_the_name_after_the_oldest`, `a_message_with_a_file_is_cut_by_a_boundary_that_says_nothing_about_anybody`, `every_boundary_of_a_message_says_nothing_about_anybody`, `every_boundary_of_a_message_passed_on_says_nothing_about_anybody` |
 | A sent message leaves nothing of itself on this device once its copy is filed | `a_message_whose_copy_is_filed_leaves_nothing_of_itself_behind_once_read_back` |
 | A copy looks for an update only after a yes, at most once a day, and its request carries no version | `a_fresh_install_looks_for_no_update_until_somebody_says_it_may`, `a_copy_that_asked_recently_waits`, `the_manifest_and_its_seal_are_asked_for_naming_the_product_alone` |
@@ -90,6 +90,7 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | Nesting is measured before parsing, and a document deeper than an engine builds is not drawn | `a_document_as_deep_as_an_engine_builds_is_drawn_and_one_level_deeper_is_not` |
 | A message of more than 8,000 elements is shown as text | `a_message_of_tens_of_thousands_of_elements_is_shown_as_text` |
 | A message forwarded in its own form is read within the bounds a body is drawn within, and is forwarded as text past them | `markup_past_what_a_body_is_drawn_within_is_not_cut_down` |
+| A header naming a crowd reaches the window as a hundred addresses and a number, none of them longer than an address can be | `a_header_naming_a_crowd_is_shown_as_its_first_hundred_and_a_number`, `what_is_longer_than_an_address_can_be_is_counted_and_not_shown` |
 | Finding an address written alone, and where the columns of a text matter, costs what the text's length costs, in the core and in the composer | `text_made_of_almost_names_costs_what_its_length_costs`, `finding_where_columns_matter_costs_what_the_text_s_length_costs`, `src/shared/ui/links.test.ts` |
 | A message the parser panics on costs only itself, and the pass goes on | `a_message_the_parser_panics_on_is_read_once_and_whoever_asked_goes_on`, `scripts/check-layering.sh` |
 | An answer from a mail server is bounded in what it makes the application hold | `an_answer_past_what_it_may_hold_is_refused` |

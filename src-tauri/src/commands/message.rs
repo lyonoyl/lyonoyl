@@ -12,7 +12,9 @@ use crate::commands::mailboxes::FolderRoleDto;
 use crate::read_model::mailboxes::MailboxReadModel;
 use crate::read_model::message::{MessageDetails, MessageReadModel, Placement};
 use crate::AppState;
+use lyonoyl_domain::attachment::reorders_text;
 use lyonoyl_domain::message::{BodyState, MessageId};
+use lyonoyl_domain::outgoing::LONGEST_ADDRESS;
 
 /// How much of a message is stored locally.
 #[derive(Debug, Clone, Copy, Serialize, TS)]
@@ -23,6 +25,42 @@ pub enum BodyStateDto {
     PreviewCached,
     TextCached,
     FullCached,
+}
+
+/// How many of the people one header names the reader is handed. Past that they are a number, so
+/// a message naming a million people opens as cheaply as one naming a hundred.
+const MOST_SHOWN: usize = 100;
+
+/// The people one header of a message names, as the reader shows them.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/shared/ipc/generated/")]
+pub struct RecipientsDto {
+    /// Their addresses in the order written: the first hundred, each without the characters that
+    /// turn text around, which would draw it as another, and none longer than an address can be.
+    pub shown: Vec<String>,
+    /// How many the header named, those not shown among them.
+    pub all: u32,
+}
+
+impl RecipientsDto {
+    fn of(named: &[String]) -> Self {
+        Self {
+            shown: named
+                .iter()
+                .filter(|address| address.chars().count() <= LONGEST_ADDRESS)
+                .map(|address| {
+                    address
+                        .chars()
+                        .filter(|character| !reorders_text(*character))
+                        .collect::<String>()
+                })
+                .filter(|address| !address.is_empty())
+                .take(MOST_SHOWN)
+                .collect(),
+            all: u32::try_from(named.len()).unwrap_or(u32::MAX),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -45,10 +83,12 @@ pub struct MessageDetailsDto {
     /// Who it is from, as an answer has to address it. Never the name beside it, which cannot be
     /// sent to; absent for a message that gave no address at all.
     pub sender_address: Option<String>,
+    /// Who the message is for, and who is kept informed.
+    pub to: RecipientsDto,
+    pub cc: RecipientsDto,
     /// Unix seconds.
     #[ts(type = "number")]
     pub received_at: i64,
-    pub size: Option<u32>,
     pub unread: bool,
     pub body_state: BodyStateDto,
     /// What an answer to this message has to carry: the name it goes under, and the conversation it
@@ -63,10 +103,9 @@ pub struct MessageDetailsDto {
     pub account_id: Option<String>,
     /// Whether this message named anybody besides the person reading it.
     ///
-    /// A flag rather than the addresses. Answering everybody is decided below this boundary, where
-    /// the person's own addresses are known, and the window needs to know only whether there is a
-    /// second answer to offer — so the people on somebody else's message stay out of the one place
-    /// in this application where hostile input is rendered every day.
+    /// Answering everybody is decided below this boundary, where the person's own addresses are
+    /// known, and the window needs to know only whether there is a second answer to offer: what it
+    /// is shown of the people a message names decides nothing.
     ///
     /// Conservative where a message reached the person by blind copy: it names one other person,
     /// so the second button is not offered even though answering everybody would reach them. The
@@ -111,8 +150,9 @@ impl MessageDetailsDto {
             subject: details.subject,
             sender: details.sender,
             sender_address: details.sender_address,
+            to: RecipientsDto::of(&details.to),
+            cc: RecipientsDto::of(&details.cc),
             received_at: details.received_at,
-            size: details.size,
             unread: details.unread,
             body_state: details.body_state.into(),
             named: details.named,
@@ -381,23 +421,58 @@ mod tests {
     }
 
     #[test]
-    fn the_addresses_themselves_do_not_cross_the_boundary() {
-        // A flag, not a list. Who else somebody wrote to is not something the window that renders
-        // hostile input every day has any business holding, and the second answer is decided in
-        // Rust where the person's own addresses are known.
+    fn who_a_message_names_is_shown_as_the_addresses_written() {
         let dto = asked(
             &["you@example.com", "kappa@example.net"],
             &["sigma@example.org"],
         );
-        let written = serde_json::to_string(&dto).expect("the DTO serializes");
 
-        assert!(
-            !written.contains("kappa@example.net"),
-            "a recipient crossed IPC: {written}"
+        assert_eq!(dto.to.shown, ["you@example.com", "kappa@example.net"]);
+        assert_eq!(dto.to.all, 2);
+        assert_eq!(dto.cc.shown, ["sigma@example.org"]);
+        assert_eq!(dto.cc.all, 1);
+        assert!(asked(&["you@example.com"], &[]).cc.shown.is_empty());
+    }
+
+    #[test]
+    fn an_address_is_shown_without_the_characters_that_turn_text_around() {
+        // Drawn as written, the override shows `kappa` backwards behind the at sign, and an
+        // address built for it reads as somebody else's.
+        let dto = asked(
+            &["\u{202E}kappa@example.net\u{2069}", "\u{200F}\u{202A}"],
+            &[],
         );
-        assert!(
-            !written.contains("sigma@example.org"),
-            "a recipient crossed IPC: {written}"
+
+        assert_eq!(dto.to.shown, ["kappa@example.net"]);
+        assert_eq!(
+            dto.to.all, 2,
+            "what is left of nothing is not shown, and still counted"
         );
+    }
+
+    #[test]
+    fn a_header_naming_a_crowd_is_shown_as_its_first_hundred_and_a_number() {
+        let crowd: Vec<String> = (0..10_000)
+            .map(|at| format!("sigma.{at}@example.org"))
+            .collect();
+        let named: Vec<&str> = crowd.iter().map(String::as_str).collect();
+
+        let dto = asked(&named, &[]);
+
+        assert_eq!(dto.to.shown.len(), MOST_SHOWN);
+        assert_eq!(dto.to.shown[0], "sigma.0@example.org");
+        assert_eq!(dto.to.all, 10_000);
+    }
+
+    #[test]
+    fn what_is_longer_than_an_address_can_be_is_counted_and_not_shown() {
+        let longest = format!("{}@example.com", "a".repeat(LONGEST_ADDRESS - 12));
+        let longer = format!("a{longest}");
+        assert_eq!(longest.chars().count(), LONGEST_ADDRESS);
+
+        let dto = asked(&[&longer, &longest], &[]);
+
+        assert_eq!(dto.to.shown, [longest]);
+        assert_eq!(dto.to.all, 2);
     }
 }

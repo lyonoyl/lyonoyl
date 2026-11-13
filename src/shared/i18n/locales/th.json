@@ -291,9 +291,11 @@
   "reading.bodyEmptyWayOut": "อีเมลบางฉบับเขียนมาในแบบที่ไม่มีส่วนใดแสดงได้อย่างปลอดภัย แต่ตัวอีเมลยังอยู่และเปิดดูได้",
   "reading.bodyLoading": "กำลังโหลดอีเมล…",
   "reading.bodyTruncated": "แสดงเฉพาะส่วนต้นของอีเมลนี้",
+  "reading.copy": "สำเนาถึง",
   "reading.date": "ได้รับเมื่อ",
   "reading.delete": "ย้ายไปที่ถังขยะ",
   "reading.fetchingPictures": "กำลังโหลดรูปภาพ…",
+  "reading.fewerRecipients": "แสดงน้อยลง",
   "reading.folders": "ในโฟลเดอร์",
   "reading.forward": "ส่งต่อ",
   "reading.forwardWays": "ตัวเลือกการส่งต่อ",
@@ -304,6 +306,9 @@
     "other": "ยังไม่ได้โหลดรูปภาพ {count} รูป"
   },
   "reading.missing": "อีเมลนี้ไม่อยู่ในดัชนีในเครื่องแล้ว",
+  "reading.moreRecipients": {
+    "other": "อีก {count} คน"
+  },
   "reading.moveNowhere": "ไม่มีโฟลเดอร์อื่นให้ย้ายไป",
   "reading.moveTo": "ย้ายไปที่…",
   "reading.nothingSelected": "เลือกอีเมลเพื่ออ่าน",
@@ -324,7 +329,7 @@
   "reading.saveAttachment": "บันทึก {name}",
   "reading.savedAs": "บันทึกเป็น {name} แล้ว",
   "reading.showPictures": "แสดงรูปภาพ",
-  "reading.size": "ขนาด",
+  "reading.to": "ถึง",
   "reading.tryPicturesAgain": "ลองอีกครั้ง",
   "recovery.body": "ดาวน์โหลดอีเมลซ้ำจากเซิร์ฟเวอร์ได้ แต่การตั้งค่าบัญชีและอีเมลที่ยังไม่ได้ส่งมีอยู่บนอุปกรณ์นี้เท่านั้น ออกจากแอปแล้วตรวจสอบว่าไฟล์ด้านบนอ่านได้ ก่อนลองอีกครั้ง",
   "recovery.couldNotMove": "ย้ายไฟล์ไม่ได้ ตรวจสอบว่าเขียนลงในโฟลเดอร์ด้านบนได้",

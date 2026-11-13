@@ -309,9 +309,11 @@
   "reading.bodyEmptyWayOut": "Algunos mensajes están escritos de tal forma que no se puede mostrar nada de ellos sin riesgo. El mensaje en sí sigue ahí para que lo consultes",
   "reading.bodyLoading": "Cargando el mensaje…",
   "reading.bodyTruncated": "Solo se muestra el principio de este mensaje",
+  "reading.copy": "Copia",
   "reading.date": "Recibido",
   "reading.delete": "Mover a la papelera",
   "reading.fetchingPictures": "Cargando imágenes…",
+  "reading.fewerRecipients": "Mostrar menos",
   "reading.folders": "Carpetas",
   "reading.forward": "Reenviar",
   "reading.forwardWays": "Formas de reenviar",
@@ -324,6 +326,11 @@
     "other": "Hay {count} imágenes sin cargar"
   },
   "reading.missing": "Este mensaje ya no está en el índice local",
+  "reading.moreRecipients": {
+    "one": "{count} más",
+    "many": "{count} más",
+    "other": "{count} más"
+  },
   "reading.moveNowhere": "Ninguna otra carpeta admite mensajes",
   "reading.moveTo": "Mover a…",
   "reading.nothingSelected": "Selecciona un mensaje para leerlo",
@@ -350,7 +357,7 @@
   "reading.saveAttachment": "Guardar {name}",
   "reading.savedAs": "Guardado como {name}",
   "reading.showPictures": "Mostrar imágenes",
-  "reading.size": "Tamaño",
+  "reading.to": "Para",
   "reading.tryPicturesAgain": "Reintentar",
   "recovery.body": "El correo se puede volver a descargar del servidor, pero la configuración de las cuentas y los mensajes sin enviar solo existen en este dispositivo. Cierra la aplicación y comprueba que el archivo indicado arriba se puede leer antes de volver a intentarlo",
   "recovery.couldNotMove": "No se pudieron mover los archivos. Comprueba que se puede escribir en la carpeta indicada arriba",
