@@ -281,10 +281,9 @@ fn after_it_went(error: mail_send::Error) -> SubmissionError {
 /// not when it went on the wire. A message that waited a day in the outbox for a network is dated
 /// the day it was written, which is what its writer meant.
 ///
-/// What still differs between two calls is the MIME boundary of a message with files or one
-/// passing a message on in its own form, which is random. Nobody reads a boundary: each copy is
-/// whole and consistent with itself, and the strings that separate its parts are not what the
-/// message says.
+/// What still differs between two calls is the MIME boundary, which is random for every message.
+/// Nobody reads a boundary: each copy is whole and consistent with itself, and the strings that
+/// separate its parts are not what the message says.
 pub(crate) fn written(message_id: &str, message: &Outgoing, written_at: i64) -> String {
     let addresses = |list: &[lyonoyl_domain::outgoing::EmailAddress]| -> Vec<String> {
         list.iter().map(|address| address.as_str()).collect()
@@ -323,12 +322,7 @@ pub(crate) fn written(message_id: &str, message: &Outgoing, written_at: i64) -> 
         );
     }
 
-    // One part when there is nothing attached and nothing passed on, the commonest message there
-    // is.
-    builder = match message.files.is_empty() && message.original.is_none() {
-        true => builder.text_body(message.body.as_str()),
-        false => builder.body(with_its_files(message)),
-    };
+    builder = builder.body(with_its_files(message));
 
     // Blind copies are not a header. They are on the envelope — `rcpt_to` above — and writing them
     // here would tell everybody who else received it, which is the one thing "blind" means.
@@ -376,17 +370,26 @@ fn with_its_files(message: &Outgoing) -> MimePart<'_> {
     )
 }
 
-/// What the message says: its text, or, when it passes a message on in its own form, its text and
-/// its markup, for whoever reads the one rather than the other.
+/// What the message says, as its text and as its markup, for whoever reads the one rather than the
+/// other: a client that shows only markup draws text alone in letters of its own choosing.
 ///
-/// The text says all of it: what was written above, then what the message passed on says, a blank
-/// line between them. The markup draws what was written above the message passed on, and the
-/// pictures that message draws go beside the markup, under the names it draws them by.
+/// The markup goes only in the room the message has left under the most a message may weigh, which
+/// counts the text twice: a message whose files fill it goes as its text alone.
+///
+/// Passing a message on in its own form, the text says all of it: what was written above, then
+/// what the message passed on says, a blank line between them. The markup draws what was written
+/// above the message passed on, and the pictures that message draws go beside the markup, under
+/// the names it draws them by.
 fn what_it_says(message: &Outgoing) -> MimePart<'_> {
     use crate::infrastructure::html::original::{beneath, written_with};
+    use crate::infrastructure::html::typed;
+    use lyonoyl_domain::outgoing::{weight_of, HEAVIEST_MESSAGE};
 
     match &message.original {
-        None => MimePart::new("text/plain", message.body.as_str()),
+        None => typed::written(
+            message.body.as_str(),
+            HEAVIEST_MESSAGE.saturating_sub(weight_of(&message.body, &message.files)),
+        ),
         Some(original) => written_with(
             format!("{}\n\n{}", message.body.trim_end(), original.text),
             beneath(&message.body, original),
@@ -683,12 +686,135 @@ mod tests {
     }
 
     #[test]
-    fn a_message_with_nothing_attached_is_still_one_part() {
-        // The commonest message there is, and the one a change to the builder would break
-        // silently: wrapping every message in a multipart would be a change nobody asked for.
-        let wire = written("<m@example.com>", &message(), WHEN);
+    fn a_message_with_nothing_attached_goes_as_its_text_and_its_markup_and_nothing_more() {
+        // The commonest message there is: its text, and the same text as markup for a client that
+        // shows only markup, and no part that would make it look like a message carrying files.
+        use mail_parser::MimeHeaders;
 
-        assert!(!wire.contains("multipart/mixed"), "{wire}");
+        let wire = written("<m@example.com>", &message(), WHEN);
+        let message = parsed(&wire);
+
+        assert_eq!(
+            message
+                .content_type()
+                .map(|kind| (kind.ctype(), kind.subtype())),
+            Some(("multipart", Some("alternative"))),
+            "{wire}"
+        );
+        let children: Vec<_> = message
+            .parts
+            .iter()
+            .skip(1)
+            .filter_map(|part| part.content_type())
+            .map(|kind| format!("{}/{}", kind.ctype(), kind.subtype().unwrap_or_default()))
+            .collect();
+        assert_eq!(children, ["text/plain", "text/html"], "{wire}");
+        assert_eq!(text_of(&message).as_deref(), Some("Shall we?"));
+        assert_eq!(
+            markup_of(&message),
+            Some(crate::infrastructure::html::typed::markup("Shall we?"))
+        );
+        assert_eq!(message.attachments().count(), 0);
+    }
+
+    #[test]
+    fn the_markup_says_what_the_text_says_and_no_more() {
+        // What a person typed goes to somebody else's mail. Read there as markup, a tag typed in
+        // a sentence would be a tag.
+        let typed = Outgoing {
+            body: "Look <here> & now\nhttps://example.com".to_owned(),
+            ..message()
+        };
+        let wire = written("<m@example.com>", &typed, WHEN);
+        let message = parsed(&wire);
+        let markup = markup_of(&message).expect("the message has its markup");
+
+        assert_eq!(
+            text_of(&message).as_deref(),
+            Some("Look <here> & now\nhttps://example.com"),
+            "the text is not what was typed"
+        );
+        assert!(
+            markup.contains("Look &lt;here&gt; &amp; now</div>"),
+            "{markup}"
+        );
+        assert!(
+            markup.contains("<a href=\"https://example.com/\">https://example.com</a>"),
+            "{markup}"
+        );
+        assert!(!markup.contains("<here>"), "{markup}");
+    }
+
+    #[test]
+    fn no_line_of_a_message_with_its_markup_is_longer_than_mail_allows() {
+        // The markup is one line however many the text has. Written as it is, a long letter would
+        // be refused, or cut, by a server holding lines to their limit.
+        let typed = Outgoing {
+            body: vec!["word ".repeat(16); 40].join("\n"),
+            ..message()
+        };
+        let wire = written("<m@example.com>", &typed, WHEN);
+
+        assert!(
+            wire.split("\r\n").all(|line| line.len() <= 998),
+            "a line past what mail allows: {wire}"
+        );
+        assert_eq!(
+            markup_of(&parsed(&wire)),
+            Some(crate::infrastructure::html::typed::markup(&typed.body))
+        );
+    }
+
+    #[test]
+    fn every_boundary_of_a_message_says_nothing_about_anybody() {
+        let mut carrying = message();
+        carrying.files = vec![lyonoyl_domain::outgoing::OutgoingFile {
+            name: "invoice.pdf".to_owned(),
+            content_type: "application/pdf".to_owned(),
+            bytes: b"%PDF-1.4 not really".to_vec(),
+        }];
+
+        for (wire, parts) in [
+            (written("<m@example.com>", &message(), WHEN), 1),
+            (written("<m@example.com>", &carrying, WHEN), 2),
+        ] {
+            let boundaries: Vec<&str> = wire
+                .split("boundary=\"")
+                .skip(1)
+                .map(|rest| rest.split('"').next().expect("the name is closed"))
+                .collect();
+
+            assert_eq!(boundaries.len(), parts, "{wire}");
+            for boundary in boundaries {
+                assert!(
+                    boundary.len() == 32
+                        && boundary
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+                    "not random: {boundary}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_message_whose_files_leave_no_room_for_its_markup_goes_as_its_text() {
+        // The most a message may weigh counts its text twice, and the markup can be larger than
+        // the text. Where it does not fit, the half every reader can do without stays behind.
+        let mut heavy = message();
+        heavy.files = vec![lyonoyl_domain::outgoing::OutgoingFile {
+            name: "archive.bin".to_owned(),
+            content_type: "application/octet-stream".to_owned(),
+            bytes: vec![0; lyonoyl_domain::outgoing::HEAVIEST_MESSAGE - 2 * heavy.body.len()],
+        }];
+        assert!(heavy.is_within_bounds());
+
+        let wire = written("<m@example.com>", &heavy, WHEN);
+        let parsed = parsed(&wire);
+
+        assert_eq!(markup_of(&parsed), None, "the markup went past the room");
+        assert_eq!(text_of(&parsed).as_deref(), Some("Shall we?"));
+        assert_eq!(parsed.attachments().count(), 1);
     }
 
     /// A message passed on in its own form: a paragraph and the chart it draws, on its own
@@ -748,9 +874,14 @@ mod tests {
         let wire = written("<m@example.com>", &written_above(passing_on()), WHEN);
         let parsed = parsed(&wire);
 
+        // What `beneath` writes, and its test says how that reads: here, that it is what went.
+        let above = written_above(passing_on());
         assert_eq!(
             markup_of(&parsed).expect("markup"),
-            "<html><head><meta charset=\"utf-8\"></head><body bgcolor=\"#f4f4f4\"><div dir=\"auto\" style=\"white-space: pre-wrap; color: #000000; background-color: #ffffff\">Have a look &lt;now&gt; &amp; tell me:<br><br>---------- Forwarded message ----------<br><br></div><p>Theirs</p><img src=\"cid:chart@example.com\"></body></html>"
+            crate::infrastructure::html::original::beneath(
+                &above.body,
+                above.original.as_ref().expect("passed on")
+            )
         );
         assert_eq!(
             text_of(&parsed).expect("text"),

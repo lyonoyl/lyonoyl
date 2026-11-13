@@ -2,10 +2,15 @@
  * Where the addresses are in text a person wrote: what the composer marks as a message is typed,
  * and what a message sent from here offers as links before its copy is read back.
  *
- * The rule is the core's, which offers the same addresses as links in plain-text mail: an address
- * is written whole, beginning `http://`, `https://` or `mailto:`, or `www.` at the start of a word;
- * it runs to the first space or the first character an address in a sentence does not hold, and
- * leaves behind what a sentence puts after one. Two copies of a rule drift apart, so both answer
+ * The rule is the core's, which offers the same addresses as links in plain-text mail, in the
+ * markup it sends beside a message's text, and above a message passed on in its own form: an
+ * address is written whole, beginning `http://`, `https://` or `mailto:`, or `www.` at the start of
+ * a word; it runs to the first space or the first character an address in a sentence does not hold,
+ * and leaves behind what a sentence puts after one. Somebody to write to counts written alone too,
+ * `zeta@example.com`: a name of letters, digits and `._+-`, an `@`, and a domain of letters,
+ * digits, dots and hyphens, read for as long as they last and no further. It starts only where no
+ * name could be going on, ends only where nothing could go on with it, and has the shape mail is
+ * sent to, which `isSomebodyToWriteTo` describes. Two copies of a rule drift apart, so both answer
  * the same examples, `tests/fixtures/links-in-text.json`, and the tests on both sides read them.
  *
  * Positions are in the string's own units, so a slice of the text is the address as written.
@@ -41,6 +46,21 @@ const SPACES = new Set([
 /** What joins on to an address before it, so that a beginning there is inside a word. */
 const JOINS = /[A-Za-z0-9@./\-_+%]/;
 
+/**
+ * The longest somebody to write to can be, as mail carries one: 254 characters of ASCII, counted
+ * without the full stop a sentence puts after it.
+ */
+const LONGEST_TO_WRITE_TO = 254;
+
+/** What the standard lets a mail name hold besides letters, digits and dots. */
+const IN_ANY_NAME = new Set([..."!#$%&'*+-/=?^_`{|}~"]);
+
+/** The kinds of file a picture or a document is named with, that no domain people write to ends with. */
+const FILE_KINDS = new Set([
+  "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico", "pdf", "txt", "html", "htm", "css",
+  "js", "json",
+]);
+
 /** Every address in `text`, in order. One pass, whatever the text is made of. */
 export function linksIn(text: string): TextLink[] {
   const found: TextLink[] = [];
@@ -49,6 +69,12 @@ export function linksIn(text: string): TextLink[] {
   while (at < text.length) {
     const beginning = beginningAt(text, at);
     if (beginning === undefined) {
+      const alone = writtenAloneAt(text, at);
+      if (alone !== undefined) {
+        found.push({ start: at, end: alone });
+        at = alone;
+        continue;
+      }
       at += 1;
       continue;
     }
@@ -115,6 +141,85 @@ function trimmed(
 
 function count(text: string, character: string): number {
   return text.split(character).length - 1;
+}
+
+/**
+ * Where somebody to write to, written alone and starting a name at `at`, ends: read for as long as
+ * its name and its domain last, and no further, so no other start lies inside what was read.
+ */
+function writtenAloneAt(text: string, at: number): number | undefined {
+  if (!isLetterOrDigit(text, at) || !startsAName(text, at)) return undefined;
+
+  let end = at;
+  while (end < text.length && (isLetterOrDigit(text, end) || "._+-".includes(text[end] ?? ""))) {
+    end += 1;
+  }
+  if (text[end] !== "@") return undefined;
+  const named = end;
+  end += 1;
+  while (end < text.length && (isLetterOrDigit(text, end) || ".-".includes(text[end] ?? ""))) {
+    end += 1;
+  }
+
+  // What follows ends it only where nothing could go on with it: another `@`, or a character a
+  // name holds that a sentence does not put after an address.
+  const next = text[end];
+  if (next === "@" || (next !== undefined && IN_ANY_NAME.has(next) && !AFTER.has(next))) {
+    return undefined;
+  }
+  // A full stop after the domain is the sentence's.
+  while (end > named + 1 && text[end - 1] === ".") end -= 1;
+
+  const written = text.slice(at, end);
+  return written.length <= LONGEST_TO_WRITE_TO &&
+    isSomebodyToWriteTo(written) &&
+    openable(`mailto:${written}`) !== null
+    ? end
+    : undefined;
+}
+
+/** An ASCII letter or digit at `at`. */
+function isLetterOrDigit(text: string, at: number): boolean {
+  return /[A-Za-z0-9]/.test(text[at] ?? "");
+}
+
+/**
+ * Whether a name of somebody to write to can start at `at`: the start of the text, or after a
+ * character no name holds, so a name is never read from inside another; not after a colon either,
+ * where an address's own sign-in ends.
+ */
+function startsAName(text: string, at: number): boolean {
+  if (at === 0) return true;
+  const before = text[at - 1] ?? "";
+  return !(/[A-Za-z0-9.@:]/.test(before) || IN_ANY_NAME.has(before));
+}
+
+/**
+ * Whether `written` is an address mail is sent to: a name of letters, digits and `._+-` that
+ * neither starts nor ends with a dot, one `@`, and a domain of at least two names of letters, digits
+ * and inner hyphens, the last of two or more letters and not a kind of file.
+ */
+function isSomebodyToWriteTo(written: string): boolean {
+  const at = written.indexOf("@");
+  if (at === -1) return false;
+  const name = written.slice(0, at);
+  const domain = written.slice(at + 1);
+
+  const named =
+    name !== "" &&
+    !name.startsWith(".") &&
+    !name.endsWith(".") &&
+    !name.includes("..") &&
+    /^[A-Za-z0-9._+-]+$/.test(name);
+  const names = domain.split(".");
+  const last = names[names.length - 1] ?? "";
+  const placed =
+    names.length >= 2 &&
+    names.every((label) => /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(label)) &&
+    /^[A-Za-z]{2,}$/.test(last) &&
+    !FILE_KINDS.has(last.toLowerCase());
+
+  return named && placed;
 }
 
 /** Whether a written address opens anything this build opens. */

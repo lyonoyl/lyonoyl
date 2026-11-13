@@ -111,6 +111,32 @@ fn text_made_of_almost_addresses_costs_what_its_length_costs() {
 }
 
 #[test]
+fn text_made_of_almost_names_costs_what_its_length_costs() {
+    // A name is read once, from where one can start, and never from inside one read already. Read
+    // again from every character, two megabytes of them would take minutes.
+    let chunk = format!("{}{} ", "a,".repeat(63), ")".repeat(128));
+    for text in [
+        "a)".repeat(1 << 20),
+        "a'".repeat(1 << 20),
+        chunk.repeat((2 << 20) / chunk.len()),
+        "a@".repeat(1 << 20),
+        "a.".repeat(1 << 20),
+        format!("a@{}", "b".repeat(2 << 20)),
+        format!("{}@", "a.".repeat(1 << 20)),
+    ] {
+        let began = std::time::Instant::now();
+
+        assert!(links_in(&text).is_empty(), "{:?}", &text[..8]);
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(2),
+            "{:?}: {:?}",
+            &text[..8],
+            began.elapsed()
+        );
+    }
+}
+
+#[test]
 fn every_address_in_a_long_text_is_found() {
     let text = "see https://example.com/a and ".repeat(1_000);
 

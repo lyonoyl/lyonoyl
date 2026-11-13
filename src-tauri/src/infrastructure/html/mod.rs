@@ -13,6 +13,7 @@
 // exercised by its tests and by the corpus.
 #![allow(dead_code)]
 
+mod columns;
 mod files;
 pub use files::MimeParts;
 pub(crate) use files::{files_inside, pictures_as_files, pictures_declined, pictures_inside};
@@ -26,6 +27,7 @@ pub(crate) mod nesting;
 pub mod original;
 mod styling;
 mod text_instead;
+pub mod typed;
 mod words;
 mod written_in;
 
@@ -76,18 +78,83 @@ pub fn too_large_to_read(size: Option<u64>) -> bool {
 ///
 /// `border-color` is not a colour for this purpose — a border does not decide what surface the
 /// text sits on — so `color:` is only counted where a hyphen does not precede it.
+///
+/// Only where a document says how it looks: in its tags and in its style elements. In its text,
+/// "favourite color: blue" or an address asking `?text=hi` is somebody's words.
 fn names_a_colour(html: &str) -> bool {
-    if html.contains("background:") || html.contains("background-color:") {
-        return true;
-    }
-    if html.contains("bgcolor=") || html.contains("text=") {
-        return true;
+    how_it_looks(html).into_iter().any(|said| {
+        said.contains("background:")
+            || said.contains("background-color:")
+            // Attributes, each written after a space: a link's address asking `?text=` is not one.
+            || said.contains(" bgcolor=")
+            || said.contains(" text=")
+            || said.match_indices("color:").any(|(at, _)| {
+                at == 0
+                    || !said.as_bytes()[at - 1].is_ascii_alphanumeric()
+                        && said.as_bytes()[at - 1] != b'-'
+            })
+    })
+}
+
+/// The stretches of a sanitized document that say how it looks: every tag, with its attributes,
+/// read to the bracket that closes it outside quotes, and what every style element holds.
+///
+/// The sanitizer writes a `<` in text as `&lt;`, so every `<` left opens a tag.
+fn how_it_looks(html: &str) -> Vec<&str> {
+    let bytes = html.as_bytes();
+    let mut said = Vec::new();
+    let mut at = 0;
+
+    while let Some(found) = html[at..].find('<') {
+        let opens = at + found;
+        let mut closes = opens + 1;
+        let mut quote = None;
+        while closes < bytes.len() {
+            match (quote, bytes[closes]) {
+                (None, b'>') => break,
+                (None, mark @ (b'"' | b'\'')) => quote = Some(mark),
+                (Some(mark), byte) if byte == mark => quote = None,
+                _ => {}
+            }
+            closes += 1;
+        }
+        let tag = &html[opens..closes];
+        said.push(tag);
+        at = (closes + 1).min(bytes.len());
+
+        let name = tag[1..].trim_start().to_ascii_lowercase();
+        let a_style = name.starts_with("style")
+            && name[5..]
+                .chars()
+                .next()
+                .is_none_or(|after| after.is_whitespace() || after == '/');
+        if a_style {
+            let ends = style_ends(html, at);
+            said.push(&html[at..ends]);
+            at = ends;
+        }
     }
 
-    html.match_indices("color:").any(|(at, _)| {
-        at == 0
-            || !html.as_bytes()[at - 1].is_ascii_alphanumeric() && html.as_bytes()[at - 1] != b'-'
-    })
+    said
+}
+
+/// Where a style element that began at `from` ends: at its `</style`, in any case, or at the end.
+///
+/// Looked for in place rather than in a lowered copy of the rest: a document of a thousand style
+/// elements would otherwise be copied a thousand times.
+fn style_ends(html: &str, from: usize) -> usize {
+    let mut at = from;
+    while let Some(found) = html[at..].find("</") {
+        let closes = at + found;
+        if html
+            .get(closes + 2..closes + 7)
+            .is_some_and(|name| name.eq_ignore_ascii_case("style"))
+        {
+            return closes;
+        }
+        at = closes + 2;
+    }
+    html.len()
 }
 
 /// The largest HTML body this build will sanitize.
@@ -535,6 +602,11 @@ enum Addresses {
 /// Text made into a document, with every character that means something in HTML escaped, and every
 /// address in it a link behind a name, as an address in markup is: following one reaches this
 /// application, which asks the person before anything leaves the machine.
+///
+/// Text somebody wrote is read in the letters every other message is read in, its lines and spaces
+/// kept as they were typed; set in the letters of code, a letter somebody typed reads like a
+/// program. Where its columns matter — a patch, a drawing, a table where it stands — it is set in
+/// the letters of code, and so is a message's source, because there every column counts.
 fn from_text(text: &str, addresses: Addresses) -> RenderedBody {
     let truncated = text.len() > LARGEST_BODY;
     let within = match truncated {
@@ -547,29 +619,29 @@ fn from_text(text: &str, addresses: Addresses) -> RenderedBody {
         Addresses::AsWritten => Vec::new(),
     };
 
-    let mut escaped = String::with_capacity(within.len() + 16);
+    let mut escaped = String::with_capacity(within.len() + 32);
     let mut offered = Vec::with_capacity(found.len());
-    let mut at = 0;
-    escaped.push_str("<pre>");
-    for link in found {
-        escape_into(&mut escaped, &within[at..link.at.start]);
-        match serving::random_name() {
-            Some(name) => {
-                escaped.push_str(&format!("<a href=\"/{LINKS}/{name}\">"));
-                escape_into(&mut escaped, &within[link.at.clone()]);
-                escaped.push_str("</a>");
-                offered.push(Link {
-                    name,
-                    url: link.url.into(),
-                });
+    let mut links = found.into_iter().peekable();
+    let mut stretch = |escaped: &mut String, letters: Letters, range: std::ops::Range<usize>| {
+        stretch_into(escaped, letters, within, range, &mut links, &mut offered);
+    };
+
+    match addresses {
+        Addresses::AsWritten => stretch(&mut escaped, Letters::Code, 0..within.len()),
+        Addresses::Linked => {
+            let mut at = 0;
+            for columns in columns::where_they_matter(within) {
+                if at < columns.start {
+                    stretch(&mut escaped, Letters::Mail, at..columns.start);
+                }
+                at = columns.end;
+                stretch(&mut escaped, Letters::Code, columns);
             }
-            // Nothing to name it by is an address left as the text it is.
-            None => escape_into(&mut escaped, &within[link.at.clone()]),
+            if at < within.len() {
+                stretch(&mut escaped, Letters::Mail, at..within.len());
+            }
         }
-        at = link.at.end;
     }
-    escape_into(&mut escaped, &within[at..]);
-    escaped.push_str("</pre>");
 
     RenderedBody {
         attachments: Vec::new(),
@@ -586,6 +658,70 @@ fn from_text(text: &str, addresses: Addresses) -> RenderedBody {
         remote_not_had: 0,
         truncated,
     }
+}
+
+/// The letters a stretch of text is set in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Letters {
+    /// Those of code, every character as wide as the next: where the columns matter.
+    Code,
+    /// Those every message is read in, the lines kept as they were typed.
+    Mail,
+}
+
+/// One stretch of a text written into a document in a block of its own, set in `letters`, every
+/// address in it a link behind a name.
+///
+/// A stretch is whole lines and an address never holds a line end, so the addresses in it are the
+/// next ones in `links`, and only they.
+fn stretch_into(
+    document: &mut String,
+    letters: Letters,
+    text: &str,
+    range: std::ops::Range<usize>,
+    links: &mut std::iter::Peekable<std::vec::IntoIter<links_in_text::TextLink>>,
+    offered: &mut Vec<Link>,
+) {
+    match letters {
+        // Without the room a block of code is given above and below it, which in the middle of a
+        // letter parts a table from the lines it stands among. Whatever reads the markup drops a
+        // line end right after the tag, so one the stretch starts with is written twice.
+        Letters::Code => {
+            document.push_str("<pre style=\"margin:0\">");
+            if text[range.clone()].starts_with(['\n', '\r']) {
+                document.push('\n');
+            }
+        }
+        Letters::Mail => document.push_str("<div style=\"white-space:pre-wrap\">"),
+    }
+    let mut at = range.start;
+    while let Some(link) = links.next_if(|link| link.at.start < range.end) {
+        escape_into(document, &text[at..link.at.start]);
+        match serving::random_name() {
+            Some(name) => {
+                // Left to right and set apart, as an address is written: after a character that
+                // turns text around, it would be drawn reversed, showing one address and opening
+                // another.
+                document.push_str(&format!(
+                    "<a href=\"/{LINKS}/{name}\" dir=\"ltr\" style=\"unicode-bidi:isolate\">"
+                ));
+                escape_into(document, &text[link.at.clone()]);
+                document.push_str("</a>");
+                offered.push(Link {
+                    name,
+                    url: link.url.into(),
+                });
+            }
+            // Nothing to name it by is an address left as the text it is.
+            None => escape_into(document, &text[link.at.clone()]),
+        }
+        at = link.at.end;
+    }
+    escape_into(document, &text[at..range.end]);
+    document.push_str(match letters {
+        Letters::Code => "</pre>",
+        Letters::Mail => "</div>",
+    });
 }
 
 /// Text written into a document, with every character that means something in HTML escaped.

@@ -414,6 +414,10 @@ mod tests {
             address_written_in(WRITTEN, "www.example.org").as_deref(),
             Some("https://www.example.org/")
         );
+        assert_eq!(
+            address_written_in("Write to zeta@example.com.", "zeta@example.com").as_deref(),
+            Some("mailto:zeta@example.com")
+        );
     }
 
     #[test]

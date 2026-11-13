@@ -15,6 +15,8 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | A script cannot be put into every frame, under any of the names Tauri ships that ability under | `scripts/check-layering.sh` |
 | The window holds exactly the permissions it uses, and none by default | `src/shared/ipc/capability.test.ts` |
 | A link opens only after its real address is shown, read by the same parser that opens it | `the_host_a_person_is_asked_about_is_the_host_that_opens`, `an_address_nothing_can_read_is_not_offered` |
+| An address written alone in text opens only as `mailto:` and the address itself, a name of ASCII letters, digits and `._+-` and a domain of letters, digits, dots and hyphens, so it carries no header and no second address | `every_shared_example_is_found_as_written_and_opens_what_it_says`, `src/shared/ui/links.test.ts` |
+| A link in a message's text is drawn left to right and set apart, so a character that turns text around cannot show one address over the one that opens | `an_address_after_a_character_that_turns_text_around_is_drawn_as_it_opens` |
 | `unsafe` Rust stands in one file, for one call into AppKit | `scripts/check-layering.sh` |
 
 ## The mail is not lost
@@ -62,7 +64,7 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | An IPv4 address carried inside an IPv6 one is judged as what it carries | `an_ipv4_address_carried_inside_an_ipv6_one_is_judged_as_what_it_carries` |
 | On macOS, checking a certificate fetches nothing the certificate names | `the_evaluation_is_made_to_fetch_nothing_before_it_runs` |
 | Other people's addresses never cross into the window to decide what it draws | `the_addresses_themselves_do_not_cross_the_boundary` |
-| A reply carries a bounded chain of references, and a message's boundary says nothing about anybody | `a_chain_that_fits_is_kept_whole_and_one_more_costs_the_name_after_the_oldest`, `a_message_with_a_file_is_cut_by_a_boundary_that_says_nothing_about_anybody`, `every_boundary_of_a_message_passed_on_says_nothing_about_anybody` |
+| A reply carries a bounded chain of references, and a message's boundary says nothing about anybody | `a_chain_that_fits_is_kept_whole_and_one_more_costs_the_name_after_the_oldest`, `a_message_with_a_file_is_cut_by_a_boundary_that_says_nothing_about_anybody`, `every_boundary_of_a_message_says_nothing_about_anybody`, `every_boundary_of_a_message_passed_on_says_nothing_about_anybody` |
 | A sent message leaves nothing of itself on this device once its copy is filed | `a_message_whose_copy_is_filed_leaves_nothing_of_itself_behind_once_read_back` |
 | A copy looks for an update only after a yes, at most once a day, and its request carries no version | `a_fresh_install_looks_for_no_update_until_somebody_says_it_may`, `a_copy_that_asked_recently_waits`, `the_manifest_and_its_seal_are_asked_for_naming_the_product_alone` |
 | A server is greeted as `[127.0.0.1]`, and a message is named after its sender's domain, never the machine | `the_server_is_greeted_with_a_name_that_says_nothing_about_this_machine`, `a_message_is_named_after_the_sender_rather_than_the_machine` |
@@ -88,6 +90,7 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | Nesting is measured before parsing, and a document deeper than an engine builds is not drawn | `a_document_as_deep_as_an_engine_builds_is_drawn_and_one_level_deeper_is_not` |
 | A message of more than 8,000 elements is shown as text | `a_message_of_tens_of_thousands_of_elements_is_shown_as_text` |
 | A message forwarded in its own form is read within the bounds a body is drawn within, and is forwarded as text past them | `markup_past_what_a_body_is_drawn_within_is_not_cut_down` |
+| Finding an address written alone, and where the columns of a text matter, costs what the text's length costs, in the core and in the composer | `text_made_of_almost_names_costs_what_its_length_costs`, `finding_where_columns_matter_costs_what_the_text_s_length_costs`, `src/shared/ui/links.test.ts` |
 | A message the parser panics on costs only itself, and the pass goes on | `a_message_the_parser_panics_on_is_read_once_and_whoever_asked_goes_on`, `scripts/check-layering.sh` |
 | An answer from a mail server is bounded in what it makes the application hold | `an_answer_past_what_it_may_hold_is_refused` |
 | A host that trickles is given up on, and so is a server that never greets | `a_host_that_keeps_trickling_is_given_up_on_all_the_same`, `a_server_that_takes_the_connection_and_never_greets_is_given_up_on` |
@@ -97,6 +100,8 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | Defense | Held by |
 | --- | --- |
 | Nothing a caller supplies can become a second header | `nothing_a_caller_supplies_can_become_a_second_header` |
+| What a person types goes out as markup that says what the text says: every character escaped, a link only where the window marks one, to a scheme this build opens, and none on a line holding a character that turns text around | `what_means_something_to_markup_is_written_as_itself`, `what_only_looks_like_an_address_stays_text`, `a_line_that_turns_text_around_carries_no_link`, `the_markup_says_what_the_text_says_and_no_more` |
+| A message's text counts twice toward what it may weigh, and markup with no room under that goes nowhere | `what_a_message_weighs_is_its_text_twice_and_everything_attached`, `a_message_whose_files_leave_no_room_for_its_markup_goes_as_its_text`, `markup_with_no_room_for_it_is_left_out_and_the_text_goes_alone` |
 | A picture a forwarded message draws goes inside it only when its markup draws it, once, and under a name and a label that cannot write a header | `a_picture_its_markup_does_not_draw_stays_a_file`, `a_picture_a_style_draws_goes_inside`, `a_name_drawn_twice_takes_the_last_picture_inside`, `a_picture_whose_name_cannot_be_written_back_as_it_was_stays_a_file`, `a_picture_whose_label_or_name_could_write_a_header_is_left_out` |
 | A message forwarded in its own form counts toward what a message and its draft may weigh | `what_a_message_passes_on_counts_towards_what_it_weighs`, `files_and_what_a_draft_passes_on_together_are_held_to_what_a_message_may_weigh`, `what_a_draft_passes_on_counts_towards_what_its_account_may_keep`, `src/features/composer/Composer.test.tsx` |
 | A message goes only as an account on this device, from an address that account owns | `a_message_from_one_account_cannot_be_sent_under_another`, `a_message_claiming_an_address_the_account_does_not_own_is_refused` |

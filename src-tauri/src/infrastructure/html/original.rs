@@ -23,6 +23,7 @@ use lyonoyl_domain::outgoing::{Original, OriginalPicture, HEAVIEST_MESSAGE};
 
 use super::nesting::{elements_beyond, nesting_beyond, DEEPEST_NESTING, MOST_ELEMENTS};
 use super::styling::{filtered_style, pictures_pointed_at, ThePicture};
+use super::typed::Colours;
 use super::{picture_served_as, LARGEST_BODY};
 
 /// The longest name a picture may be drawn by and still be passed on with it.
@@ -34,9 +35,10 @@ const LONGEST_PICTURE_NAME: usize = 250;
 /// The message cut down to what draws it, with `text` as what it says, and where in the message
 /// each picture it takes along sits, for the files passed on beside it to leave out.
 ///
-/// Nothing for a message with no markup, one whose markup has no body to draw in — a page of
-/// frames — one past what this build reads into a tree, or one heavier than a message may be on its
-/// own. Each of those is passed on as text.
+/// Nothing for a message with no markup, one whose markup is its text and nothing more — what this
+/// application sends beside what a person typed — one whose markup has no body to draw in — a page
+/// of frames — one past what this build reads into a tree, or one heavier than a message may be on
+/// its own. Each of those is passed on as text, which the person can edit.
 ///
 /// A picture goes inside when its markup draws it, by the name after `cid:` in a picture's source
 /// or in a style that draws it, once, if it is of a kind this build draws and under a name that can
@@ -51,6 +53,10 @@ pub(super) fn cut_down(parsed: &Message<'_>, text: &str) -> Option<(Original, Ha
                 Some(PartType::Html(html)) => Some(html.as_ref()),
                 _ => None,
             })?;
+
+    if super::typed::is_the_markup_of(markup, text) {
+        return None;
+    }
 
     // The bounds a body is drawn within, and for the same reason: reading a tree costs what the
     // tree is, and its size, its count of elements and its depth are whoever wrote it's to choose.
@@ -256,24 +262,27 @@ fn declaration(name: &str, public: &str, system: &str) -> String {
 /// The markup of a message that passes one on in its own form: what its writer wrote, drawn first,
 /// and the message passed on beneath it.
 ///
-/// What was written is text, and goes as text: every character that means something to markup is
-/// written as the character itself, its lines are parted by breaks, spaces are kept as typed, and its
-/// direction is the reader's to find from its words. It carries its own colours, because it sits
-/// inside the original's body, whose colours were chosen for what that body draws.
+/// What was written is text, and goes as every message's text goes as markup (`typed`): escaped,
+/// a line a block of its own, spaces kept, quoted lines quoted and addresses linked. It carries its
+/// own colours, because it sits inside the original's body, whose colours were chosen for what that
+/// body draws; and on every element it is made of, because a rule of the original's sheet that
+/// names an element, `div` or `a`, beats a colour the element would only have inherited.
 pub fn beneath(written: &str, original: &Original) -> String {
-    let mut lines = String::with_capacity(written.len());
-    for (at, line) in written.split('\n').enumerate() {
-        if at > 0 {
-            lines.push_str("<br>");
-        }
-        super::escape_into(&mut lines, line.trim_end_matches('\r'));
-    }
-
     format!(
-        "{}<div dir=\"auto\" style=\"white-space: pre-wrap; color: #000000; background-color: #ffffff\">{lines}</div>{}",
-        original.opening, original.drawing
+        "{}{}{}",
+        original.opening,
+        super::typed::boxed(written, Some(&ABOVE)),
+        original.drawing
     )
 }
+
+/// The colours of what is written above a message passed on in its own form: those a page that
+/// names none is drawn in, black on white and links blue.
+const ABOVE: Colours = Colours {
+    text: "#000000",
+    ground: "#ffffff",
+    link: "#0000ee",
+};
 
 /// What a message passing one on in its own form goes as: its text, and its markup with the
 /// pictures that markup draws beside it, for whoever reads the one rather than the other.

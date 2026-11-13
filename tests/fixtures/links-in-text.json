@@ -1,5 +1,5 @@
 {
-  "about": "Where the addresses are in text. The core links them in plain-text mail and the composer marks them as they are typed; the tests on both sides read these cases. `written` is the text an address takes up, `opens` what the core opens for it.",
+  "about": "Where the addresses are in text. The core links them in plain-text mail, in the markup it sends beside a message's text and above a message passed on in its own form; the composer marks them as they are typed, and the window links them in a message sent from here before its copy is read back. The tests on both sides read these cases. `written` is the text an address takes up, `opens` what the core opens for it.",
   "cases": [
     {
       "text": "See https://example.com/a.",
@@ -105,7 +105,7 @@
       ]
     },
     {
-      "text": "Not links: example.com, zeta@example.com, javascript:alert(1), file:///etc/hosts, ftp://example.com",
+      "text": "Not links: example.com, javascript:alert(1), file:///etc/hosts, ftp://example.com",
       "links": []
     },
     {
@@ -227,6 +227,177 @@
           "opens": "https://www.example.org/path"
         }
       ]
+    },
+    {
+      "text": "Write to zeta@example.com.",
+      "links": [
+        {
+          "written": "zeta@example.com",
+          "opens": "mailto:zeta@example.com"
+        }
+      ]
+    },
+    {
+      "text": "Ask Kappa <kappa@example.net>, or sigma+mail@example.org",
+      "links": [
+        {
+          "written": "kappa@example.net",
+          "opens": "mailto:kappa@example.net"
+        },
+        {
+          "written": "sigma+mail@example.org",
+          "opens": "mailto:sigma+mail@example.org"
+        }
+      ]
+    },
+    {
+      "text": "(zeta.quorin@mail.example.com)",
+      "links": [
+        {
+          "written": "zeta.quorin@mail.example.com",
+          "opens": "mailto:zeta.quorin@mail.example.com"
+        }
+      ]
+    },
+    {
+      "text": "Only a name: zeta@localhost, @example.com, zeta@, a@b.c",
+      "links": []
+    },
+    {
+      "text": "Not one: .zeta@example.com zeta.@example.com ze..ta@example.com",
+      "links": []
+    },
+    {
+      "text": "Not one either: zeta@example.com/path zeta@exa_mple.com zeta@-example.com",
+      "links": []
+    },
+    {
+      "text": "A word joined: x/zeta@example.com",
+      "links": []
+    },
+    {
+      "text": "https://example.com/?to=zeta@example.com",
+      "links": [
+        {
+          "written": "https://example.com/?to=zeta@example.com",
+          "opens": "https://example.com/?to=zeta@example.com"
+        }
+      ]
+    },
+    {
+      "text": "Longer than an address can be: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+      "links": []
+    },
+    {
+      "text": "As long as one can be: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+      "links": [
+        {
+          "written": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+          "opens": "mailto:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com"
+        }
+      ]
+    },
+    {
+      "text": "Longer than an address can be, then words: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com said Zeta",
+      "links": []
+    },
+    {
+      "text": "Write to o'brien@example.com",
+      "links": []
+    },
+    {
+      "text": "first&last@example.com and a=b@example.com",
+      "links": []
+    },
+    {
+      "text": "ftp://user:pass@example.com",
+      "links": []
+    },
+    {
+      "text": "Email:zeta@example.com",
+      "links": []
+    },
+    {
+      "text": "Pictures: logo@2x.png, icon@3x.jpg and zeta@v2.pdf",
+      "links": []
+    },
+    {
+      "text": "zeta%40evil.example@example.com",
+      "links": []
+    },
+    {
+      "text": "zeta@example.com?bcc=sigma@example.org",
+      "links": [
+        {
+          "written": "zeta@example.com",
+          "opens": "mailto:zeta@example.com"
+        }
+      ]
+    },
+    {
+      "text": "zeta@example.com,kappa@example.net;sigma@example.org",
+      "links": [
+        {
+          "written": "zeta@example.com",
+          "opens": "mailto:zeta@example.com"
+        },
+        {
+          "written": "kappa@example.net",
+          "opens": "mailto:kappa@example.net"
+        },
+        {
+          "written": "sigma@example.org",
+          "opens": "mailto:sigma@example.org"
+        }
+      ]
+    },
+    {
+      "text": "zeta@example.com's papers",
+      "links": [
+        {
+          "written": "zeta@example.com",
+          "opens": "mailto:zeta@example.com"
+        }
+      ]
+    },
+    {
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com said Zeta",
+      "links": [
+        {
+          "written": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+          "opens": "mailto:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com"
+        }
+      ]
+    },
+    {
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+      "links": []
+    },
+    {
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com… then",
+      "links": [
+        {
+          "written": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+          "opens": "mailto:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com"
+        }
+      ]
+    },
+    {
+      "text": "Domains in other letters stay text: zeta@пример.рф",
+      "links": []
+    },
+    {
+      "text": "As long as one can be, then the sentence ends: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com.",
+      "links": [
+        {
+          "written": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+          "opens": "mailto:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com"
+        }
+      ]
+    },
+    {
+      "text": "Two at once: zeta@example.com@example.org",
+      "links": []
     }
   ]
 }
