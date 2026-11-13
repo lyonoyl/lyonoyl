@@ -1,7 +1,8 @@
-//! Where the columns of a text somebody wrote matter: a patch, as a whole, and a table or a drawing
-//! in box characters where it stands, a table ruled with dashes and bars or aligned with runs of
-//! spaces. There the text is read in the letters of code, where every character is as wide as the
-//! next and a column stays a column; everywhere else in the letters every message is read in.
+//! Where the columns of a text somebody wrote matter, quoted or not: a patch, as a whole, and a
+//! table or a drawing in box characters where it stands, a table ruled with dashes and bars or
+//! aligned with runs of spaces. There the text is read in the letters of code, where every character
+//! is as wide as the next and a column stays a column; everywhere else in the letters every message
+//! is read in.
 
 use std::ops::Range;
 
@@ -32,24 +33,26 @@ pub(super) fn where_they_matter(text: &str) -> Vec<Range<usize>> {
     let mut at = 0;
 
     for whole in text.split_inclusive('\n') {
-        let line = whole.trim_end();
         let here = at..at + whole.len();
         at = here.end;
+        // What the line says under a reply's quote marks: a patch, a table or a rule quoted is
+        // read as one that is not.
+        let (_, said) = super::typed::quoted(whole.trim_end());
 
         // A patch: its header, a hunk, or the two lines naming what it changes, one after the
         // other.
-        if line.starts_with("diff --git ")
-            || line.starts_with("@@ -")
-            || (takes_from && line.starts_with("+++ "))
+        if said.starts_with("diff --git ")
+            || said.starts_with("@@ -")
+            || (takes_from && said.starts_with("+++ "))
         {
             return all_of(text);
         }
-        takes_from = line.starts_with("--- ");
+        takes_from = said.starts_with("--- ");
 
-        drawing.goes_on(Line::counted(is_drawn(line)), &here, &mut found);
-        let row = if is_across(line) {
+        drawing.goes_on(Line::counted(is_drawn(said)), &here, &mut found);
+        let row = if is_across(said) {
             Line::Between
-        } else if !line.is_empty() && is_a_row(line) {
+        } else if !said.is_empty() && is_a_row(said) {
             Line::Counted
         } else {
             Line::Other
@@ -146,9 +149,10 @@ fn joined(mut found: Vec<Range<usize>>) -> Vec<Range<usize>> {
     joined
 }
 
-/// A line that reads as a row of a table: ruled, cut by bars, or with a gap between its columns.
-fn is_a_row(line: &str) -> bool {
-    is_a_rule(line) || line.matches('|').count() >= 2 || has_a_gap(line)
+/// What a line says, read as a row of a table: ruled, cut by bars, or with a gap between its
+/// columns.
+fn is_a_row(said: &str) -> bool {
+    is_a_rule(said) || said.matches('|').count() >= 2 || has_a_gap(said)
 }
 
 /// A line of dashes or equals signs crossed by a bar or a plus, as a table is ruled.
@@ -164,10 +168,9 @@ fn is_a_rule(line: &str) -> bool {
         && rule.chars().any(|character| matches!(character, '+' | '|'))
 }
 
-/// A line drawn across the page and nothing more, quoted or not, which a letter puts between its
-/// parts and a table between its rows.
-fn is_across(line: &str) -> bool {
-    let (_, said) = super::typed::quoted(line);
+/// What a line says, when it is a line drawn across the page and nothing more, which a letter puts
+/// between its parts and a table between its rows.
+fn is_across(said: &str) -> bool {
     said.chars()
         .filter(|character| ACROSS.contains(character))
         .count()
@@ -178,10 +181,10 @@ fn is_across(line: &str) -> bool {
 }
 
 /// Whether, after its first word, what a line says holds a tab or a gap of spaces before more
-/// words.
-fn has_a_gap(line: &str) -> bool {
+/// words. The mark of a list it may be in is not a word, and the space after it is not a gap.
+fn has_a_gap(said: &str) -> bool {
     let mut spaces = 0;
-    for character in said_in(line).chars() {
+    for character in without_a_mark(said.trim_start()).trim_start().chars() {
         match character {
             ' ' => spaces += 1,
             '\t' => spaces += GAP,
@@ -190,13 +193,6 @@ fn has_a_gap(line: &str) -> bool {
         }
     }
     false
-}
-
-/// What a line says, under the marks that quote it and the mark of a list it may be in: neither is
-/// a column, and the space after them is not a gap between two.
-fn said_in(line: &str) -> &str {
-    let (_, said) = super::typed::quoted(line);
-    without_a_mark(said.trim_start()).trim_start()
 }
 
 /// `line` without the mark a line of a list may start with: a dash, a star, a dot or a small
@@ -213,10 +209,10 @@ fn without_a_mark(line: &str) -> &str {
     }
 }
 
-/// A line of a drawing: one holding a box character other than a stroke from side to side, which
-/// a line drawn across the page is made of.
-fn is_drawn(line: &str) -> bool {
-    line.chars()
+/// What a line says, when it is a line of a drawing: one holding a box character other than a
+/// stroke from side to side, which a line drawn across the page is made of.
+fn is_drawn(said: &str) -> bool {
+    said.chars()
         .any(|character| is_drawing(character) && !ACROSS.contains(&character))
 }
 
@@ -242,11 +238,14 @@ mod tests {
             "Here is the fix:\n\ndiff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new";
         assert_eq!(matters_in(patch), [patch]);
 
-        // Each of the ways a patch shows itself, alone.
+        // Each of the ways a patch shows itself, alone, and under a reply's quote marks.
         for patch in [
             "diff --git a/logo.png b/logo.png\nBinary files differ",
             "Hunk:\n@@ -1 +1 @@\n-old\n+new",
             "--- a/notes\n+++ b/notes\n-one\n+two",
+            "Looks right, but:\n> diff --git a/x b/x\n> index 1..2",
+            "> Hunk:\n>> @@ -1 +1 @@\n>> -old",
+            "Why two?\n> --- a/notes\n> +++ b/notes\n> -one\n> +two",
         ] {
             assert_eq!(matters_in(patch), [patch], "{patch:?}");
         }
@@ -288,10 +287,14 @@ mod tests {
             matters_in("Item\tQty\nPens\t12\nPaper\t500"),
             ["Item\tQty\nPens\t12\nPaper\t500"]
         );
-        // Quoted, it is the same table.
+        // Quoted, it is the same table, aligned or ruled.
         assert_eq!(
             matters_in("> Item      Qty\n> Pens      12\n> Paper     500"),
             ["> Item      Qty\n> Pens      12\n> Paper     500"]
+        );
+        assert_eq!(
+            matters_in("Agreed:\n> +------+-----+\n> | Pens | 12  |\n> +------+-----+\nZeta"),
+            ["> +------+-----+\n> | Pens | 12  |\n> +------+-----+\n"]
         );
     }
 
@@ -343,6 +346,7 @@ mod tests {
             "--- Original Message ---\nFrom: Kappa\nSaid: hello",
             // A line taken from and a line given to are a patch only one right after the other.
             "--- Original Message ---\nFrom: Kappa\n+++ Urgent +++\nSaid: hello",
+            "> --- Original Message ---\n> From: Kappa\n> +++ Urgent +++",
             // Two rows are not yet a table.
             "Item      Qty\nPens      12\n\nThanks",
             // One line drawn in box characters is not yet a drawing, and a line drawn across a
