@@ -2325,6 +2325,19 @@ describe("who a message may be sent to", () => {
     ).toBe(false);
   });
 
+  it("names the cross that puts the copy fields away in the theme's hint, not the system's", async () => {
+    renderComposer([account("acc-1", "zeta@example.com", true)]);
+    fireEvent.click(screen.getByRole("button", { name: "Add copies" }));
+
+    const cross = screen.getByRole("button", { name: "Remove the copy fields" });
+    expect(cross.getAttribute("title")).toBeNull();
+
+    fireEvent.pointerEnter(cross);
+    expect((await screen.findByRole("tooltip")).textContent).toBe(
+      "Remove the copy fields",
+    );
+  });
+
   it("puts the copy fields away again, and what was typed in them with it", () => {
     // Two fields that appear on a press and cannot be put away are two empty fields in every
     // message somebody wrote after pressing it once -- and a recipient nobody can see.

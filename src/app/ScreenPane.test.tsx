@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ScreenPane } from "./ScreenPane";
@@ -42,6 +42,24 @@ describe("ScreenPane", () => {
         screen.getByRole("button", { name: "Close" }).closest("div[class*='sticky']")?.className,
       ).toContain("justify-between");
       document.body.innerHTML = "";
+    }
+  });
+
+  it("names its corner buttons in the theme's hint under the pointer, below them, and not the system's", async () => {
+    renderPane("mac");
+
+    for (const name of ["Close", "Back"]) {
+      const button = screen.getByRole("button", { name });
+      expect(button.getAttribute("title")).toBeNull();
+
+      fireEvent.pointerEnter(button);
+      expect((await screen.findByRole("tooltip")).textContent).toBe(name);
+      expect(
+        document.querySelector("[data-slot=tooltip-content]")?.getAttribute("data-side"),
+      ).toBe("bottom");
+
+      fireEvent.pointerLeave(button);
+      await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
     }
   });
 });

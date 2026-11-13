@@ -1,7 +1,7 @@
 import { Settings } from "lucide-react";
-import { useState } from "react";
 
 import { useI18n, type Translator } from "@/shared/i18n";
+import { PointerHint } from "@/shared/ui/PointerHint";
 import { Button } from "@/shared/ui/primitives/button";
 import {
   Tooltip,
@@ -12,10 +12,9 @@ import {
 /**
  * The way into the settings, at the foot of the side column.
  *
- * Its hint opens under the pointer and never on the focus. The focus is given back to the gear by
- * hand when the settings close, and a hint that opened on it appeared over a screen the person had
- * just left and stayed there with no pointer to take it away. Under the pointer it is the hint
- * every icon of the folded sidebar has.
+ * Its hint opens under the pointer and never on the focus (`PointerHint`): the focus is given back
+ * to the gear by hand when the settings close, and a hint that opened on it appeared over a screen
+ * the person had just left and stayed there with no pointer to take it away.
  *
  * When the button cannot be pressed, the hint says why instead: a disabled control takes no
  * pointer events, so the span beside it takes them, and the hint is the only way a person with a
@@ -32,7 +31,6 @@ export function SettingsButton({
   t: Translator;
 }) {
   const { dir } = useI18n();
-  const [pointedAt, setPointedAt] = useState(false);
 
   const gear = (
     <Button
@@ -60,23 +58,12 @@ export function SettingsButton({
 
   if (!storageIsShut) {
     return (
-      <Tooltip
-        open={pointedAt}
-        onOpenChange={(open) => {
-          if (!open) setPointedAt(false);
-        }}
+      <PointerHint
+        label={t("settings.open")}
+        side={dir === "rtl" ? "left" : "right"}
       >
-        <TooltipTrigger
-          asChild
-          onPointerEnter={() => setPointedAt(true)}
-          onPointerLeave={() => setPointedAt(false)}
-        >
-          {gear}
-        </TooltipTrigger>
-        <TooltipContent side={dir === "rtl" ? "left" : "right"}>
-          {t("settings.open")}
-        </TooltipContent>
-      </Tooltip>
+        {gear}
+      </PointerHint>
     );
   }
 
