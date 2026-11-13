@@ -382,14 +382,74 @@ fn what_is_written_goes_above_it_as_text() {
     ))
     .expect("markup to draw");
 
-    let written = beneath("Look <here> & see\r\n  two  spaces\n\nend", &original);
+    let written = beneath(
+        "Look <here> & see\r\n  two  spaces\n\n> quoted www.example.com",
+        &original,
+    );
 
     // In its own colours: inside a body drawn white on black, black text on its default would
-    // not be seen.
+    // not be seen. And written as every message's text is: lines, spaces, quotes and links.
     assert!(
-        written.contains("<body bgcolor=\"#f4f4f4\"><div dir=\"auto\" style=\"white-space: pre-wrap; color: #000000; background-color: #ffffff\">Look &lt;here&gt; &amp; see<br>  two  spaces<br><br>end</div><p>Theirs</p></body></html>"),
+        written.contains("<body bgcolor=\"#f4f4f4\"><div style=\"font-family: 'Segoe UI'"),
         "{written:?}"
     );
+    assert!(
+        written.contains("; color: #000000; background-color: #ffffff\"><div dir="),
+        "the box's own colours: {written:?}"
+    );
+    let line = "<div dir=\"auto\" style=\"margin: 0; padding: 0; color: #000000; \
+                background-color: transparent\">";
+    assert!(
+        written.contains(&format!(
+            "{line}Look &lt;here&gt; &amp; see</div>\
+             {line}&nbsp;&nbsp;two &nbsp;spaces</div>\
+             {line}<br></div>\
+             <blockquote type=\"cite\" style=\"margin: 0 0 0 0.8ex; padding-left: 1ex; \
+             border-left: 1px solid #cccccc; color: #000000; background-color: transparent\">\
+             {line}quoted <a href=\"https://www.example.com/\" style=\"color: #0000ee; \
+             background-color: transparent; text-decoration: underline\">www.example.com</a>\
+             </div></blockquote></div><p>Theirs</p></body></html>"
+        )),
+        "{written:?}"
+    );
+}
+
+#[test]
+fn what_is_written_above_keeps_its_colours_whatever_the_original_s_sheet_says() {
+    // A rule of the sheet that names an element beats a colour the element would inherit from
+    // the box, so every element the text is made of carries its colours itself.
+    let (original, _) = cut(&markup_alone(
+        "<html><head><style>a{color:#fff;text-decoration:none} div{padding:8px 0;color:#fff}\
+         </style></head><body bgcolor=\"#000000\"><div>Theirs</div></body></html>",
+    ))
+    .expect("markup to draw");
+    assert!(
+        original.opening.contains("color:#fff"),
+        "the sheet is kept: {}",
+        original.opening
+    );
+
+    let written = beneath("Look at www.example.com\n> quoted\nZeta", &original);
+    let above = &written[original.opening.len()..written.len() - original.drawing.len()];
+
+    let opened: Vec<&str> = above
+        .split('<')
+        .skip(1)
+        .filter(|tag| !tag.starts_with('/') && !tag.starts_with("br>"))
+        .map(|tag| tag.split('>').next().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        opened.len(),
+        6,
+        "the box, three lines, a quote and a link: {above}"
+    );
+    for tag in opened {
+        assert!(
+            tag.contains("color: #") && tag.contains("background-color: "),
+            "{tag}"
+        );
+    }
+    assert!(above.contains("text-decoration: underline"), "{above}");
 }
 
 #[test]

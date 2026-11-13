@@ -15,6 +15,8 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | A script cannot be put into every frame, under any of the names Tauri ships that ability under | `scripts/check-layering.sh` |
 | The window holds exactly the permissions it uses, and none by default | `src/shared/ipc/capability.test.ts` |
 | A link opens only after its real address is shown, read by the same parser that opens it | `the_host_a_person_is_asked_about_is_the_host_that_opens`, `an_address_nothing_can_read_is_not_offered` |
+| An address written alone in text opens only as `mailto:` and the address itself, a name of ASCII letters, digits and `._+-` and a domain of letters, digits, dots and hyphens, so it carries no header and no second address | `every_shared_example_is_found_as_written_and_opens_what_it_says`, `src/shared/ui/links.test.ts` |
+| A link in a message's text is drawn left to right and set apart, so a character that turns text around cannot show one address over the one that opens | `an_address_after_a_character_that_turns_text_around_is_drawn_as_it_opens` |
 | `unsafe` Rust stands in one file, for one call into AppKit | `scripts/check-layering.sh` |
 
 ## The mail is not lost
@@ -88,6 +90,7 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | Nesting is measured before parsing, and a document deeper than an engine builds is not drawn | `a_document_as_deep_as_an_engine_builds_is_drawn_and_one_level_deeper_is_not` |
 | A message of more than 8,000 elements is shown as text | `a_message_of_tens_of_thousands_of_elements_is_shown_as_text` |
 | A message forwarded in its own form is read within the bounds a body is drawn within, and is forwarded as text past them | `markup_past_what_a_body_is_drawn_within_is_not_cut_down` |
+| Finding an address written alone, and where the columns of a text matter, costs what the text's length costs, in the core and in the composer | `text_made_of_almost_names_costs_what_its_length_costs`, `finding_where_columns_matter_costs_what_the_text_s_length_costs`, `src/shared/ui/links.test.ts` |
 | A message the parser panics on costs only itself, and the pass goes on | `a_message_the_parser_panics_on_is_read_once_and_whoever_asked_goes_on`, `scripts/check-layering.sh` |
 | An answer from a mail server is bounded in what it makes the application hold | `an_answer_past_what_it_may_hold_is_refused` |
 | A host that trickles is given up on, and so is a server that never greets | `a_host_that_keeps_trickling_is_given_up_on_all_the_same`, `a_server_that_takes_the_connection_and_never_greets_is_given_up_on` |

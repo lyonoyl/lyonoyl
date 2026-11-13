@@ -116,6 +116,11 @@ fn an_address_the_window_marks_is_a_link_to_what_it_opens() {
         lines_of("Write to mailto:zeta@example.com"),
         line("Write to <a href=\"mailto:zeta@example.com\">mailto:zeta@example.com</a>")
     );
+    // Somebody to write to, written alone, and the sentence's full stop left outside.
+    assert_eq!(
+        lines_of("Write to zeta@example.com."),
+        line("Write to <a href=\"mailto:zeta@example.com\">zeta@example.com</a>.")
+    );
 }
 
 #[test]
@@ -123,6 +128,12 @@ fn what_only_looks_like_an_address_stays_text() {
     // Only what the window would mark: a scheme it does not open is the words they are.
     assert_eq!(lines_of("javascript:alert(1)"), line("javascript:alert(1)"));
     assert_eq!(lines_of("file:///etc/hosts"), line("file:///etc/hosts"));
+    // A name cut short by a character this reading does not take is nobody's: linked, its tail
+    // would write to somebody else.
+    assert_eq!(
+        lines_of("Write to o'brien@example.com"),
+        line("Write to o&#39;brien@example.com")
+    );
 }
 
 #[test]

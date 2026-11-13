@@ -225,9 +225,11 @@ fn an_html_only_thread_deeper_than_the_bound_is_shown_as_its_words() {
         &rendered.html[..rendered.html.len().min(400)]
     );
     assert!(rendered.html.contains("\nMessage 1 of the thread.\n"));
+    // The address the line names is somebody to write to, offered as a link like any other.
     assert!(rendered
         .html
-        .contains("On 5 Jan 2026, at 09:00, Kappa Vandel &lt;kappa@example.net&gt; wrote:"));
+        .contains("On 5 Jan 2026, at 09:00, Kappa Vandel &lt;<a href=\"/"));
+    assert!(rendered.html.contains(">kappa@example.net</a>&gt; wrote:"));
     for markup in [
         "&lt;div",
         "&lt;blockquote",

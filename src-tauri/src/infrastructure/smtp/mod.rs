@@ -874,9 +874,14 @@ mod tests {
         let wire = written("<m@example.com>", &written_above(passing_on()), WHEN);
         let parsed = parsed(&wire);
 
+        // What `beneath` writes, and its test says how that reads: here, that it is what went.
+        let above = written_above(passing_on());
         assert_eq!(
             markup_of(&parsed).expect("markup"),
-            "<html><head><meta charset=\"utf-8\"></head><body bgcolor=\"#f4f4f4\"><div dir=\"auto\" style=\"white-space: pre-wrap; color: #000000; background-color: #ffffff\">Have a look &lt;now&gt; &amp; tell me:<br><br>---------- Forwarded message ----------<br><br></div><p>Theirs</p><img src=\"cid:chart@example.com\"></body></html>"
+            crate::infrastructure::html::original::beneath(
+                &above.body,
+                above.original.as_ref().expect("passed on")
+            )
         );
         assert_eq!(
             text_of(&parsed).expect("text"),

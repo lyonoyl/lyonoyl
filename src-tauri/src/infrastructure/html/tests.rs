@@ -796,13 +796,14 @@ fn the_source_is_shown_as_text_and_never_parsed() {
 #[test]
 fn a_letter_somebody_typed_keeps_its_lines_outside_the_block_set_in_the_letters_of_code() {
     // The frame sets `pre` in the letters of code, and a letter somebody typed read inside one
-    // reads like a program. Its lines are kept all the same; the source keeps `pre`, because
-    // there every column counts.
+    // reads like a program. Its lines are kept all the same, outside where its columns matter
+    // (`columns`); the source keeps `pre`, because there every column counts.
     let only_text = body_of(&named("plain-text.eml"), Viewing::plainly()).html;
     assert!(
         only_text.starts_with("<div style=\"white-space:pre-wrap\">")
-            && !only_text.contains("<pre>"),
-        "a message of text alone is read in the letters of code: {only_text}"
+            && !only_text.contains("<pre"),
+        "a message of text alone, with no table, patch or drawing in it, is read in the letters \
+         of code: {only_text}"
     );
 
     let raw = named("html-and-text.eml");
@@ -822,12 +823,154 @@ fn a_letter_somebody_typed_keeps_its_lines_outside_the_block_set_in_the_letters_
         text.starts_with("<div style=\"white-space:pre-wrap\">") && text.ends_with("</div>"),
         "a typed letter is not in the reading letters with its lines kept: {text}"
     );
-    assert!(!text.contains("<pre>"), "{text}");
+    assert!(
+        !text.contains("<pre"),
+        "no table, patch or drawing in it: {text}"
+    );
 
     let source = as_text(BodyForm::Source);
     assert!(
-        source.starts_with("<pre>") && source.ends_with("</pre>"),
+        source.starts_with("<pre style=\"margin:0\">") && source.ends_with("</pre>"),
         "the source lost the letters of code: {source}"
+    );
+}
+
+/// A message of text alone, its lines joined as mail joins them.
+fn text_message(body: &[&str]) -> Vec<u8> {
+    message(
+        &[
+            "From: zeta@example.com",
+            "To: kappa@example.net",
+            "Subject: A letter",
+            "MIME-Version: 1.0",
+            "Content-Type: text/plain; charset=utf-8",
+        ],
+        body,
+    )
+}
+
+#[test]
+fn a_table_in_a_letter_is_set_in_the_letters_of_code_where_it_stands() {
+    let rendered = body_of(
+        &text_message(&[
+            "Here is the order, see https://example.com:",
+            "Item      Qty   Price",
+            "Pens      12    3.50",
+            "Docs      www.example.org   1",
+            "Paper     500   9.00",
+            "Write to kappa@example.net with questions.",
+        ]),
+        Viewing::plainly(),
+    );
+    let html = &rendered.html;
+
+    // With no room of its own above and below it, which would part it from the lines it stands
+    // among.
+    let table = html
+        .find("<pre style=\"margin:0\">Item      Qty")
+        .expect("the table in the letters of code");
+    let letter_opens = html
+        .find("<div style=\"white-space:pre-wrap\">Here is the order")
+        .expect("the letter around it");
+    let letter_resumes = html
+        .rfind("<div style=\"white-space:pre-wrap\">Write to")
+        .expect("and after it");
+    assert!(letter_opens < table && table < letter_resumes, "{html}");
+
+    // An address in either letters is still a link, and the links come in the text's order.
+    let opened: Vec<&str> = rendered
+        .links
+        .iter()
+        .map(|link| link.url.as_str())
+        .collect();
+    assert_eq!(
+        opened,
+        [
+            "https://example.com/",
+            "https://www.example.org/",
+            "mailto:kappa@example.net"
+        ],
+        "{html}"
+    );
+    let in_the_table = &html[table..letter_resumes];
+    assert!(
+        in_the_table.contains(&format!(
+            "<a href=\"/{LINKS}/{}\" dir=\"ltr\" style=\"unicode-bidi:isolate\">\
+             www.example.org</a>   1",
+            rendered.links[1].name
+        )) && in_the_table.ends_with("</pre>"),
+        "{html}"
+    );
+}
+
+#[test]
+fn a_patch_is_set_in_the_letters_of_code_whole() {
+    let rendered = body_of(
+        &text_message(&[
+            "The fix, from https://example.com/fix:",
+            "--- a/notes",
+            "+++ b/notes",
+            "-one",
+            "+two",
+        ]),
+        Viewing::plainly(),
+    );
+
+    assert!(
+        rendered
+            .html
+            .starts_with("<pre style=\"margin:0\">The fix, from <a href="),
+        "{}",
+        rendered.html
+    );
+    assert!(rendered.html.ends_with("</pre>"), "{}", rendered.html);
+    assert!(!rendered.html.contains("<div"), "{}", rendered.html);
+    assert_eq!(rendered.links.len(), 1, "{}", rendered.html);
+}
+
+#[test]
+fn a_blank_line_a_block_of_code_starts_with_is_kept() {
+    // Whatever reads the markup drops a line end right after the tag that opens a block of code;
+    // the text's own is written after it, to be kept.
+    for (text, addresses) in [
+        ("\n--- a/notes\n+++ b/notes\n-one\n+two", Addresses::Linked),
+        ("\r\n--- a/notes\r\n+++ b/notes\r\n-one", Addresses::Linked),
+        (
+            "\nFrom: zeta@example.com\nSubject: Hi",
+            Addresses::AsWritten,
+        ),
+    ] {
+        let html = from_text(text, addresses).html;
+        let read = dom_query::Document::from(html.as_str())
+            .select("pre")
+            .text()
+            .to_string();
+
+        assert_eq!(read, text.replace("\r\n", "\n"), "{html:?}");
+    }
+}
+
+#[test]
+fn an_address_after_a_character_that_turns_text_around_is_drawn_as_it_opens() {
+    // Drawn inside the override, an address reads backwards, and one written backwards on purpose
+    // reads as somebody else's. Set apart, left to right, it shows what it opens.
+    let rendered = body_of(
+        &text_message(&["Write to \u{202e}zeta@example.com"]),
+        Viewing::plainly(),
+    );
+
+    let [link] = rendered.links.as_slice() else {
+        panic!("one link: {}", rendered.html);
+    };
+    assert_eq!(link.url.as_str(), "mailto:zeta@example.com");
+    assert!(
+        rendered.html.contains(&format!(
+            "\u{202e}<a href=\"/{LINKS}/{}\" dir=\"ltr\" style=\"unicode-bidi:isolate\">\
+             zeta@example.com</a>",
+            link.name
+        )),
+        "{}",
+        rendered.html
     );
 }
 
@@ -1015,9 +1158,10 @@ fn an_address_in_plain_text_is_a_link_behind_a_name() {
     );
     for link in &rendered.links {
         assert!(
-            rendered
-                .html
-                .contains(&format!("<a href=\"/{LINKS}/{}\">", link.name)),
+            rendered.html.contains(&format!(
+                "<a href=\"/{LINKS}/{}\" dir=\"ltr\" style=\"unicode-bidi:isolate\">",
+                link.name
+            )),
             "{}",
             rendered.html
         );

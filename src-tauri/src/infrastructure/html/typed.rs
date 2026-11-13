@@ -7,8 +7,9 @@
 //! another space — is a space that does not fold, and a tab is four of them. Lines a reply quotes,
 //! under one `>` for every level, are quoted at that level, without the marks. An address the window
 //! marks as a link while the message is written is a link, unless its line holds a character that
-//! turns text around. The letters are the system's own, and the text and its ground are given no
-//! colour, so a message is drawn in the colours its reader chose.
+//! turns text around. The letters are the system's own. Sent as a message's markup, the text and
+//! its ground are given no colour, so a message is drawn in the colours its reader chose; above a
+//! message passed on in its own form, they carry their own, written on every element.
 
 use mail_builder::headers::content_type::ContentType;
 use mail_builder::mime::MimePart;
@@ -27,16 +28,90 @@ const BREAKS: &str = "white-space: pre-wrap; overflow-wrap: anywhere; word-break
 /// A quoted level, drawn as most clients draw one: indented, with a line beside it.
 const QUOTED: &str = "margin: 0 0 0 0.8ex; padding-left: 1ex; border-left: 1px solid #cccccc";
 
+/// The ground of an element inside the box, left clear for the box's own to show through.
+const CLEAR: &str = "background-color: transparent";
+
+/// Colours to draw the text in.
+pub(super) struct Colours {
+    /// The text's.
+    pub text: &'static str,
+    /// The ground's, under the whole of it.
+    pub ground: &'static str,
+    /// A link's.
+    pub link: &'static str,
+}
+
 /// The text as markup: a document of its own, its lines as they were typed.
 pub fn markup(text: &str) -> String {
+    format!(
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>{}</body></html>",
+        boxed(text, None)
+    )
+}
+
+/// The text's own box, in the system's letters and breaking as typed; in `colours`, when it is
+/// given some, written on the box and on every element inside it.
+pub(super) fn boxed(text: &str, colours: Option<&Colours>) -> String {
+    let tags = Tags::in_colours(colours);
+    format!(
+        "<div style=\"{LETTERS}; {BREAKS}{}\">{}</div>",
+        tags.inked,
+        lines(text, &tags)
+    )
+}
+
+/// How the elements the text is made of open: with what they need and nothing more, or with their
+/// colours as well.
+struct Tags {
+    /// What the box's style ends with.
+    inked: String,
+    /// A quoted level.
+    quote: String,
+    /// A line.
+    line: String,
+    /// What a link carries after its address.
+    link: String,
+}
+
+impl Tags {
+    fn in_colours(colours: Option<&Colours>) -> Self {
+        match colours {
+            None => Tags {
+                inked: String::new(),
+                quote: format!("<blockquote type=\"cite\" style=\"{QUOTED}\">"),
+                line: "<div dir=\"auto\">".to_owned(),
+                link: String::new(),
+            },
+            Some(colours) => Tags {
+                inked: format!(
+                    "; color: {}; background-color: {}",
+                    colours.text, colours.ground
+                ),
+                quote: format!(
+                    "<blockquote type=\"cite\" style=\"{QUOTED}; color: {}; {CLEAR}\">",
+                    colours.text
+                ),
+                line: format!(
+                    "<div dir=\"auto\" style=\"margin: 0; padding: 0; color: {}; {CLEAR}\">",
+                    colours.text
+                ),
+                link: format!(
+                    " style=\"color: {}; {CLEAR}; text-decoration: underline\"",
+                    colours.link
+                ),
+            },
+        }
+    }
+}
+
+/// The text's lines, each a block of its own, and the levels a reply quotes around them.
+fn lines(text: &str, tags: &Tags) -> String {
     let mut lines = String::with_capacity(text.len() * 2 + 64);
     let mut depth = 0;
     for line in text.split('\n') {
         let (level, said) = quoted(line.trim_end_matches('\r'));
         while depth < level {
-            lines.push_str("<blockquote type=\"cite\" style=\"");
-            lines.push_str(QUOTED);
-            lines.push_str("\">");
+            lines.push_str(&tags.quote);
             depth += 1;
         }
         while depth > level {
@@ -44,21 +119,17 @@ pub fn markup(text: &str) -> String {
             depth -= 1;
         }
 
-        lines.push_str("<div dir=\"auto\">");
+        lines.push_str(&tags.line);
         match said.is_empty() {
             true => lines.push_str("<br>"),
-            false => line_into(&mut lines, said),
+            false => line_into(&mut lines, said, &tags.link),
         }
         lines.push_str("</div>");
     }
     for _ in 0..depth {
         lines.push_str("</blockquote>");
     }
-
-    format!(
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>\
-         <div style=\"{LETTERS}; {BREAKS}\">{lines}</div></body></html>"
-    )
+    lines
 }
 
 /// The text and its markup as one part, which a reader shows whichever of the two it can; the text
@@ -93,7 +164,7 @@ pub(super) fn is_the_markup_of(markup: &str, text: &str) -> bool {
 
 /// How deep a line is quoted, and what it says under its marks: one `>` for every level, each with
 /// the space after it, as a reply writes them.
-fn quoted(line: &str) -> (usize, &str) {
+pub(super) fn quoted(line: &str) -> (usize, &str) {
     let mut level = 0;
     let mut said = line;
     while let Some(after) = said.strip_prefix('>') {
@@ -103,11 +174,12 @@ fn quoted(line: &str) -> (usize, &str) {
     (level, said)
 }
 
-/// One line: escaped, with its spaces kept, and every address in it a link to what it opens.
+/// One line: escaped, with its spaces kept, and every address in it a link to what it opens, which
+/// carries `inked` after its address.
 ///
 /// No links on a line that holds a character turning text around: drawn as written, such a line
 /// can show one address and open another.
-fn line_into(document: &mut String, line: &str) {
+fn line_into(document: &mut String, line: &str, inked: &str) {
     let links = match line.chars().any(turns_text_around) {
         true => Vec::new(),
         false => links_in(line),
@@ -119,7 +191,9 @@ fn line_into(document: &mut String, line: &str) {
         spaced_into(document, &line[at..link.at.start], &mut folds);
         document.push_str("<a href=\"");
         super::escape_into(document, link.url.as_str());
-        document.push_str("\">");
+        document.push('"');
+        document.push_str(inked);
+        document.push('>');
         super::escape_into(document, &line[link.at.clone()]);
         document.push_str("</a>");
         folds = false;

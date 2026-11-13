@@ -5,8 +5,10 @@ import { linksIn } from "./links";
 
 describe("linksIn", () => {
   it("finds every shared example where the core finds it", () => {
-    // The core links these in plain-text mail; the composer marks them as they are typed. Answering
-    // the same examples is what keeps a mark from promising a link the message will not have.
+    // The core links these in plain-text mail, in the markup it sends beside a message's text, and
+    // above a message passed on in its own form; the composer marks them as they are typed, and a
+    // message sent from here links them before its copy is read back. Answering the same examples
+    // is what keeps a mark from promising a link the message will not have.
     expect(shared.cases.length).toBeGreaterThan(20);
 
     for (const example of shared.cases) {
@@ -46,5 +48,24 @@ describe("linksIn", () => {
 
     expect(linksIn(text)).toEqual([]);
     expect(performance.now() - began).toBeLessThan(2000);
+  });
+
+  it("costs what the text's length costs, made of almost names", () => {
+    // A name is read once, from where one can start, and never from inside one read already.
+    const chunk = `${"a,".repeat(63)}${")".repeat(128)} `;
+    for (const text of [
+      "a)".repeat(1 << 19),
+      "a'".repeat(1 << 19),
+      chunk.repeat(Math.floor((1 << 20) / chunk.length)),
+      "a@".repeat(1 << 19),
+      "a.".repeat(1 << 19),
+      `a@${"b".repeat(1 << 20)}`,
+      `${"a.".repeat(1 << 19)}@`,
+    ]) {
+      const began = performance.now();
+
+      expect(linksIn(text), text.slice(0, 8)).toEqual([]);
+      expect(performance.now() - began, text.slice(0, 8)).toBeLessThan(2000);
+    }
   });
 });
