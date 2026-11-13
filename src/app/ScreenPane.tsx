@@ -3,6 +3,7 @@ import type { ReactNode, RefObject } from "react";
 
 import { leaveScreen } from "@/app/leave-screen";
 import { systemHere, type System } from "@/shared/platform";
+import { PointerHint } from "@/shared/ui/PointerHint";
 import { Button } from "@/shared/ui/primitives/button";
 
 /**
@@ -76,34 +77,36 @@ export function ScreenPane({
   const back = (
     <div className="p-3">
       {onBack && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={backLabel}
-          title={backLabel}
-          className="bg-background/80 backdrop-blur"
-          onClick={onBack}
-        >
-          <ArrowLeft className="rtl:-scale-x-100" />
-        </Button>
+        <PointerHint label={backLabel} side="bottom">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={backLabel}
+            className="bg-background/80 backdrop-blur"
+            onClick={onBack}
+          >
+            <ArrowLeft className="rtl:-scale-x-100" />
+          </Button>
+        </PointerHint>
       )}
     </div>
   );
   const close = (
     <div className="p-3">
       {onClose && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={closeLabel}
-          title={closeLabel}
-          className="bg-background/80 backdrop-blur"
-          onClick={() => leaveScreen(onClose)}
-        >
-          <X />
-        </Button>
+        <PointerHint label={closeLabel} side="bottom">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={closeLabel}
+            className="bg-background/80 backdrop-blur"
+            onClick={() => leaveScreen(onClose)}
+          >
+            <X />
+          </Button>
+        </PointerHint>
       )}
     </div>
   );

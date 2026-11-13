@@ -25,6 +25,7 @@ import type { DraftDto } from "@/shared/ipc/generated/DraftDto";
 import { attachFile, forgetAttachment } from "@/shared/ipc/client";
 import type { AttachingDto } from "@/shared/ipc/generated/AttachingDto";
 import { inRoundNumbers } from "@/shared/ui/bytes";
+import { PointerHint } from "@/shared/ui/PointerHint";
 import { Button } from "@/shared/ui/primitives/button";
 import { Input } from "@/shared/ui/primitives/input";
 import { Label } from "@/shared/ui/primitives/label";
@@ -782,13 +783,13 @@ export function Composer({
               <Label htmlFor="compose-cc">{t("compose.cc")}</Label>
               {/* A way back out. Two fields that appear on a press and cannot be put away again
                   are two empty fields in every message somebody wrote after pressing it once. */}
+              <PointerHint label={t("compose.dropCopies")}>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-xs"
                 disabled={frozen}
                 aria-label={t("compose.dropCopies")}
-                title={t("compose.dropCopies")}
                 onClick={() => {
                   // What was typed in them goes with them: fields nobody can see must not decide
                   // who receives a message.
@@ -800,6 +801,7 @@ export function Composer({
               >
                 <X />
               </Button>
+              </PointerHint>
             </div>
             <Input
               id="compose-cc"

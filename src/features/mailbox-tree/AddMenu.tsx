@@ -1,9 +1,10 @@
 import { Plus } from "lucide-react";
 import { useRef, useState } from "react";
 
-import { useTranslation } from "@/shared/i18n";
+import { useI18n, useTranslation } from "@/shared/i18n";
 import { createAccountGroup } from "@/shared/ipc/client";
 import { AddGroup } from "@/shared/ui/AddGroup";
+import { PointerHint } from "@/shared/ui/PointerHint";
 import { Button } from "@/shared/ui/primitives/button";
 import {
   DropdownMenu,
@@ -28,6 +29,7 @@ export function AddMenu({
   onGroupAdded: () => void;
 }) {
   const t = useTranslation();
+  const { dir } = useI18n();
   const [addingGroup, setAddingGroup] = useState(false);
   /**
    * What was chosen, done once the menu has closed rather than at the press. The menu holds the
@@ -39,17 +41,19 @@ export function AddMenu({
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={t("shell.add")}
-            title={t("shell.add")}
-          >
-            <Plus />
-          </Button>
-        </DropdownMenuTrigger>
+        {/* Under the pointer only: the menu hands the focus back to the plus as it closes. */}
+        <PointerHint label={t("shell.add")} side={dir === "rtl" ? "left" : "right"}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t("shell.add")}
+            >
+              <Plus />
+            </Button>
+          </DropdownMenuTrigger>
+        </PointerHint>
         <DropdownMenuContent
           align="end"
           // As wide as its longest line rather than as the plus, at whose width no line of it has

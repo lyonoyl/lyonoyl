@@ -7,7 +7,12 @@ import {
   type ReadChange,
 } from "@/entities/folder";
 import type { Mailbox } from "@/entities/mailbox";
-import { describeError, useTranslation, type Translator } from "@/shared/i18n";
+import {
+  describeError,
+  useI18n,
+  useTranslation,
+  type Translator,
+} from "@/shared/i18n";
 import {
   arrangeSidebar,
   getMailboxTree,
@@ -20,6 +25,7 @@ import {
   syncAccount,
 } from "@/shared/ipc/client";
 import { ColumnHeading } from "@/shared/ui/ColumnHeading";
+import { PointerHint } from "@/shared/ui/PointerHint";
 import { AccountBranch } from "./AccountBranch";
 import { movedWithin, type AccountActions } from "./AccountMenu";
 import { AddMenu } from "./AddMenu";
@@ -117,6 +123,7 @@ export function MailboxTree({
   readChanges?: ReadChange[];
 }) {
   const t = useTranslation();
+  const { dir } = useI18n();
   const [accounts, setAccounts] = useState<AccountNodeDto[]>([]);
   /** How far the queue had got when the counts on screen were read, which says what they hold. */
   const [readThrough, setReadThrough] = useState(0);
@@ -675,12 +682,15 @@ export function MailboxTree({
                 control that cannot do anything is one a person tries anyway, and being unavailable
                 for a good reason still costs them the press. */}
             {accounts.length > 0 && (
+              <PointerHint
+                label={syncing ? t("shell.refreshing") : t("shell.refresh")}
+                side={dir === "rtl" ? "left" : "right"}
+              >
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-sm"
                 aria-label={syncing ? t("shell.refreshing") : t("shell.refresh")}
-                title={t("shell.refresh")}
                 // Not disabled while it works. Disabling the button somebody has just pressed blurs
                 // it in every engine this ships on, so the focus fell to the top of the window and
                 // the wait itself was announced by nothing. The second press is refused instead.
@@ -690,6 +700,7 @@ export function MailboxTree({
               >
                 <RefreshCw className={syncing ? "animate-spin" : undefined} />
               </Button>
+              </PointerHint>
             )}
             <AddMenu onAddAccount={onAddAccount} onGroupAdded={actions.regrouped} />
           </div>

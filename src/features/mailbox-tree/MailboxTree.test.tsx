@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReadChange } from "@/entities/folder";
 import type { Mailbox } from "@/entities/mailbox";
-import { I18nProvider } from "@/shared/i18n";
+import { createTranslator, I18nProvider } from "@/shared/i18n";
 import type { AccountNodeDto } from "@/shared/ipc/generated/AccountNodeDto";
 import type { MailboxTreeDto } from "@/shared/ipc/generated/MailboxTreeDto";
 import type { SyncReportDto } from "@/shared/ipc/generated/SyncReportDto";
@@ -128,7 +128,7 @@ function renderTree(selected: Mailbox | null = null, language = "en") {
   const onSelect = vi.fn();
   const onAddAccount = vi.fn();
   const onReconnect = vi.fn();
-  render(
+  const { unmount } = render(
     <I18nProvider initial={language}>
       <MailboxTree
         selected={selected}
@@ -138,7 +138,7 @@ function renderTree(selected: Mailbox | null = null, language = "en") {
       />
     </I18nProvider>,
   );
-  return { onSelect, onAddAccount, onReconnect };
+  return { onSelect, onAddAccount, onReconnect, unmount };
 }
 
 beforeEach(() => {
@@ -195,6 +195,36 @@ describe("MailboxTree", () => {
     const said = await screen.findByRole("alert");
     expect(said.textContent).toContain("could not be read");
     expect(screen.queryByText(/Reading folders/i)).toBeNull();
+  });
+
+  it("names getting mail and adding in the theme's hint, towards the mail, and not the system's", async () => {
+    // The system's own hint, in its colours and letters, made these two the only buttons in the
+    // window that looked like another application's.
+    const arabic = createTranslator("ar");
+    for (const [language, names, side] of [
+      ["en", ["Get new mail", "Add an account or a group"], "right"],
+      ["ar", [arabic("shell.refresh"), arabic("shell.add")], "left"],
+    ] as const) {
+      tree.mockResolvedValue(
+        sidebar([account("acc-1", "one@example.com", [INBOX])]),
+      );
+      const { unmount } = renderTree(null, language);
+
+      for (const name of names) {
+        const button = await screen.findByRole("button", { name });
+        expect(button.getAttribute("title")).toBeNull();
+
+        fireEvent.pointerEnter(button);
+        expect((await screen.findByRole("tooltip")).textContent).toBe(name);
+        expect(
+          document.querySelector("[data-slot=tooltip-content]")?.getAttribute("data-side"),
+        ).toBe(side);
+
+        fireEvent.pointerLeave(button);
+        await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
+      }
+      unmount();
+    }
   });
 
   it("says nothing when the press found every account already being read", async () => {
