@@ -398,6 +398,46 @@
     {
       "text": "Two at once: zeta@example.com@example.org",
       "links": []
+    },
+    {
+      "text": "[https://example.com/?list[1]]",
+      "links": [
+        {
+          "written": "https://example.com/?list[1]",
+          "opens": "https://example.com/?list[1]"
+        }
+      ]
+    },
+    {
+      "text": "www.%)www.%)www.%)https://example.com",
+      "links": [
+        {
+          "written": "https://example.com",
+          "opens": "https://example.com/"
+        }
+      ]
+    },
+    {
+      "text": "www.%)www.%)www.%)www.%)https://example.com",
+      "links": []
+    },
+    {
+      "text": "www.%)www.%)www.%)www.%) https://example.com",
+      "links": [
+        {
+          "written": "https://example.com",
+          "opens": "https://example.com/"
+        }
+      ]
+    },
+    {
+      "text": "www.%)www.%)www.%) www.%)www.%)www.%)https://example.com",
+      "links": [
+        {
+          "written": "https://example.com",
+          "opens": "https://example.com/"
+        }
+      ]
     }
   ]
 }

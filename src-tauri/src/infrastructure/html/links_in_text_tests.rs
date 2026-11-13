@@ -137,6 +137,44 @@ fn text_made_of_almost_names_costs_what_its_length_costs() {
 }
 
 #[test]
+fn a_run_of_marks_after_an_address_costs_what_its_length_costs() {
+    // The brackets an address holds are counted once, and the count kept as its end moves back.
+    // Counted again for every bracket left behind, a megabyte of them would take hours.
+    for mark in [")", "]", ".", "?"] {
+        let text = format!("https://example.com/{}", mark.repeat(1 << 20));
+        let began = std::time::Instant::now();
+
+        let found = links_in(&text);
+
+        assert_eq!(found.len(), 1, "{mark}");
+        assert_eq!(found[0].at, 0.."https://example.com/".len(), "{mark}");
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(2),
+            "{mark}: {:?}",
+            began.elapsed()
+        );
+    }
+}
+
+#[test]
+fn a_stretch_of_beginnings_that_open_nothing_costs_what_its_length_costs() {
+    // A beginning that opens nothing is read to where its stretch stops and handed to the parser,
+    // so a stretch is read for four of them and no more. Read for every one, a megabyte of them
+    // would take hours.
+    for beginning in ["www.", "http://", "https://", "mailto:"] {
+        let text = format!("{beginning}%)").repeat((1 << 20) / (beginning.len() + 2));
+        let began = std::time::Instant::now();
+
+        assert!(links_in(&text).is_empty(), "{beginning}");
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(2),
+            "{beginning}: {:?}",
+            began.elapsed()
+        );
+    }
+}
+
+#[test]
 fn every_address_in_a_long_text_is_found() {
     let text = "see https://example.com/a and ".repeat(1_000);
 

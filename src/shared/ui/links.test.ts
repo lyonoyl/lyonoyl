@@ -68,4 +68,33 @@ describe("linksIn", () => {
       expect(performance.now() - began, text.slice(0, 8)).toBeLessThan(2000);
     }
   });
+
+  it("costs what the text's length costs, with a run of marks after an address", () => {
+    // The brackets an address holds are counted once, and nothing is copied as its end moves back.
+    // Counted or copied again for every mark left behind, a megabyte of them would take hours.
+    for (const mark of [")", "]", ".", "?"]) {
+      const text = `https://example.com/${mark.repeat(1 << 20)}`;
+      const began = performance.now();
+
+      expect(linksIn(text), mark).toEqual([
+        { start: 0, end: "https://example.com/".length },
+      ]);
+      expect(performance.now() - began, mark).toBeLessThan(2000);
+    }
+  });
+
+  it("costs what the text's length costs, made of beginnings that open nothing", () => {
+    // A beginning that opens nothing is read to where its stretch stops and handed to the parser,
+    // so a stretch is read for four of them and no more. Read for every one, a megabyte of them
+    // would take hours.
+    for (const beginning of ["www.", "http://", "https://", "mailto:"]) {
+      const text = `${beginning}%)`.repeat(
+        Math.floor((1 << 20) / (beginning.length + 2)),
+      );
+      const began = performance.now();
+
+      expect(linksIn(text), beginning).toEqual([]);
+      expect(performance.now() - began, beginning).toBeLessThan(2000);
+    }
+  });
 });
