@@ -62,8 +62,9 @@ pub trait AccountWatch: Send + Sync + 'static {
 pub trait AccountSync: Send + Sync + 'static {
     fn sync(&self, account_id: &str) -> Result<AccountChanged, AccountSyncError>;
 
-    /// The same pass, saying how far it has got as it goes: the round as the application starts,
-    /// which the foot of the window shows. One with nothing to say about its folders reads the
+    /// The same pass, saying what it has got to as it goes: how far, for the round as the
+    /// application starts, which the foot of the window shows, and the inbox once it is written
+    /// down, for a read a server's word about new mail started. One with nothing to say reads the
     /// account as [`AccountSync::sync`] does.
     fn sync_telling(
         &self,

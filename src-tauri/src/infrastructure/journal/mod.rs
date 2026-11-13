@@ -235,52 +235,56 @@ pub fn wrote_down_a_pass(pass: &crate::application::sync::AccountPass, took: std
         return;
     }
 
-    journal.write_down(
-        Note::Detail,
-        "sync.read",
-        &[
-            ("took", Value::Millis(took.as_millis() as u64)),
-            (
-                "saidHello",
-                Value::Millis(pass.opening_took.as_millis() as u64),
-            ),
-            ("opened", Value::Count(pass.opened.altogether())),
-            ("folders", Value::Count(u64::from(pass.folders))),
-            ("arrived", Value::Count(u64::from(pass.arrived))),
-            ("bodies", Value::Count(u64::from(pass.bodies_read))),
-            ("bodiesFailed", Value::Count(u64::from(pass.bodies_failed))),
-            // Folders that could not be read, and folders read a second time because the first
-            // reading failed: a pass that found no mail because its inbox would not open looks
-            // like a quiet account without them.
-            ("failed", Value::Count(u64::from(pass.folders_failed))),
-            ("again", Value::Count(u64::from(pass.folders_read_again))),
-            // Which phase spent them. `opened` alone says a pass cost so many conversations and
-            // not which, and the four below are four different defects.
-            // Where the time went, beside where the connections went. A phase that opens nothing
-            // of its own still sends commands over the connection it was handed, and every one of
-            // those is a wait nothing here could see.
-            (
-                "inList",
-                Value::Millis(pass.spent.discovery.as_millis() as u64),
-            ),
-            (
-                "inFolders",
-                Value::Millis(pass.spent.folders.as_millis() as u64),
-            ),
-            (
-                "inBackfill",
-                Value::Millis(pass.spent.backfill.as_millis() as u64),
-            ),
-            (
-                "inBodies",
-                Value::Millis(pass.spent.bodies.as_millis() as u64),
-            ),
-            ("onList", Value::Count(pass.opened.discovery)),
-            ("onFolders", Value::Count(pass.opened.folders)),
-            ("onBackfill", Value::Count(pass.opened.backfill)),
-            ("onBodies", Value::Count(pass.opened.bodies)),
-        ],
-    );
+    let mut fields = vec![
+        ("took", Value::Millis(took.as_millis() as u64)),
+        (
+            "saidHello",
+            Value::Millis(pass.opening_took.as_millis() as u64),
+        ),
+        ("opened", Value::Count(pass.opened.altogether())),
+        ("folders", Value::Count(u64::from(pass.folders))),
+        ("arrived", Value::Count(u64::from(pass.arrived))),
+        ("bodies", Value::Count(u64::from(pass.bodies_read))),
+        ("bodiesFailed", Value::Count(u64::from(pass.bodies_failed))),
+        // Folders that could not be read, and folders read a second time because the first
+        // reading failed: a pass that found no mail because its inbox would not open looks
+        // like a quiet account without them.
+        ("failed", Value::Count(u64::from(pass.folders_failed))),
+        ("again", Value::Count(u64::from(pass.folders_read_again))),
+        // Which phase spent them. `opened` alone says a pass cost so many conversations and
+        // not which, and the four below are four different defects.
+        // Where the time went, beside where the connections went. A phase that opens nothing
+        // of its own still sends commands over the connection it was handed, and every one of
+        // those is a wait nothing here could see.
+        (
+            "inList",
+            Value::Millis(pass.spent.discovery.as_millis() as u64),
+        ),
+        (
+            "inFolders",
+            Value::Millis(pass.spent.folders.as_millis() as u64),
+        ),
+        (
+            "inBackfill",
+            Value::Millis(pass.spent.backfill.as_millis() as u64),
+        ),
+        (
+            "inBodies",
+            Value::Millis(pass.spent.bodies.as_millis() as u64),
+        ),
+        ("onList", Value::Count(pass.opened.discovery)),
+        ("onFolders", Value::Count(pass.opened.folders)),
+        ("onBackfill", Value::Count(pass.opened.backfill)),
+        ("onBodies", Value::Count(pass.opened.bodies)),
+    ];
+    // When the inbox was written down, counted as `inList` to `inBodies` are, from when the
+    // account's reading began: what a letter that came late asks first. Absent where the inbox
+    // could not be read.
+    if let Some(written) = pass.inbox_written {
+        fields.push(("inboxAt", Value::Millis(written.as_millis() as u64)));
+    }
+
+    journal.write_down(Note::Detail, "sync.read", &fields);
 }
 
 fn written(value: Value) -> String {
