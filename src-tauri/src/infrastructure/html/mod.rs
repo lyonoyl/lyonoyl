@@ -26,6 +26,7 @@ pub(crate) mod nesting;
 pub mod original;
 mod styling;
 mod text_instead;
+pub mod typed;
 mod words;
 mod written_in;
 
@@ -76,18 +77,83 @@ pub fn too_large_to_read(size: Option<u64>) -> bool {
 ///
 /// `border-color` is not a colour for this purpose — a border does not decide what surface the
 /// text sits on — so `color:` is only counted where a hyphen does not precede it.
+///
+/// Only where a document says how it looks: in its tags and in its style elements. In its text,
+/// "favourite color: blue" or an address asking `?text=hi` is somebody's words.
 fn names_a_colour(html: &str) -> bool {
-    if html.contains("background:") || html.contains("background-color:") {
-        return true;
-    }
-    if html.contains("bgcolor=") || html.contains("text=") {
-        return true;
+    how_it_looks(html).into_iter().any(|said| {
+        said.contains("background:")
+            || said.contains("background-color:")
+            // Attributes, each written after a space: a link's address asking `?text=` is not one.
+            || said.contains(" bgcolor=")
+            || said.contains(" text=")
+            || said.match_indices("color:").any(|(at, _)| {
+                at == 0
+                    || !said.as_bytes()[at - 1].is_ascii_alphanumeric()
+                        && said.as_bytes()[at - 1] != b'-'
+            })
+    })
+}
+
+/// The stretches of a sanitized document that say how it looks: every tag, with its attributes,
+/// read to the bracket that closes it outside quotes, and what every style element holds.
+///
+/// The sanitizer writes a `<` in text as `&lt;`, so every `<` left opens a tag.
+fn how_it_looks(html: &str) -> Vec<&str> {
+    let bytes = html.as_bytes();
+    let mut said = Vec::new();
+    let mut at = 0;
+
+    while let Some(found) = html[at..].find('<') {
+        let opens = at + found;
+        let mut closes = opens + 1;
+        let mut quote = None;
+        while closes < bytes.len() {
+            match (quote, bytes[closes]) {
+                (None, b'>') => break,
+                (None, mark @ (b'"' | b'\'')) => quote = Some(mark),
+                (Some(mark), byte) if byte == mark => quote = None,
+                _ => {}
+            }
+            closes += 1;
+        }
+        let tag = &html[opens..closes];
+        said.push(tag);
+        at = (closes + 1).min(bytes.len());
+
+        let name = tag[1..].trim_start().to_ascii_lowercase();
+        let a_style = name.starts_with("style")
+            && name[5..]
+                .chars()
+                .next()
+                .is_none_or(|after| after.is_whitespace() || after == '/');
+        if a_style {
+            let ends = style_ends(html, at);
+            said.push(&html[at..ends]);
+            at = ends;
+        }
     }
 
-    html.match_indices("color:").any(|(at, _)| {
-        at == 0
-            || !html.as_bytes()[at - 1].is_ascii_alphanumeric() && html.as_bytes()[at - 1] != b'-'
-    })
+    said
+}
+
+/// Where a style element that began at `from` ends: at its `</style`, in any case, or at the end.
+///
+/// Looked for in place rather than in a lowered copy of the rest: a document of a thousand style
+/// elements would otherwise be copied a thousand times.
+fn style_ends(html: &str, from: usize) -> usize {
+    let mut at = from;
+    while let Some(found) = html[at..].find("</") {
+        let closes = at + found;
+        if html
+            .get(closes + 2..closes + 7)
+            .is_some_and(|name| name.eq_ignore_ascii_case("style"))
+        {
+            return closes;
+        }
+        at = closes + 2;
+    }
+    html.len()
 }
 
 /// The largest HTML body this build will sanitize.
@@ -535,6 +601,10 @@ enum Addresses {
 /// Text made into a document, with every character that means something in HTML escaped, and every
 /// address in it a link behind a name, as an address in markup is: following one reaches this
 /// application, which asks the person before anything leaves the machine.
+///
+/// Text somebody wrote is read in the letters every other message is read in, its lines and spaces
+/// kept as they were typed; set in the letters of code, a letter somebody typed reads like a
+/// program. A message's source is set in the letters of code, because there every column counts.
 fn from_text(text: &str, addresses: Addresses) -> RenderedBody {
     let truncated = text.len() > LARGEST_BODY;
     let within = match truncated {
@@ -550,7 +620,11 @@ fn from_text(text: &str, addresses: Addresses) -> RenderedBody {
     let mut escaped = String::with_capacity(within.len() + 16);
     let mut offered = Vec::with_capacity(found.len());
     let mut at = 0;
-    escaped.push_str("<pre>");
+    let (opens, closes) = match addresses {
+        Addresses::Linked => ("<div style=\"white-space:pre-wrap\">", "</div>"),
+        Addresses::AsWritten => ("<pre>", "</pre>"),
+    };
+    escaped.push_str(opens);
     for link in found {
         escape_into(&mut escaped, &within[at..link.at.start]);
         match serving::random_name() {
@@ -569,7 +643,7 @@ fn from_text(text: &str, addresses: Addresses) -> RenderedBody {
         at = link.at.end;
     }
     escape_into(&mut escaped, &within[at..]);
-    escaped.push_str("</pre>");
+    escaped.push_str(closes);
 
     RenderedBody {
         attachments: Vec::new(),

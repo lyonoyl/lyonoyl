@@ -463,12 +463,13 @@ impl Outgoing {
     }
 
     /// What it weighs before encoding: the text, everything attached to it, and the message it
-    /// passes on, beside which the text goes twice, as text and inside the markup.
+    /// passes on. The text goes twice, as text and inside the markup beside it; where the markup
+    /// is the larger, the sending leaves it out rather than go past this.
     pub fn weighs(&self) -> usize {
-        let passed_on = self.original.as_ref().map_or(0, |original| {
-            original.weighs().saturating_add(self.body.len())
-        });
-        weight_of(&self.body, &self.files).saturating_add(passed_on)
+        let passed_on = self.original.as_ref().map_or(0, Original::weighs);
+        weight_of(&self.body, &self.files)
+            .saturating_add(self.body.len())
+            .saturating_add(passed_on)
     }
 
     /// Whether this is a message that can be sent at all.
@@ -706,13 +707,22 @@ mod tests {
     }
 
     #[test]
-    fn what_a_message_weighs_is_its_text_and_everything_attached() {
-        // The body alone was the whole of the old rule, and a body is the smaller half of any
-        // message somebody attaches a photograph to.
+    fn what_a_message_weighs_is_its_text_twice_and_everything_attached() {
+        // A body is the smaller half of any message somebody attaches a photograph to, and it goes
+        // twice: as text, and as the markup beside it.
         let mut message = carrying(1_000);
         message.body = "x".repeat(500);
 
-        assert_eq!(message.weighs(), 1_500);
+        assert_eq!(message.weighs(), 2_000);
+
+        let mut heavy = carrying(HEAVIEST_MESSAGE - 1_000);
+        heavy.body = "x".repeat(500);
+        assert!(heavy.is_within_bounds());
+        heavy.body = "x".repeat(501);
+        assert!(
+            !heavy.is_within_bounds(),
+            "a text counted once let a message past the limit"
+        );
     }
 
     /// A message passed on in its own form, of markup, text and one picture of these sizes.

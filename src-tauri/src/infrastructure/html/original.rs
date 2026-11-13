@@ -34,9 +34,10 @@ const LONGEST_PICTURE_NAME: usize = 250;
 /// The message cut down to what draws it, with `text` as what it says, and where in the message
 /// each picture it takes along sits, for the files passed on beside it to leave out.
 ///
-/// Nothing for a message with no markup, one whose markup has no body to draw in — a page of
-/// frames — one past what this build reads into a tree, or one heavier than a message may be on its
-/// own. Each of those is passed on as text.
+/// Nothing for a message with no markup, one whose markup is its text and nothing more — what this
+/// application sends beside what a person typed — one whose markup has no body to draw in — a page
+/// of frames — one past what this build reads into a tree, or one heavier than a message may be on
+/// its own. Each of those is passed on as text, which the person can edit.
 ///
 /// A picture goes inside when its markup draws it, by the name after `cid:` in a picture's source
 /// or in a style that draws it, once, if it is of a kind this build draws and under a name that can
@@ -51,6 +52,10 @@ pub(super) fn cut_down(parsed: &Message<'_>, text: &str) -> Option<(Original, Ha
                 Some(PartType::Html(html)) => Some(html.as_ref()),
                 _ => None,
             })?;
+
+    if super::typed::is_the_markup_of(markup, text) {
+        return None;
+    }
 
     // The bounds a body is drawn within, and for the same reason: reading a tree costs what the
     // tree is, and its size, its count of elements and its depth are whoever wrote it's to choose.

@@ -794,6 +794,82 @@ fn the_source_is_shown_as_text_and_never_parsed() {
 }
 
 #[test]
+fn a_letter_somebody_typed_keeps_its_lines_outside_the_block_set_in_the_letters_of_code() {
+    // The frame sets `pre` in the letters of code, and a letter somebody typed read inside one
+    // reads like a program. Its lines are kept all the same; the source keeps `pre`, because
+    // there every column counts.
+    let only_text = body_of(&named("plain-text.eml"), Viewing::plainly()).html;
+    assert!(
+        only_text.starts_with("<div style=\"white-space:pre-wrap\">")
+            && !only_text.contains("<pre>"),
+        "a message of text alone is read in the letters of code: {only_text}"
+    );
+
+    let raw = named("html-and-text.eml");
+    let as_text = |form| {
+        body_of(
+            &raw,
+            Viewing {
+                form,
+                pictures: Pictures::Blocked,
+            },
+        )
+        .html
+    };
+
+    let text = as_text(BodyForm::Text);
+    assert!(
+        text.starts_with("<div style=\"white-space:pre-wrap\">") && text.ends_with("</div>"),
+        "a typed letter is not in the reading letters with its lines kept: {text}"
+    );
+    assert!(!text.contains("<pre>"), "{text}");
+
+    let source = as_text(BodyForm::Source);
+    assert!(
+        source.starts_with("<pre>") && source.ends_with("</pre>"),
+        "the source lost the letters of code: {source}"
+    );
+}
+
+#[test]
+fn a_message_that_paints_itself_is_known_by_its_tags_and_its_styles() {
+    for painting in [
+        r##"<p style="color: #ffffff">Hi</p>"##,
+        r##"<div style="background-color: #000000">Hi</div>"##,
+        r##"<table bgcolor="#000000"><tbody><tr><td>Hi</td></tr></tbody></table>"##,
+        r##"<body text="#ffffff">Hi</body>"##,
+        "<style>p { color: red }</style><p>Hi</p>",
+        "<STYLE>p { background: black }</STYLE><p>Hi</p>",
+        r##"<a title="a > b" style="color: red">Hi</a>"##,
+    ] {
+        assert!(
+            super::names_a_colour(painting),
+            "taken for a message without colours: {painting}"
+        );
+    }
+}
+
+#[test]
+fn words_about_colour_do_not_make_a_message_paint_itself() {
+    // A message that names no colour is drawn on the window's own surface; taken for one that
+    // does, a letter about a favourite colour is a white page in a dark window.
+    let typed = super::typed::markup("Favourite color: blue\nhttps://wa.me/1?text=hi");
+    for words in [
+        "<p>Favourite color: blue</p>",
+        "<p>Write on https://wa.me/1?text=hi</p>",
+        r##"<p style="border-color: #cccccc">background: none of it</p>"##,
+        r##"<a href="https://wa.me/1?text=hi">wa.me</a>"##,
+        "<style>p { margin: 0 }</style><p>color: everywhere</p>",
+        typed.as_str(),
+    ] {
+        assert!(
+            !super::names_a_colour(words),
+            "taken for a message painting itself: {words}"
+        );
+    }
+}
+
+#[test]
 fn the_text_of_a_message_can_be_read_on_its_own() {
     // A message that carries both wrote the text for a client that shows no HTML. A reader
     // whose HTML came out empty is in the same position.

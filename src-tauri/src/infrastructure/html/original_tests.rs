@@ -209,6 +209,43 @@ fn a_message_with_no_markup_is_not_cut_down() {
     assert!(cut(&raw).is_none());
 }
 
+/// A message this application wrote: its text, and the markup it sends beside it.
+fn typed_here(text: &str) -> Vec<u8> {
+    mail_builder::MessageBuilder::new()
+        .from("zeta@example.com")
+        .to("kappa@example.net")
+        .subject("Typed here")
+        .body(super::super::typed::written(text, usize::MAX))
+        .write_to_string()
+        .expect("written")
+        .into_bytes()
+}
+
+/// What passing a message on hands the cutting: its text as a text box holds it.
+fn as_a_text_box_holds_it(parsed: &mail_parser::Message<'_>) -> String {
+    super::super::words::written_text(parsed)
+        .map(|text| text.lines().collect::<Vec<_>>().join("\n"))
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_message_whose_markup_is_its_text_is_passed_on_as_text() {
+    // What a person sent from here is a text they can edit when they pass it on, as it was when
+    // the message carried its text alone.
+    for text in [
+        "Meeting at 5\n> see below\nhttps://example.com",
+        "Meeting at 5\n",
+    ] {
+        let raw = typed_here(text);
+        let parsed = MessageParser::default().parse(&raw).expect("a message");
+
+        assert!(
+            cut_down(&parsed, &as_a_text_box_holds_it(&parsed)).is_none(),
+            "passed on in its own form: {text:?}"
+        );
+    }
+}
+
 #[test]
 fn a_page_of_frames_has_no_body_to_draw_in_and_is_not_cut_down() {
     let framed = markup_alone(

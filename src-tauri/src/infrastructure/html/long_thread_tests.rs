@@ -218,9 +218,9 @@ fn an_html_only_thread_deeper_than_the_bound_is_shown_as_its_words() {
 
     assert_eq!(rendered.kind, BodyKind::PlainText);
     assert!(
-        rendered
-            .html
-            .starts_with("<pre>Message 201 of the thread.\n\nZeta\n"),
+        rendered.html.starts_with(
+            "<div style=\"white-space:pre-wrap\">Message 201 of the thread.\n\nZeta\n"
+        ),
         "{}",
         &rendered.html[..rendered.html.len().min(400)]
     );
@@ -264,7 +264,8 @@ fn the_words_of_a_hostile_document_past_the_bound_carry_nothing_that_runs() {
 
     assert_eq!(rendered.kind, BodyKind::PlainText);
     assert_eq!(
-        rendered.html, "<pre>Click &lt;script&gt;alert(4)&lt;/script&gt;</pre>",
+        rendered.html,
+        "<div style=\"white-space:pre-wrap\">Click &lt;script&gt;alert(4)&lt;/script&gt;</div>",
         "a script, a stylesheet, a handler or an address survived as words"
     );
     assert!(rendered.links.is_empty() && rendered.remote.is_empty() && rendered.parts.is_empty());
@@ -469,7 +470,10 @@ fn the_document_written_to_be_hostile_about_depth_is_still_refused_before_any_pa
 
     let rendered = body_of(&raw, Viewing::plainly());
     assert_eq!(rendered.kind, BodyKind::PlainText);
-    assert_eq!(rendered.html, "<pre>deep</pre>");
+    assert_eq!(
+        rendered.html,
+        "<div style=\"white-space:pre-wrap\">deep</div>"
+    );
 }
 
 /// The count that runs before the parser, on the shapes that make a careless scan search the rest
