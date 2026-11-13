@@ -291,9 +291,11 @@
   "reading.bodyEmptyWayOut": "Beberapa pesan ditulis sedemikian rupa sehingga tidak ada bagian yang dapat ditampilkan dengan aman. Pesannya sendiri tetap ada dan masih dapat dilihat",
   "reading.bodyLoading": "Mengambil pesan…",
   "reading.bodyTruncated": "Hanya bagian awal pesan ini yang ditampilkan",
+  "reading.copy": "Tembusan",
   "reading.date": "Diterima",
   "reading.delete": "Pindahkan ke sampah",
   "reading.fetchingPictures": "Mengambil gambar…",
+  "reading.fewerRecipients": "Tampilkan lebih sedikit",
   "reading.folders": "Di folder",
   "reading.forward": "Teruskan",
   "reading.forwardWays": "Pilih cara meneruskan",
@@ -304,6 +306,9 @@
     "other": "{count} gambar tidak dimuat"
   },
   "reading.missing": "Pesan ini sudah tidak ada di indeks lokal",
+  "reading.moreRecipients": {
+    "other": "{count} lainnya"
+  },
   "reading.moveNowhere": "Tidak ada folder lain yang dapat menerima pesan",
   "reading.moveTo": "Pindahkan ke…",
   "reading.nothingSelected": "Pilih pesan untuk membacanya",
@@ -324,7 +329,7 @@
   "reading.saveAttachment": "Simpan {name}",
   "reading.savedAs": "Disimpan sebagai {name}",
   "reading.showPictures": "Tampilkan gambar",
-  "reading.size": "Ukuran",
+  "reading.to": "Kepada",
   "reading.tryPicturesAgain": "Coba lagi",
   "recovery.body": "Email dapat diunduh lagi dari server, tetapi pengaturan akun dan pesan yang belum terkirim hanya ada di perangkat ini. Keluar dari aplikasi dan pastikan file di atas dapat dibaca sebelum mencoba lagi",
   "recovery.couldNotMove": "File tidak dapat dipindahkan. Pastikan folder di atas dapat ditulisi",

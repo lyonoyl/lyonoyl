@@ -291,9 +291,11 @@
   "reading.bodyEmptyWayOut": "Có những thư được soạn theo cách khiến không phần nào hiển thị được một cách an toàn. Bản thân thư vẫn còn đó để bạn xem",
   "reading.bodyLoading": "Đang tải thư…",
   "reading.bodyTruncated": "Chỉ hiển thị phần đầu của thư này",
+  "reading.copy": "Bản sao",
   "reading.date": "Ngày nhận",
   "reading.delete": "Chuyển vào thùng rác",
   "reading.fetchingPictures": "Đang tải hình ảnh…",
+  "reading.fewerRecipients": "Thu gọn",
   "reading.folders": "Trong thư mục",
   "reading.forward": "Chuyển tiếp",
   "reading.forwardWays": "Các cách chuyển tiếp",
@@ -304,6 +306,9 @@
     "other": "{count} hình ảnh chưa được tải"
   },
   "reading.missing": "Thư này không còn trong chỉ mục cục bộ",
+  "reading.moreRecipients": {
+    "other": "{count} người khác"
+  },
   "reading.moveNowhere": "Không có thư mục nào khác để chuyển tới",
   "reading.moveTo": "Di chuyển tới…",
   "reading.nothingSelected": "Chọn một thư để đọc",
@@ -324,7 +329,7 @@
   "reading.saveAttachment": "Lưu {name}",
   "reading.savedAs": "Đã lưu thành tệp {name}",
   "reading.showPictures": "Hiện hình ảnh",
-  "reading.size": "Kích thước",
+  "reading.to": "Đến",
   "reading.tryPicturesAgain": "Thử lại",
   "recovery.body": "Thư có thể được tải lại từ máy chủ, nhưng cài đặt tài khoản và thư chưa gửi chỉ có trên thiết bị này. Hãy thoát ứng dụng và kiểm tra xem tệp ở trên có đọc được không trước khi thử lại",
   "recovery.couldNotMove": "Không di chuyển được các tệp. Hãy kiểm tra xem có quyền ghi vào thư mục ở trên không",

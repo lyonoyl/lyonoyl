@@ -318,9 +318,11 @@
   "reading.bodyEmptyWayOut": "Некоторые письма написаны так, что безопасно показать из них нечего. Само письмо при этом никуда не делось — на него можно посмотреть",
   "reading.bodyLoading": "Загрузка письма…",
   "reading.bodyTruncated": "Показано только начало письма",
+  "reading.copy": "Копия",
   "reading.date": "Получено",
   "reading.delete": "В корзину",
   "reading.fetchingPictures": "Загрузка картинок…",
+  "reading.fewerRecipients": "Свернуть",
   "reading.folders": "В папках",
   "reading.forward": "Переслать",
   "reading.forwardWays": "Способы пересылки",
@@ -334,6 +336,12 @@
     "other": "{count} картинки не загружены"
   },
   "reading.missing": "Этого письма больше нет в локальном индексе",
+  "reading.moreRecipients": {
+    "one": "ещё {count}",
+    "few": "ещё {count}",
+    "many": "ещё {count}",
+    "other": "ещё {count}"
+  },
   "reading.moveNowhere": "Больше некуда переместить",
   "reading.moveTo": "Переместить в…",
   "reading.nothingSelected": "Выберите письмо, чтобы прочитать его",
@@ -363,7 +371,7 @@
   "reading.saveAttachment": "Сохранить {name}",
   "reading.savedAs": "Сохранено как {name}",
   "reading.showPictures": "Показать картинки",
-  "reading.size": "Размер",
+  "reading.to": "Кому",
   "reading.tryPicturesAgain": "Повторить",
   "recovery.body": "Почту можно заново скачать с сервера, но настройки ящиков и неотправленные письма есть только на этом устройстве. Закройте приложение и проверьте, что файл выше доступен для чтения, прежде чем пробовать снова",
   "recovery.couldNotMove": "Не удалось переместить файлы. Проверьте, что папка выше доступна для записи",

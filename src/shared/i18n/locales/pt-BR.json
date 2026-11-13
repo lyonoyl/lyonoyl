@@ -309,9 +309,11 @@
   "reading.bodyEmptyWayOut": "Algumas mensagens são escritas de forma que nada nelas pode ser exibido com segurança. A mensagem em si continua disponível, e você ainda pode vê-la",
   "reading.bodyLoading": "Carregando a mensagem…",
   "reading.bodyTruncated": "Só o início desta mensagem é exibido",
+  "reading.copy": "Cópia para",
   "reading.date": "Recebida em",
   "reading.delete": "Mover para a lixeira",
   "reading.fetchingPictures": "Carregando imagens…",
+  "reading.fewerRecipients": "Mostrar menos",
   "reading.folders": "Nas pastas",
   "reading.forward": "Encaminhar",
   "reading.forwardWays": "Formas de encaminhar",
@@ -324,6 +326,11 @@
     "other": "{count} imagens não foram carregadas"
   },
   "reading.missing": "Esta mensagem não está mais no índice local",
+  "reading.moreRecipients": {
+    "one": "mais {count}",
+    "many": "mais {count}",
+    "other": "mais {count}"
+  },
   "reading.moveNowhere": "Nenhuma outra pasta aceita mensagens",
   "reading.moveTo": "Mover para…",
   "reading.nothingSelected": "Selecione uma mensagem para lê-la",
@@ -350,7 +357,7 @@
   "reading.saveAttachment": "Salvar {name}",
   "reading.savedAs": "Salvo como {name}",
   "reading.showPictures": "Mostrar imagens",
-  "reading.size": "Tamanho",
+  "reading.to": "Para",
   "reading.tryPicturesAgain": "Tentar novamente",
   "recovery.body": "Os e-mails podem ser baixados novamente do servidor, mas as configurações das contas e as mensagens não enviadas só existem neste dispositivo. Feche o app e verifique se o arquivo acima pode ser lido antes de tentar de novo",
   "recovery.couldNotMove": "Não foi possível mover os arquivos. Verifique se é possível gravar na pasta acima",

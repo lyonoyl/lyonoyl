@@ -73,8 +73,9 @@ const DETAILS: MessageDetailsDto = {
   subject: "Quarterly report",
   sender: "Zeta Quorin",
   senderAddress: "zeta@example.com",
+  to: { shown: ["someone@example.com", "kappa@example.net"], all: 2 },
+  cc: { shown: ["sigma@example.org"], all: 1 },
   receivedAt: 1_700_000_000,
-  size: 4096,
   unread: true,
   bodyState: "headersOnly",
   accountId: "acc-1",
@@ -86,6 +87,36 @@ const DETAILS: MessageDetailsDto = {
     { folderId: "7", folderName: "Projects 2026", folderRole: "custom" },
   ],
 };
+
+/** The value beside the term the header names it by. */
+function row(term: string): HTMLElement {
+  const named = Array.from(document.querySelectorAll("dt")).find(
+    (each) => each.textContent === term,
+  );
+  const value = named?.nextElementSibling;
+  if (!(value instanceof HTMLElement) || value.tagName !== "DD") {
+    throw new Error(`no line named ${term}`);
+  }
+  return value;
+}
+
+/** The reader, and a way to open another message in the same one. */
+function renderReaderAgain(messageId: string) {
+  const onReply = vi.fn();
+  const { rerender } = render(
+    <I18nProvider initial="en">
+      <MessageReader messageId={messageId} folderId="1" onReply={onReply} />
+    </I18nProvider>,
+  );
+  return {
+    rerenderWith: (next: string) =>
+      rerender(
+        <I18nProvider initial="en">
+          <MessageReader messageId={next} folderId="1" onReply={onReply} />
+        </I18nProvider>,
+      ),
+  };
+}
 
 function renderReader(messageId: string | null, language = "en") {
   const onReply = vi.fn();
@@ -217,10 +248,127 @@ describe("MessageReader", () => {
     // The name the message gave, which is what a person reads. The address behind it is what an
     // answer is sent to, and it is carried rather than shown.
     expect(screen.getByText("Zeta Quorin")).toBeTruthy();
-    // 4096 bytes, said in powers of a thousand like every other size in this application and like
-    // the operating system beside the same file. The reader used to answer this one question its
-    // own way, in powers of 1024.
-    expect(screen.getByText("4.1 kB")).toBeTruthy();
+  });
+
+  it("names who the message is for under who it is from, then who is kept informed", async () => {
+    message.mockResolvedValue(DETAILS);
+    renderReader("42");
+    await screen.findByText("Quarterly report");
+
+    const terms = Array.from(document.querySelectorAll("dt")).map((term) => term.textContent);
+    expect(terms).toEqual(["From", "To", "Copy to", "Received", "In folders"]);
+    // Joined the way the language joins a list, as the folders below are.
+    expect(row("To").textContent).toBe("someone@example.com and kappa@example.net");
+    // The words the header of a message sent from here gives the same line.
+    expect(row("Copy to").textContent).toBe("sigma@example.org");
+  });
+
+  it("leaves out a line naming nobody, and the size, which its files say for themselves", async () => {
+    message.mockResolvedValue({ ...DETAILS, cc: { shown: [], all: 0 } });
+    renderReader("42");
+    await screen.findByText("Quarterly report");
+
+    const terms = Array.from(document.querySelectorAll("dt")).map((term) => term.textContent);
+    expect(terms).toEqual(["From", "To", "Received", "In folders"]);
+  });
+
+  it("shows three of a long list and how many more, and the rest when asked", async () => {
+    // Forty people above the text would push the text off the screen.
+    const crowd = Array.from({ length: 40 }, (_, at) => `sigma.${at}@example.org`);
+    message.mockResolvedValue({ ...DETAILS, to: { shown: crowd, all: 40 } });
+    renderReader("42");
+    await screen.findByText("Quarterly report");
+
+    // How many more is the last of the list, and the button that shows them.
+    const more = within(row("To")).getByRole("button", { name: "37 more" });
+    expect(row("To").textContent).toBe(
+      "sigma.0@example.org, sigma.1@example.org, sigma.2@example.org, and 37 more",
+    );
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+
+    more.focus();
+    fireEvent.click(more);
+    // The keyboard that pressed it is on the button that folds them again.
+    const fewer = within(row("To")).getByRole("button", { name: "Show fewer" });
+    await waitFor(() => expect(document.activeElement).toBe(fewer));
+    expect(fewer.getAttribute("aria-expanded")).toBe("true");
+    expect(row("To").textContent).toBe(
+      `${crowd.slice(0, -1).join(", ")}, and ${crowd[crowd.length - 1]} Show fewer`,
+    );
+
+    fireEvent.click(fewer);
+    const again = within(row("To")).getByRole("button", { name: "37 more" });
+    await waitFor(() => expect(document.activeElement).toBe(again));
+  });
+
+  it("leaves the focus where it was when the list is unfolded by the pointer", async () => {
+    // A click does not take the focus, and a button that never had it hands none on.
+    const crowd = Array.from({ length: 40 }, (_, at) => `sigma.${at}@example.org`);
+    message.mockResolvedValue({ ...DETAILS, to: { shown: crowd, all: 40 } });
+    renderReader("42");
+    await screen.findByText("Quarterly report");
+
+    fireEvent.click(within(row("To")).getByRole("button", { name: "37 more" }));
+
+    expect(within(row("To")).getByRole("button", { name: "Show fewer" })).toBeTruthy();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("shows four whole, rather than three and a button standing for one", async () => {
+    const four = ["a@example.org", "b@example.org", "c@example.org", "d@example.org"];
+    message.mockResolvedValue({ ...DETAILS, to: { shown: four, all: 4 } });
+    renderReader("42");
+    await screen.findByText("Quarterly report");
+
+    expect(row("To").textContent).toBe(
+      "a@example.org, b@example.org, c@example.org, and d@example.org",
+    );
+    expect(within(row("To")).queryByRole("button")).toBeNull();
+  });
+
+  it("counts the people it was not handed, folded and unfolded", async () => {
+    // The core hands over a hundred and the number of the rest.
+    const hundred = Array.from({ length: 100 }, (_, at) => `sigma.${at}@example.org`);
+    message.mockResolvedValue({ ...DETAILS, to: { shown: hundred, all: 10_000 } });
+    renderReader("42");
+    await screen.findByText("Quarterly report");
+
+    const more = within(row("To")).getByRole("button", { name: "9,997 more" });
+    fireEvent.click(more);
+
+    expect(row("To").textContent).toBe(`${hundred.join(", ")}, and 9,900 more Show fewer`);
+  });
+
+  it("opens the next message with its list folded", async () => {
+    const crowd = Array.from({ length: 40 }, (_, at) => `sigma.${at}@example.org`);
+    message.mockResolvedValue({ ...DETAILS, to: { shown: crowd, all: 40 } });
+    const { rerenderWith } = renderReaderAgain("42");
+    await screen.findByText("Quarterly report");
+    fireEvent.click(within(row("To")).getByRole("button", { name: "37 more" }));
+
+    message.mockResolvedValue({
+      ...DETAILS,
+      messageId: "43",
+      subject: "Next quarter",
+      to: { shown: crowd, all: 40 },
+    });
+    rerenderWith("43");
+    await screen.findByText("Next quarter");
+
+    expect(within(row("To")).getByRole("button", { name: "37 more" })).toBeTruthy();
+  });
+
+  it("sets every address apart in a window that runs right to left", async () => {
+    message.mockResolvedValue(DETAILS);
+    renderReader("42", "ar");
+    await screen.findByText("Quarterly report");
+
+    const to = document.querySelectorAll("dd bdi");
+    expect(Array.from(to).map((address) => address.textContent)).toEqual([
+      "someone@example.com",
+      "kappa@example.net",
+      "sigma@example.org",
+    ]);
   });
 
   it("names the folders the message sits in, translating the ones with a role", async () => {

@@ -300,9 +300,11 @@
   "reading.bodyEmptyWayOut": "Manche Nachrichten sind so geschrieben, dass sich nichts davon sicher anzeigen lässt. Die Nachricht selbst lässt sich trotzdem ansehen",
   "reading.bodyLoading": "Nachricht wird geladen…",
   "reading.bodyTruncated": "Nur der Anfang dieser Nachricht wird angezeigt",
+  "reading.copy": "Kopie an",
   "reading.date": "Empfangen",
   "reading.delete": "In den Papierkorb verschieben",
   "reading.fetchingPictures": "Bilder werden geladen…",
+  "reading.fewerRecipients": "Weniger anzeigen",
   "reading.folders": "Ordner",
   "reading.forward": "Weiterleiten",
   "reading.forwardWays": "Weiterleitungsoptionen",
@@ -314,6 +316,10 @@
     "other": "{count} Bilder wurden nicht geladen"
   },
   "reading.missing": "Diese Nachricht ist nicht mehr im lokalen Index",
+  "reading.moreRecipients": {
+    "one": "{count} weitere Adresse",
+    "other": "{count} weitere Adressen"
+  },
   "reading.moveNowhere": "Kein anderer Ordner nimmt Nachrichten auf",
   "reading.moveTo": "Verschieben nach…",
   "reading.nothingSelected": "Wählen Sie eine Nachricht aus, um sie zu lesen",
@@ -337,7 +343,7 @@
   "reading.saveAttachment": "{name} speichern",
   "reading.savedAs": "Gespeichert als {name}",
   "reading.showPictures": "Bilder anzeigen",
-  "reading.size": "Größe",
+  "reading.to": "An",
   "reading.tryPicturesAgain": "Erneut versuchen",
   "recovery.body": "E-Mails lassen sich erneut vom Server herunterladen, Postfacheinstellungen und nicht gesendete Nachrichten gibt es aber nur auf diesem Gerät. Beenden Sie die App und prüfen Sie, ob die oben angezeigte Datei lesbar ist, bevor Sie es erneut versuchen",
   "recovery.couldNotMove": "Die Dateien konnten nicht verschoben werden. Prüfen Sie, ob der oben angezeigte Ordner beschreibbar ist",

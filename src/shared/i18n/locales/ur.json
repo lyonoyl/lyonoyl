@@ -300,9 +300,11 @@
   "reading.bodyEmptyWayOut": "کچھ پیغامات اس طرح لکھے جاتے ہیں کہ ان کا کوئی حصہ بھی محفوظ طریقے سے نہیں دکھایا جا سکتا۔ پیغام خود اب بھی موجود ہے اور دیکھا جا سکتا ہے",
   "reading.bodyLoading": "پیغام حاصل کیا جا رہا ہے…",
   "reading.bodyTruncated": "اس پیغام کا صرف ابتدائی حصہ دکھایا گیا ہے",
+  "reading.copy": "کاپی بنام",
   "reading.date": "موصول ہوا",
   "reading.delete": "کوڑے دان میں منتقل کریں",
   "reading.fetchingPictures": "تصاویر لوڈ ہو رہی ہیں…",
+  "reading.fewerRecipients": "کم دکھائیں",
   "reading.folders": "فولڈرز میں",
   "reading.forward": "آگے بھیجیں",
   "reading.forwardWays": "آگے بھیجنے کے طریقے",
@@ -314,6 +316,10 @@
     "other": "{count} تصاویر لوڈ نہیں کی گئیں"
   },
   "reading.missing": "یہ پیغام اب مقامی انڈیکس میں نہیں ہے",
+  "reading.moreRecipients": {
+    "one": "{count} دیگر",
+    "other": "{count} دیگر"
+  },
   "reading.moveNowhere": "کوئی اور فولڈر پیغامات قبول نہیں کرتا",
   "reading.moveTo": "منتقل کریں…",
   "reading.nothingSelected": "پڑھنے کے لیے کوئی پیغام منتخب کریں",
@@ -337,7 +343,7 @@
   "reading.saveAttachment": "{name} محفوظ کریں",
   "reading.savedAs": "{name} کے نام سے محفوظ ہو گیا",
   "reading.showPictures": "تصاویر دکھائیں",
-  "reading.size": "سائز",
+  "reading.to": "بنام",
   "reading.tryPicturesAgain": "دوبارہ کوشش کریں",
   "recovery.body": "میل سرور سے دوبارہ ڈاؤن لوڈ کی جا سکتی ہے، لیکن اکاؤنٹ کی ترتیبات اور نہ بھیجے گئے پیغامات صرف اسی آلے پر ہیں۔ دوبارہ کوشش کرنے سے پہلے ایپ بند کریں اور دیکھ لیں کہ اوپر والی فائل پڑھی جا سکتی ہے",
   "recovery.couldNotMove": "فائلیں منتقل نہیں ہو سکیں۔ دیکھ لیں کہ اوپر والے فولڈر میں لکھا جا سکتا ہے",

@@ -291,9 +291,11 @@
   "reading.bodyEmptyWayOut": "일부 메일은 안전하게 표시할 수 있는 부분이 전혀 없는 형태로 작성되어 있습니다. 메일 자체는 그대로 있으므로 다른 방식으로 볼 수 있습니다",
   "reading.bodyLoading": "메일 가져오는 중…",
   "reading.bodyTruncated": "이 메일의 앞부분만 표시됩니다",
+  "reading.copy": "참조",
   "reading.date": "받은 날짜",
   "reading.delete": "휴지통으로 이동",
   "reading.fetchingPictures": "이미지 가져오는 중…",
+  "reading.fewerRecipients": "접기",
   "reading.folders": "폴더",
   "reading.forward": "전달",
   "reading.forwardWays": "전달 방법",
@@ -304,6 +306,9 @@
     "other": "이미지 {count}개를 불러오지 않았습니다"
   },
   "reading.missing": "이 메일은 더 이상 로컬 색인에 없습니다",
+  "reading.moreRecipients": {
+    "other": "나머지 {count}명"
+  },
   "reading.moveNowhere": "이동할 수 있는 다른 폴더가 없습니다",
   "reading.moveTo": "폴더로 이동…",
   "reading.nothingSelected": "읽을 메일을 선택하세요",
@@ -324,7 +329,7 @@
   "reading.saveAttachment": "{name} 저장",
   "reading.savedAs": "{name} 파일로 저장했습니다",
   "reading.showPictures": "이미지 표시",
-  "reading.size": "크기",
+  "reading.to": "받는 사람",
   "reading.tryPicturesAgain": "다시 시도",
   "recovery.body": "메일은 서버에서 다시 받을 수 있지만, 계정 설정과 보내지 않은 메일은 이 기기에만 있습니다. 다시 시도하기 전에 앱을 종료하고 위에 표시된 파일을 읽을 수 있는지 확인하세요",
   "recovery.couldNotMove": "파일을 옮기지 못했습니다. 위에 표시된 폴더에 쓰기 권한이 있는지 확인하세요",
