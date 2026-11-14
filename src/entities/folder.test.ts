@@ -29,7 +29,18 @@ describe("what a folder shows beside its name", () => {
     },
   );
 
-  it.each<FolderRoleDto>(["sent", "archive", "trash", "allMail"])(
+  it("counts unread mail in the Trash, so a message thrown away unread is not lost from every count", () => {
+    expect(folderBadge(folder("trash", 3))).toEqual({
+      count: 3,
+      label: "folder.unread",
+    });
+  });
+
+  it("says nothing beside the Trash once everything in it has been read", () => {
+    expect(folderBadge(folder("trash", 0))).toBeNull();
+  });
+
+  it.each<FolderRoleDto>(["sent", "archive", "allMail"])(
     "shows nothing beside %s, however the server flagged what is in it",
     (role) => {
       expect(folderBadge(folder(role, 7))).toBeNull();

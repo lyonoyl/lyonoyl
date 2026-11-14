@@ -31,11 +31,12 @@ const ROLE_NAMES: Record<FolderRoleDto, TranslationKey | null> = {
 /**
  * What a folder shows beside its name, if anything.
  *
- * Unread only means something where mail arrives and waits to be read. A message in Sent was
- * written here, one in the Archive was filed on purpose, and one in the Trash was thrown away —
- * a number beside any of them asks for attention that nothing is owed. Drafts count themselves
- * instead: what matters there is how many are waiting to be finished — the ones the server's
- * folder holds and the ones kept on this device together, because the folder shows both.
+ * Unread means something where mail arrives and waits to be read, and in the Trash, where a message
+ * thrown away unread would otherwise leave every count without a trace. A message in Sent was
+ * written here and one in the Archive was filed on purpose, so a number beside either asks for
+ * attention that nothing is owed. Drafts count themselves instead: what matters there is how many
+ * are waiting to be finished — the ones the server's folder holds and the ones kept on this device
+ * together, because the folder shows both.
  *
  * Exhaustive by construction, like ROLE_NAMES above.
  */
@@ -47,7 +48,7 @@ const ROLE_BADGES: Record<FolderRoleDto, "unread" | "total" | null> = {
   drafts: "total",
   sent: null,
   archive: null,
-  trash: null,
+  trash: "unread",
   allMail: null,
 };
 
