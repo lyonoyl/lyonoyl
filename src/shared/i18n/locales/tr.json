@@ -228,6 +228,7 @@
   "keys.search": "Ara",
   "keys.settings": "Ayarları aç",
   "keys.showThese": "Bu listeyi göster",
+  "keys.takeBack": "Son taşımayı geri al",
   "keys.throwAway": "İletiyi çöp kutusuna taşı",
   "keys.title": "Klavye kısayolları",
   "link.body": "Sizi Lyonoyl Mail dışına, bu iletiyi gönderen kişinin seçtiği bir siteye götürür",
@@ -238,12 +239,13 @@
   "link.writtenAs": "Bağlantının kendisinde bu ad {written} olarak yazılmış",
   "list.accountNotAnswering": "{accounts} için postalar alınamadı, bu yüzden burada gösterilmiyor",
   "list.archived": "Arşive taşındı",
-  "list.cannotBringBack": "Bu artık geri alınamaz",
+  "list.cannotBringBack": "Lyonoyl Mail iletiyi geri koyamadı",
   "list.deleted": "Çöp kutusuna taşındı",
   "list.discardDraft": "Sil",
   "list.draftsHere": "Bu cihazda",
   "list.draftsOnServer": "Sunucuda",
   "list.empty": "Bu klasör boş",
+  "list.emptyingCannotBeUndone": "Çöp kutusunu boşaltma işlemi geri alınamaz",
   "list.inConversation": {
     "one": "Bu yazışmada {count} ileti",
     "other": "Bu yazışmada {count} ileti"

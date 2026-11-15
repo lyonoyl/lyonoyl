@@ -220,6 +220,7 @@
   "keys.search": "搜索",
   "keys.settings": "打开设置",
   "keys.showThese": "显示此列表",
+  "keys.takeBack": "将你移动的最后一封邮件放回原处",
   "keys.throwAway": "将邮件移到废纸篓",
   "keys.title": "键盘快捷键",
   "link.body": "打开此链接将离开 Lyonoyl Mail，前往由这封邮件的发件人选定的网站",
@@ -230,12 +231,13 @@
   "link.writtenAs": "在链接中，这个域名实际写作 {written}",
   "list.accountNotAnswering": "以下邮箱的邮件无法读取，因此未在此显示：{accounts}",
   "list.archived": "已归档",
-  "list.cannotBringBack": "已无法撤销",
+  "list.cannotBringBack": "Lyonoyl Mail 未能将邮件放回原处",
   "list.deleted": "已移到废纸篓",
   "list.discardDraft": "舍弃",
   "list.draftsHere": "此设备上",
   "list.draftsOnServer": "服务器上",
   "list.empty": "此文件夹为空",
+  "list.emptyingCannotBeUndone": "清空废纸篓无法撤销",
   "list.inConversation": {
     "other": "此会话中有 {count} 封邮件"
   },

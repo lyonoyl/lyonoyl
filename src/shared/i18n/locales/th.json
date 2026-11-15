@@ -220,6 +220,7 @@
   "keys.search": "ค้นหา",
   "keys.settings": "เปิดการตั้งค่า",
   "keys.showThese": "แสดงรายการนี้",
+  "keys.takeBack": "นำอีเมลฉบับที่คุณย้ายล่าสุดกลับไปไว้ที่เดิม",
   "keys.throwAway": "ย้ายอีเมลไปที่ถังขยะ",
   "keys.title": "แป้นพิมพ์ลัด",
   "link.body": "ลิงก์นี้จะพาคุณออกไปนอก Lyonoyl Mail ไปยังเว็บไซต์ที่ผู้ส่งอีเมลนี้เป็นผู้เลือก",
@@ -230,12 +231,13 @@
   "link.writtenAs": "ในตัวลิงก์จริง ชื่อนี้เขียนว่า {written}",
   "list.accountNotAnswering": "โหลดอีเมลของ {accounts} ไม่ได้ จึงไม่ได้แสดงไว้ที่นี่",
   "list.archived": "เก็บถาวรแล้ว",
-  "list.cannotBringBack": "ย้อนกลับไม่ได้แล้ว",
+  "list.cannotBringBack": "Lyonoyl Mail นำอีเมลนั้นกลับไปไว้ที่เดิมไม่ได้",
   "list.deleted": "ย้ายไปที่ถังขยะแล้ว",
   "list.discardDraft": "ทิ้ง",
   "list.draftsHere": "บนอุปกรณ์นี้",
   "list.draftsOnServer": "บนเซิร์ฟเวอร์",
   "list.empty": "โฟลเดอร์นี้ว่างเปล่า",
+  "list.emptyingCannotBeUndone": "การล้างถังขยะย้อนกลับไม่ได้",
   "list.inConversation": {
     "other": "อีเมล {count} ฉบับในการสนทนานี้"
   },

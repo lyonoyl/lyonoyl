@@ -49,6 +49,7 @@ vi.mock("@/shared/ipc/client", async () => {
     forgetAttachment: vi.fn(),
     deleteMessage: vi.fn(),
     undoAction: vi.fn(),
+    emptyFolder: vi.fn(),
     getAccountSettings: vi.fn(),
     getPaneWidths: vi.fn(),
     setPaneWidth: vi.fn(),
@@ -102,6 +103,7 @@ const archiving = vi.mocked(client.archiveMessage);
 const answering = vi.mocked(client.answerAudience);
 const forwarding = vi.mocked(client.forwardMessage);
 const undoing = vi.mocked(client.undoAction);
+const emptying = vi.mocked(client.emptyFolder);
 const reading = vi.mocked(client.getMessage);
 const opening = vi.mocked(client.openingMessage);
 const paneWidths = vi.mocked(client.getPaneWidths);
@@ -3294,5 +3296,175 @@ describe("reading, as the window does it", () => {
     await waitFor(() =>
       expect(window_.mock.calls.length).toBeGreaterThan(rows),
     );
+  });
+
+  describe("taking back by key", () => {
+    const TRASH = {
+      folderId: "3",
+      name: "Trash",
+      role: "trash" as const,
+      total: 1,
+      unread: 0,
+      draftsHere: 0,
+      canReceive: true,
+    };
+
+    beforeEach(() => {
+      undoing.mockReset();
+      undoing.mockResolvedValue(true);
+      emptying.mockReset();
+      deleting.mockResolvedValue(undefined);
+      reading.mockImplementation(async (messageId: string) =>
+        details(messageId),
+      );
+    });
+
+    /** Cmd+Z, as a person presses it: answers whether the system was left to take it. */
+    function pressUndo(on: Element | Window) {
+      return fireEvent.keyDown(on, { key: "z", code: "KeyZ", metaKey: true });
+    }
+
+    /** A moment for anything the press set going to land. */
+    function settle() {
+      return act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    }
+
+    /** Throws the first message away from the list, and waits for the next one to open. */
+    async function throwTheFirstAway() {
+      renderApp();
+      fireEvent.click(await screen.findByText("About m-1"));
+      await screen.findByRole("heading", { name: "About m-1" });
+      fireEvent.keyDown(screen.getByRole("listbox"), { key: "Delete" });
+      // To the trash, which the list asks for as not for good.
+      await waitFor(() =>
+        expect(deleting).toHaveBeenCalledWith("m-1", "1", false),
+      );
+      await screen.findByRole("heading", { name: "About m-2" });
+      // Opened unread, and marked read for it: the notice says so now, in place of the one about
+      // the message thrown away.
+      await screen.findByText("Marked read");
+    }
+
+    it("takes back the message last thrown away, past the mark the next one got for being opened", async () => {
+      await throwTheFirstAway();
+      marking.mockClear();
+
+      pressUndo(screen.getByRole("listbox"));
+
+      await waitFor(() => expect(undoing).toHaveBeenCalledWith("m-1", "1"));
+      expect(undoing).toHaveBeenCalledTimes(1);
+      expect(marking).not.toHaveBeenCalled();
+    });
+
+    it("reads the list again once the message is back, as the button does", async () => {
+      await throwTheFirstAway();
+      const rows = window_.mock.calls.length;
+
+      pressUndo(screen.getByRole("listbox"));
+
+      await waitFor(() =>
+        expect(window_.mock.calls.length).toBeGreaterThan(rows),
+      );
+    });
+
+    it("asks once however often the key is pressed, and nothing once the message is back", async () => {
+      let answer: (takenBack: boolean) => void = () => {};
+      undoing.mockImplementation(
+        () => new Promise<boolean>((resolve) => (answer = resolve)),
+      );
+      await throwTheFirstAway();
+      const list = screen.getByRole("listbox");
+
+      pressUndo(list);
+      pressUndo(list);
+      await act(async () => answer(true));
+      pressUndo(list);
+      await settle();
+
+      expect(undoing).toHaveBeenCalledTimes(1);
+    });
+
+    it("says when the message cannot be brought back", async () => {
+      undoing.mockResolvedValue(false);
+      await throwTheFirstAway();
+
+      pressUndo(screen.getByRole("listbox"));
+
+      expect(
+        await screen.findByText("Lyonoyl Mail could not put the message back"),
+      ).toBeTruthy();
+    });
+
+    it("leaves the key to the field where somebody types", async () => {
+      await throwTheFirstAway();
+      const field = screen.getByPlaceholderText("Search mail");
+      field.focus();
+
+      const leftAlone = pressUndo(field);
+      await settle();
+
+      expect(leftAlone).toBe(true);
+      expect(undoing).not.toHaveBeenCalled();
+    });
+
+    it("leaves the key to a screen in front of the list, and takes nothing back behind it", async () => {
+      await throwTheFirstAway();
+      fireEvent.keyDown(window, { code: "Comma", metaKey: true });
+      await screen.findByRole("heading", { name: "Settings" });
+
+      const leftAlone = pressUndo(window);
+      await settle();
+
+      expect(leftAlone).toBe(true);
+      expect(undoing).not.toHaveBeenCalled();
+    });
+
+    it("keeps the key from the system where nothing has been put away, and asks nothing", async () => {
+      // Left to the system, the key undoes what was last typed into a field that no longer has the
+      // focus, the search box behind the list.
+      renderApp();
+      await screen.findByText("About m-1");
+
+      const leftAlone = pressUndo(window);
+      await settle();
+
+      expect(leftAlone).toBe(false);
+      expect(undoing).not.toHaveBeenCalled();
+    });
+
+    it("says emptying the trash cannot be undone, rather than bringing back what went before it", async () => {
+      emptying.mockResolvedValue(1);
+      tree.mockResolvedValue(
+        sidebar([{ ...ACCOUNT, folders: [INBOX, ARCHIVE, TRASH] }]),
+      );
+      window_.mockImplementation(async (request) => {
+        const folder =
+          request.scope.kind === "folder" ? request.scope.folderId : "1";
+        const rows =
+          folder === "3"
+            ? [row("t-1", "3")]
+            : [row("m-1", "1"), row("m-2", "1")];
+        return { rows, total: rows.length, viewEpoch: "1", notAnswering: [] };
+      });
+      await throwTheFirstAway();
+      // The corner is the notice's while it speaks, and the trash offers to be emptied only once it
+      // has finished: put back to unread, the message it is about takes it away.
+      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      fireEvent.click(screen.getByRole("button", { name: /^trash/i }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Empty the trash" }),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Delete them for good" }),
+      );
+      await waitFor(() => expect(emptying).toHaveBeenCalledWith("3"));
+
+      pressUndo(window);
+
+      expect(
+        await screen.findByText("Emptying the trash cannot be undone"),
+      ).toBeTruthy();
+      expect(undoing).not.toHaveBeenCalled();
+    });
   });
 });

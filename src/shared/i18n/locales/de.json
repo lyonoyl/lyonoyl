@@ -228,6 +228,7 @@
   "keys.search": "Suchen",
   "keys.settings": "Einstellungen öffnen",
   "keys.showThese": "Diese Liste anzeigen",
+  "keys.takeBack": "Zuletzt verschobene Nachricht zurückholen",
   "keys.throwAway": "Nachricht in den Papierkorb verschieben",
   "keys.title": "Tastenkürzel",
   "link.body": "Der Link führt aus Lyonoyl Mail hinaus zu einer Website, die der Absender dieser Nachricht gewählt hat",
@@ -238,12 +239,13 @@
   "link.writtenAs": "Im Link selbst lautet dieser Name {written}",
   "list.accountNotAnswering": "{accounts}: Die E-Mails konnten nicht geladen werden und fehlen deshalb hier",
   "list.archived": "Ins Archiv verschoben",
-  "list.cannotBringBack": "Nicht mehr rückgängig zu machen",
+  "list.cannotBringBack": "Lyonoyl Mail konnte die Nachricht nicht zurückverschieben",
   "list.deleted": "In den Papierkorb verschoben",
   "list.discardDraft": "Verwerfen",
   "list.draftsHere": "Auf diesem Gerät",
   "list.draftsOnServer": "Auf dem Server",
   "list.empty": "Dieser Ordner ist leer",
+  "list.emptyingCannotBeUndone": "Das Leeren des Papierkorbs lässt sich nicht rückgängig machen",
   "list.inConversation": {
     "one": "{count} Nachricht in dieser Konversation",
     "other": "{count} Nachrichten in dieser Konversation"

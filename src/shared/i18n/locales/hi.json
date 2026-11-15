@@ -228,6 +228,7 @@
   "keys.search": "खोजें",
   "keys.settings": "सेटिंग खोलें",
   "keys.showThese": "यह सूची दिखाएं",
+  "keys.takeBack": "आखिरी बार ले जाए गए संदेश को वापस लाएं",
   "keys.throwAway": "संदेश को ट्रैश में ले जाएं",
   "keys.title": "कीबोर्ड शॉर्टकट",
   "link.body": "यह Lyonoyl Mail से बाहर, उस साइट पर ले जाता है जिसे इस संदेश को भेजने वाले ने चुना है",
@@ -238,12 +239,13 @@
   "link.writtenAs": "लिंक के अंदर यह नाम {written} के रूप में लिखा है",
   "list.accountNotAnswering": "{accounts} का मेल लोड नहीं हो सका, इसलिए वह यहाँ नहीं दिख रहा",
   "list.archived": "आर्काइव में ले जाया गया",
-  "list.cannotBringBack": "अब इसे वापस नहीं लाया जा सकता",
+  "list.cannotBringBack": "Lyonoyl Mail संदेश को वापस नहीं ला सका",
   "list.deleted": "ट्रैश में ले जाया गया",
   "list.discardDraft": "खारिज करें",
   "list.draftsHere": "इस डिवाइस पर",
   "list.draftsOnServer": "सर्वर पर",
   "list.empty": "यह फ़ोल्डर खाली है",
+  "list.emptyingCannotBeUndone": "खाली किए गए ट्रैश को पहले जैसा नहीं किया जा सकता",
   "list.inConversation": {
     "one": "इस बातचीत में {count} संदेश",
     "other": "इस बातचीत में {count} संदेश"

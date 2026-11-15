@@ -12,6 +12,7 @@ import {
   mailChord,
   opensSettings,
   somebodyIsTyping,
+  takesBack,
   type MailChord,
 } from "@/shared/ui/keys";
 
@@ -35,6 +36,7 @@ import type { ViewScopeDto } from "@/shared/ipc/generated/ViewScopeDto";
 import { AccountSetup } from "@/features/account-setup/AccountSetup";
 import { ReadingPane } from "@/app/ReadingPane";
 import { ScreenPane } from "@/app/ScreenPane";
+import { useFiling } from "@/app/useFiling";
 import { Sidebar } from "@/app/Sidebar";
 import { StorageRecovery, startTheWindowAgain } from "@/app/StorageRecovery";
 import { Keys } from "@/app/Keys";
@@ -42,7 +44,7 @@ import { EmptyWorkspace } from "@/app/EmptyWorkspace";
 import { useReadChanges } from "@/features/mailbox-tree/useReadChanges";
 import { WhatChanged } from "@/features/updates/WhatChanged";
 import type { WhatChangedDto } from "@/shared/ipc/generated/WhatChangedDto";
-import { FilingNotice, type Filed } from "@/features/message-list/FilingNotice";
+import { FilingNotice } from "@/features/message-list/FilingNotice";
 import { Composer } from "@/features/composer/Composer";
 import { DraftsInFolder } from "@/features/message-list/DraftsInFolder";
 import { SentInFolder } from "@/features/message-list/SentInFolder";
@@ -135,46 +137,8 @@ function App() {
    * this is a new message or an answer to the one that was being read.
    */
   const [writing, setWriting] = useState<Answer | null>(null);
-  /**
-   * The message that has just been filed away, and what became of it.
-   *
-   * Two panes, one action: the buttons are on the message being read, the row is in the list, and
-   * the line saying what happened belongs under the list rather than on a message nobody is
-   * looking at any more. This is what passes between all three.
-   */
-  const [filed, setFiled] = useState<Filed | null>(null);
-  /** The one just put back, which is a different thing to tell the list than a filing. */
-  const [back, setBack] = useState<string | null>(null);
-  /** A message marked read by being opened and put back to unread from the notice. */
-  const [unreadAgain, setUnreadAgain] = useState<{
-    messageId: string;
-    folderId: FolderIdDto;
-  } | null>(null);
-  // Handed to the list once. The list marks it in the effects of the render that carries it, which
-  // run before this one; left standing, a list remounted by a change of mailbox would mark it again.
-  useEffect(() => {
-    if (unreadAgain !== null) setUnreadAgain(null);
-  }, [unreadAgain]);
-  const filedAway = useCallback((what: Filed) => {
-    setBack(null);
-    setFiled(what);
-  }, []);
-
-  const putBack = useCallback((messageId: string) => {
-    setBack(messageId);
-    // Read again as well as shown again: once the server has carried the filing out and a pass has
-    // read it back, the list no longer holds the row it would show, and only its own answer --
-    // the way back laid over the index -- brings the message back into it.
-    setListGeneration((generation) => generation + 1);
-  }, []);
-  /**
-   * Forgotten once the notice about it has gone from the screen.
-   *
-   * What this holds is "there is a notice showing". Never cleared, it stayed true for the rest of
-   * the session after the first message anybody filed -- and anything else that wanted the same
-   * corner, like the offer to empty the trash, was never seen again.
-   */
-  const forgetWhatWasFiled = useCallback(() => setFiled(null), []);
+  /** The message just filed away, what became of it, and the way back to it. */
+  const filing = useFiling(setListGeneration);
   const [addingAccount, setAddingAccount] = useState(false);
   /** An account already here whose password has to be typed again. */
   const [reconnecting, setReconnecting] = useState<string | undefined>(
@@ -614,6 +578,26 @@ function App() {
         return;
       }
 
+      // The last message put away, back by the key every application on the desk undoes with, for
+      // as long as the core can put it back. Where somebody types it is the field's own undo, and
+      // with a screen in front it is that screen's: the list and the message are not there to take
+      // anything back into.
+      if (takesBack(event)) {
+        if (
+          somebodyIsTyping(event.target) ||
+          event.defaultPrevented ||
+          showing !== null
+        ) {
+          return;
+        }
+
+        // Taken whether or not anything is put away: left to the system, the key undoes what was
+        // last typed into a field that no longer has the focus, the search box behind the list.
+        event.preventDefault();
+        filing.takeBackByKey();
+        return;
+      }
+
       // The chords every mail application answers to, beside the letters. Not where somebody types,
       // where they edit the text instead, and not when the list already answered the same key by
       // throwing its selection away.
@@ -743,18 +727,9 @@ function App() {
       if (placeKey !== null) places.current.set(placeKey, place);
     },
     onMarking: marking,
-    onFiled: filedAway,
+    onFiled: filing.filedAway,
     onHolds: setHolds,
-    filed:
-      unreadAgain !== null
-        ? { ...unreadAgain, state: "unread" as const }
-        : back !== null
-          ? { messageId: back, state: "back" as const }
-          : // A message marked read has not gone anywhere. Telling the list it had would slide out
-            // the row somebody is reading.
-            filed === null || filed.what === "read"
-            ? null
-            : { messageId: filed.messageId, state: "gone" as const },
+    filed: filing.told,
     // Only when there is nothing to read anywhere. An empty folder is an ordinary thing that says
     // so itself; putting the welcome there instead offered to connect an account to somebody who
     // has one, in a folder they had just emptied.
@@ -1095,28 +1070,28 @@ function App() {
                 />
               )}
               <FilingNotice
-                filed={back === null ? filed : null}
-                onTakenBack={putBack}
-                onGone={forgetWhatWasFiled}
-                onUnreadAgain={(messageId, folderId) =>
-                  setUnreadAgain({ messageId, folderId })
-                }
+                filed={filing.notice}
+                takeBackAsked={filing.takeBackAsked}
+                onTakenBack={filing.putBack}
+                onGone={filing.forgetWhatWasFiled}
+                onUnreadAgain={filing.markUnreadAgain}
                 t={t}
               />
               {/* Only where it means something, and never over the notice about a message just
                   filed: two floating things in one corner is one of them hidden. The notice says
                   when it has gone, so this comes back -- held for ever, it kept this corner after
                   the first message anybody filed and never gave it up. */}
-              {filed === null &&
+              {filing.notice === null &&
                 mailbox?.kind === "folder" &&
                 mailbox.role === "trash" &&
                 holds !== null && (
                   <EmptyTrash
                     folderId={mailbox.folderId}
                     holds={holds}
-                    onEmptied={() =>
-                      setListGeneration((generation) => generation + 1)
-                    }
+                    onEmptied={() => {
+                      filing.trashEmptied();
+                      setListGeneration((generation) => generation + 1);
+                    }}
                     t={t}
                   />
                 )}
@@ -1126,7 +1101,7 @@ function App() {
               sentHere={openedHere}
               sentFrom={showingSent}
               opened={openedMessage}
-              filed={filed}
+              filed={filing.filed}
               answerAsked={answerAsked}
               answerAllAsked={answerAllAsked}
               onReply={(answer) => {
@@ -1139,7 +1114,7 @@ function App() {
                 setWriting(forward);
                 setInFront("writing");
               }}
-              onFiled={filedAway}
+              onFiled={filing.filedAway}
               nothingToChoose={holds === 0}
               showPictures={preferences?.showPictures ?? "whenAsked"}
             />

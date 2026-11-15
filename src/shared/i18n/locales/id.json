@@ -220,6 +220,7 @@
   "keys.search": "Cari",
   "keys.settings": "Buka pengaturan",
   "keys.showThese": "Tampilkan daftar ini",
+  "keys.takeBack": "Kembalikan pesan terakhir yang Anda pindahkan",
   "keys.throwAway": "Pindahkan pesan ke sampah",
   "keys.title": "Pintasan keyboard",
   "link.body": "Tautan ini mengarah ke luar Lyonoyl Mail, ke situs yang dipilih oleh pengirim pesan ini",
@@ -230,12 +231,13 @@
   "link.writtenAs": "Di dalam tautannya sendiri, nama ini ditulis sebagai {written}",
   "list.accountNotAnswering": "Email di akun {accounts} tidak dapat dimuat, sehingga tidak ditampilkan di sini",
   "list.archived": "Dipindahkan ke arsip",
-  "list.cannotBringBack": "Sudah tidak dapat dikembalikan",
+  "list.cannotBringBack": "Lyonoyl Mail tidak dapat mengembalikan pesan itu ke tempat semula",
   "list.deleted": "Dipindahkan ke sampah",
   "list.discardDraft": "Buang",
   "list.draftsHere": "Di perangkat ini",
   "list.draftsOnServer": "Di server",
   "list.empty": "Folder ini kosong",
+  "list.emptyingCannotBeUndone": "Pengosongan sampah tidak dapat diurungkan",
   "list.inConversation": {
     "other": "{count} pesan dalam percakapan ini"
   },

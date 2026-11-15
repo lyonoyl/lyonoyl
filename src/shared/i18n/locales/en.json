@@ -228,6 +228,7 @@
   "keys.search": "Search",
   "keys.settings": "Open the settings",
   "keys.showThese": "Show this list",
+  "keys.takeBack": "Put back the last message you moved",
   "keys.throwAway": "Move the message to the trash",
   "keys.title": "Keyboard shortcuts",
   "link.body": "It leads outside Lyonoyl Mail, to a site chosen by whoever sent this message",
@@ -238,12 +239,13 @@
   "link.writtenAs": "In the link itself, this name is written as {written}",
   "list.accountNotAnswering": "Mail in {accounts} could not be read, so it is not shown here",
   "list.archived": "Moved to the archive",
-  "list.cannotBringBack": "That cannot be brought back",
+  "list.cannotBringBack": "Lyonoyl Mail could not put the message back",
   "list.deleted": "Moved to the trash",
   "list.discardDraft": "Discard",
   "list.draftsHere": "On this device",
   "list.draftsOnServer": "On the server",
   "list.empty": "This folder is empty",
+  "list.emptyingCannotBeUndone": "Emptying the trash cannot be undone",
   "list.inConversation": {
     "one": "{count} message in this conversation",
     "other": "{count} messages in this conversation"

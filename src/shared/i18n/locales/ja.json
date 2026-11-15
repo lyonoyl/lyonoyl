@@ -220,6 +220,7 @@
   "keys.search": "検索",
   "keys.settings": "設定を開く",
   "keys.showThese": "この一覧を表示",
+  "keys.takeBack": "最後に移動したメッセージを元に戻す",
   "keys.throwAway": "メッセージをゴミ箱に移動",
   "keys.title": "キーボードショートカット",
   "link.body": "Lyonoyl Mail の外部にある、このメッセージの差出人が選んだサイトへのリンクです",
@@ -230,12 +231,13 @@
   "link.writtenAs": "リンク内では、この名前は {written} と表記されています",
   "list.accountNotAnswering": "次のアカウントのメールは読み込めなかったため、ここには表示されていません：{accounts}",
   "list.archived": "アーカイブに移動しました",
-  "list.cannotBringBack": "もう元に戻せません",
+  "list.cannotBringBack": "Lyonoyl Mail はメッセージを元に戻せませんでした",
   "list.deleted": "ゴミ箱に移動しました",
   "list.discardDraft": "破棄",
   "list.draftsHere": "このデバイス上",
   "list.draftsOnServer": "サーバー上",
   "list.empty": "このフォルダーは空です",
+  "list.emptyingCannotBeUndone": "ゴミ箱を空にする操作は元に戻せません",
   "list.inConversation": {
     "other": "このスレッドには {count} 件のメッセージがあります"
   },

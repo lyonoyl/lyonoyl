@@ -228,6 +228,7 @@
   "keys.search": "খুঁজুন",
   "keys.settings": "সেটিংস খুলুন",
   "keys.showThese": "এই তালিকাটি দেখান",
+  "keys.takeBack": "শেষ যে বার্তাটি সরিয়েছেন, সেটি ফিরিয়ে আনুন",
   "keys.throwAway": "বার্তাটি ট্র্যাশে সরান",
   "keys.title": "কীবোর্ড শর্টকাট",
   "link.body": "এটি Lyonoyl Mail-এর বাইরে, এই বার্তার প্রেরকের বেছে নেওয়া একটি সাইটে নিয়ে যায়",
@@ -238,12 +239,13 @@
   "link.writtenAs": "লিঙ্কে এই নামটি আসলে এভাবে লেখা আছে: {written}",
   "list.accountNotAnswering": "{accounts} অ্যাকাউন্টের মেল লোড করা যায়নি, তাই এখানে দেখানো হচ্ছে না",
   "list.archived": "আর্কাইভে সরানো হয়েছে",
-  "list.cannotBringBack": "এটি আর ফেরানো যাবে না",
+  "list.cannotBringBack": "Lyonoyl Mail বার্তাটি ফিরিয়ে আনতে পারেনি",
   "list.deleted": "ট্র্যাশে সরানো হয়েছে",
   "list.discardDraft": "ফেলে দিন",
   "list.draftsHere": "এই ডিভাইসে",
   "list.draftsOnServer": "সার্ভারে",
   "list.empty": "এই ফোল্ডারটি খালি",
+  "list.emptyingCannotBeUndone": "ট্র্যাশ খালি করা পূর্বাবস্থায় ফেরানো যায় না",
   "list.inConversation": {
     "one": "এই কথোপকথনে {count}টি বার্তা",
     "other": "এই কথোপকথনে {count}টি বার্তা"
