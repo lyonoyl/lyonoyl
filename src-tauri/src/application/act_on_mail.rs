@@ -252,6 +252,14 @@ mod tests {
             unreachable!("asking for something gives nothing up")
         }
 
+        fn refused_untouched(&self, _id: OperationId) -> Result<(), OperationLogError> {
+            unreachable!("asking for something tells no server")
+        }
+
+        fn let_go(&self, _id: OperationId) -> Result<(), OperationLogError> {
+            unreachable!("asking for something tells no server")
+        }
+
         fn due(
             &self,
             _account_id: &str,

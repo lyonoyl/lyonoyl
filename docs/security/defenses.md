@@ -96,6 +96,7 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | A message the parser panics on costs only itself, and the pass goes on | `a_message_the_parser_panics_on_is_read_once_and_whoever_asked_goes_on`, `scripts/check-layering.sh` |
 | An answer from a mail server is bounded in what it makes the application hold | `an_answer_past_what_it_may_hold_is_refused` |
 | A host that trickles is given up on, and so is a server that never greets | `a_host_that_keeps_trickling_is_given_up_on_all_the_same`, `a_server_that_takes_the_connection_and_never_greets_is_given_up_on` |
+| A mail server that keeps talking instead of answering what it was told is given up on | `a_server_that_keeps_talking_instead_of_answering_is_not_listened_to_for_ever`, `a_server_that_keeps_talking_instead_of_answering_the_search_adds_no_copy`, `a_server_that_keeps_talking_instead_of_answering_a_change_is_not_listened_to_for_ever` |
 
 ## Writing and sending
 

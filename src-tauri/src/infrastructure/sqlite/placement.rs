@@ -85,6 +85,26 @@ impl Placements for SqlitePlacements {
             })
     }
 
+    fn name_of(&self, message: MessageId) -> Result<Option<String>, PlacementError> {
+        let connection = self.index.get().map_err(|_| PlacementError::Unavailable)?;
+
+        // The row a message named before it handed its copies over is the one it turned out to be,
+        // as where it sits is read.
+        let message =
+            going_by(&connection, message.get() as i64).map_err(|_| PlacementError::Unavailable)?;
+
+        connection
+            .query_row(
+                "SELECT rfc822_message_id FROM messages WHERE id = ?1",
+                [message],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .or_else(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                _ => Err(PlacementError::Unavailable),
+            })
+    }
+
     fn folder_for(
         &self,
         account: i64,
@@ -250,6 +270,43 @@ mod tests {
                 .expect("readable"),
             None
         );
+    }
+
+    #[test]
+    fn a_message_is_named_by_what_it_carries_and_one_handed_over_by_the_one_it_became() {
+        let db = SeededIndex::with("placement-named", folder(), 3);
+        let places = SqlitePlacements::new(db.pool.clone());
+        let connection = db.pool.get().expect("a connection");
+        connection
+            .execute(
+                "UPDATE messages SET rfc822_message_id = CASE id
+                     WHEN 1 THEN 'one@example.com' WHEN 2 THEN 'two@example.com' END",
+                [],
+            )
+            .expect("the names are written");
+        connection
+            .execute(
+                "INSERT INTO handed_over (message_id, handed_to) VALUES (9998, 2)",
+                [],
+            )
+            .expect("a row handed over to message 2");
+        let message = |id| MessageId::new(id).expect("non-zero");
+
+        assert_eq!(
+            places.name_of(message(1)).expect("readable").as_deref(),
+            Some("one@example.com")
+        );
+        assert_eq!(
+            places.name_of(message(9998)).expect("readable").as_deref(),
+            Some("two@example.com"),
+            "a row that handed its copies over is the message it turned out to be"
+        );
+        assert_eq!(
+            places.name_of(message(3)).expect("readable"),
+            None,
+            "a message that carries no name"
+        );
+        assert_eq!(places.name_of(message(9_999)).expect("readable"), None);
     }
 
     #[test]

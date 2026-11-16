@@ -114,6 +114,7 @@ fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         commands::licences::licences,
         commands::notify::set_notification_words,
         commands::menu::set_menu_words,
+        commands::menu::set_menu_undo_offered,
         commands::accounts::get_account_settings,
         commands::account_groups::list_account_groups,
         commands::account_groups::create_account_group,

@@ -42,6 +42,8 @@ export function useFiling(
    * since the core can put a message back long after the notice has gone.
    */
   const putAway = useRef<PutAway | null>(null);
+  /** Whether that is a message the key would take back now, which greys the menu's Undo or not. */
+  const [canTakeBack, setCanTakeBack] = useState(false);
   /** Bumped when somebody asks for it back by key; the notice is what knows how to answer. */
   const [takeBackAsked, setTakeBackAsked] = useState(0);
   /**
@@ -69,7 +71,10 @@ export function useFiling(
     setFiled(what);
     setNotice(what);
     // Not a message marked read by being opened, which nobody asked for: `PutAway` says why.
-    if (what.what !== "read") putAway.current = what;
+    if (what.what !== "read") {
+      putAway.current = what;
+      setCanTakeBack(true);
+    }
   }, []);
 
   const putBack = useCallback(
@@ -79,7 +84,10 @@ export function useFiling(
       // where the message went back to and then goes by itself, as any line does.
       const about = (one: PutAway | null) =>
         one !== null && one !== "forGood" && one.messageId === messageId;
-      if (about(putAway.current)) putAway.current = null;
+      if (about(putAway.current)) {
+        putAway.current = null;
+        setCanTakeBack(false);
+      }
       if (!sayingWhere) setNotice((was) => (about(was) ? null : was));
       setBack(messageId);
       // Read again as well as shown again: once the server has carried the filing out and a pass
@@ -117,6 +125,7 @@ export function useFiling(
    */
   const trashEmptied = useCallback(() => {
     putAway.current = "forGood";
+    setCanTakeBack(false);
   }, []);
 
   /**
@@ -146,6 +155,7 @@ export function useFiling(
     notice,
     takeBackAsked,
     inFlight,
+    canTakeBack,
     told,
     filedAway,
     putBack,

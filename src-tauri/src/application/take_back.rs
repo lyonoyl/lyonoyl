@@ -2,11 +2,12 @@
 //!
 //! Undo has two halves and they are different things. While an instruction is still waiting, taking
 //! it back is removing it: nothing happened, and nothing has to be undone. The same holds for one
-//! that stopped before the server heard of it, which did not happen either. Once a server has
-//! carried it out there is nothing left to remove, and putting the message back is an instruction
-//! of its own — a second thing asked for, which goes through the queue like any other and can
-//! itself fail, wait or be shown as stopped. One that stopped after the server was told is neither:
-//! it may have been carried out in part, and stays on its row for a person to see.
+//! that stopped with nothing of it done—before the server heard of it, or refused outright the first
+//! time it did—which did not happen either. Once a server has carried it out there is nothing left
+//! to remove, and putting the message back is an instruction of its own — a second thing asked for,
+//! which goes through the queue like any other and can itself fail, wait or be shown as stopped. One
+//! that stopped after the server was told otherwise is neither: it may have been carried out in
+//! part, and stays on its row for a person to see.
 //!
 //! What is taken back is always a filing — a move, or a delete. A flag changed since, the mark as
 //! read from opening the message, is not what a person is taking back.
@@ -25,14 +26,15 @@ use lyonoyl_domain::operation::{undoing, OperationKind, OperationState, Operatio
 /// What happened when somebody asked for a message back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TakenBack {
-    /// The filing had not happened — still waiting, or stopped before the server heard of it — and
-    /// now there is none.
+    /// The filing had not happened — still waiting, or stopped with nothing of it done, before the
+    /// server heard of it or refused outright the first time it did — and now there is none.
     Removed,
     /// It had gone, and a second instruction will put the message back.
     AskedFor,
     /// It cannot be undone — a message deleted for good, one this device has forgotten it ever
     /// moved, one no longer where it was asked about, a filing that stopped after the server was
-    /// told of it, or one asked for again from its row since it stopped.
+    /// told of it and may have done some of it, or one asked for again from its row since it
+    /// stopped.
     NotPossible,
 }
 
@@ -96,9 +98,10 @@ impl<L: OperationLog + Clone, P: Placements> TakeBack<L, P> {
     /// Takes away a filing that stopped, so the message is what the index says it is, with nothing
     /// on its row any more.
     ///
-    /// Only one the server never heard of. Told, it may have been carried out in part: a move made
-    /// as a copy and then a delete the server refused leaves the copy where it was going, and the
-    /// original perhaps marked deleted, so the row goes on saying the server would not do it. And
+    /// Only one with nothing of it done: never told, or refused outright the first time the server
+    /// was. Told otherwise, it may have been carried out in part: a move made as a copy and then a
+    /// delete the server refused leaves the copy where it was going, and the original perhaps
+    /// marked deleted, so the row goes on saying the server would not do it. And
     /// only while the index has the message where it was asked about: moved on another device
     /// since, or deleted there, it is not in the folder it would be said to be back in. A stop that
     /// says the message was not there is out of date once it is: a stop is drawn only on a row the
@@ -244,6 +247,14 @@ mod tests {
             Ok(1)
         }
 
+        fn refused_untouched(&self, _id: OperationId) -> Result<(), OperationLogError> {
+            unreachable!("taking something back tells no server")
+        }
+
+        fn let_go(&self, _id: OperationId) -> Result<(), OperationLogError> {
+            unreachable!("taking something back tells no server")
+        }
+
         fn folder_reset(&self, _: &str, _: FolderId) -> Result<usize, OperationLogError> {
             unreachable!("no folder was renumbered")
         }
@@ -341,6 +352,10 @@ mod tests {
         }
 
         fn mailbox_of(&self, _: FolderId) -> Result<Option<String>, PlacementError> {
+            unreachable!("nothing is sent here")
+        }
+
+        fn name_of(&self, _: MessageId) -> Result<Option<String>, PlacementError> {
             unreachable!("nothing is sent here")
         }
 

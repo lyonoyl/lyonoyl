@@ -583,6 +583,14 @@ export function setMenuWords(settings: string, undo: string): Promise<void> {
 }
 
 /**
+ * Says whether choosing the menu bar's Undo does anything now, so that it is greyed out when it
+ * would not.
+ */
+export function setMenuUndoOffered(offered: boolean): Promise<void> {
+  return invoke("set_menu_undo_offered", { offered });
+}
+
+/**
  * Called when the application menu's settings item is chosen. Answers with a function that stops
  * listening.
  */

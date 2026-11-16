@@ -752,6 +752,7 @@ fn what_a_person_does_is_taken_and_goes_nowhere() {
             uid: uid(1),
             uid_validity: generation,
             destination: "Archive",
+            earlier_copy_named: None,
         },
         ServerAction::Erase {
             mailbox: "Trash",

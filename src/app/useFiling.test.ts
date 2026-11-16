@@ -56,6 +56,45 @@ describe("useFiling", () => {
     expect(result.current.takeBackAsked).toBe(asked + 1);
   });
 
+  it("says there is something to take back only while the key would take a message back", () => {
+    // What greys the menu's Undo out: a message marked read by being opened is not one, one put
+    // back is not one any more, and nothing brings back what emptying the trash deleted.
+    const { result } = renderHook(() => useFiling(vi.fn()));
+    expect(result.current.canTakeBack).toBe(false);
+
+    act(() =>
+      result.current.filedAway({ messageId: "9", folderId: "1", what: "read" }),
+    );
+    expect(result.current.canTakeBack).toBe(false);
+
+    act(() => result.current.filedAway(DELETED));
+    expect(result.current.canTakeBack).toBe(true);
+    act(() => result.current.putBack("7"));
+    expect(result.current.canTakeBack).toBe(false);
+
+    act(() => result.current.filedAway(DELETED));
+    act(() => result.current.trashEmptied());
+    expect(result.current.canTakeBack).toBe(false);
+  });
+
+  it("still has the newer message to take back when an earlier one comes back late", () => {
+    // The notice answers about the message it asked about, which may be one filed before the
+    // last: the key still takes the last one back.
+    const { result } = renderHook(() => useFiling(vi.fn()));
+    act(() => result.current.filedAway(DELETED));
+    act(() =>
+      result.current.filedAway({
+        messageId: "8",
+        folderId: "1",
+        what: "deleted",
+      }),
+    );
+
+    act(() => result.current.putBack("7"));
+
+    expect(result.current.canTakeBack).toBe(true);
+  });
+
   it("reads the list again once a message is back", () => {
     const generation = vi.fn();
     const { result } = renderHook(() => useFiling(generation));

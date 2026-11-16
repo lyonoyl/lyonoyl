@@ -1620,6 +1620,14 @@ mod tests {
                 unreachable!("a pass gives nothing up")
             }
 
+            fn refused_untouched(&self, _id: OperationId) -> Result<(), OperationLogError> {
+                unreachable!("a pass tells no server")
+            }
+
+            fn let_go(&self, _id: OperationId) -> Result<(), OperationLogError> {
+                unreachable!("a pass tells no server")
+            }
+
             fn settled_for(
                 &self,
                 _account_id: &str,

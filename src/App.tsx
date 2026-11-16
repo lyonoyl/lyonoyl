@@ -762,6 +762,9 @@ function App() {
       <MenuUndo
         covered={covered}
         screenInFront={showing !== null}
+        // Only where the notice that answers it is drawn: with no account, or the storage failed,
+        // there is no list for a message to come back into.
+        canTakeBack={filing.canTakeBack && !empty && state.status !== "failed"}
         onTakeBack={filing.takeBackByKey}
       />
       {showingKeys && <Keys onClose={() => setShowingKeys(false)} t={t} />}

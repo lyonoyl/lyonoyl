@@ -17,6 +17,14 @@ pub const SETTINGS: &str = "settings";
 /// What the application's own Undo is known by when it is chosen.
 pub const UNDO: &str = "undo";
 
+/// Whether choosing the application's own Undo does anything now, as the window last said: greyed
+/// out when it would do nothing, as the system's is with nothing to undo. Kept here rather than
+/// on the item alone, because the item is made again — the first time the window names it, and
+/// after each of the system's panels — and each time it is made with this. Offered until the window
+/// says otherwise, so a window that never says leaves it working.
+#[cfg(target_os = "macos")]
+static OFFERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
 /// The title the framework gives the Undo the menu starts with, which is the one thing that tells it
 /// apart from the rest of the Edit menu (`Menu::default` in Tauri, whose items are muda's). The
 /// system's Undo put up while a panel is up carries the window's word, and is found by what it is
@@ -59,7 +67,8 @@ pub fn settings_item<R: Runtime>(app: &AppHandle<R>, label: &str) -> tauri::Resu
 /// it undid what was last typed into a field that had lost the focus, the search box behind the
 /// list, and brought back no message. This one asks the window, which gives a field its own undo
 /// and takes back the last message put away where nobody types. The same key, so the key reaches it
-/// wherever the window leaves the key to the menu: in a field, and behind a panel.
+/// wherever the window leaves the key to the menu—in a field, with a screen in front, and behind a
+/// panel—while the window has it offered ([`offer_undo`]).
 #[cfg(target_os = "macos")]
 pub fn own_undo<R: Runtime>(app: &AppHandle<R>, label: &str) -> tauri::Result<()> {
     use tauri::menu::MenuItemKind;
@@ -98,9 +107,40 @@ fn in_place_of<R: Runtime>(
 ) -> tauri::Result<()> {
     let own = tauri::menu::MenuItemBuilder::with_id(UNDO, label)
         .accelerator("CmdOrCtrl+Z")
+        .enabled(OFFERED.load(std::sync::atomic::Ordering::Relaxed))
         .build(app)?;
     submenu.insert(&own, at)?;
     submenu.remove(system)
+}
+
+/// Greys the application's own Undo out, or offers it again, as the window says choosing it would
+/// or would not do anything.
+#[cfg(target_os = "macos")]
+pub fn offer_undo<R: Runtime>(app: &AppHandle<R>, offered: bool) -> tauri::Result<()> {
+    use tauri::menu::MenuItemKind;
+
+    OFFERED.store(offered, std::sync::atomic::Ordering::Relaxed);
+
+    let Some(menu) = app.menu() else {
+        return Ok(());
+    };
+
+    for submenu in menu.items()? {
+        let MenuItemKind::Submenu(submenu) = submenu else {
+            continue;
+        };
+
+        for item in submenu.items()? {
+            if let MenuItemKind::MenuItem(own) = item {
+                if own.id() == UNDO {
+                    return own.set_enabled(offered);
+                }
+            }
+        }
+    }
+
+    // Not in the menu: not named yet, or a system panel is up. It is made with this when it is.
+    Ok(())
 }
 
 /// Raises one of the system's panels — the one a file is saved from, or chosen in — with the

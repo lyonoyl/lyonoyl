@@ -8,11 +8,19 @@
 //! Removing a message for good is refused unless the server offers `UIDPLUS`. Without it the only
 //! way to expunge is a bare `EXPUNGE`, which removes every message in the mailbox marked
 //! `\Deleted` — including ones another client marked and has not finished with. Refusing to delete
-//! is a thing a person can see and act on; deleting somebody else's mail is not.
+//! is a thing a person can see and act on; deleting somebody else's mail is not. A move on a
+//! server without `MOVE` is refused the same way, before the copy that would otherwise stand
+//! beside an original nothing could remove. A move the server was told of before asks the
+//! destination for its copy, by the name the message carries, before it copies a second time.
+//!
+//! A refusal says whether any of it was done. `Refused` is nothing done; `RefusedPartWay` is a
+//! refusal that came after a step the server carried out — the copy of a move, the deleted mark of
+//! an erase, the first of two flag changes — which a person taking the message back must not be
+//! told never happened.
 
 use async_imap::error::Error as ImapError;
 use async_imap::imap_proto::{MailboxDatum, Response, ResponseCode, Status};
-use futures::{pin_mut, TryStreamExt};
+use async_imap::types::{Capabilities, Capability};
 use tokio::runtime::Handle;
 
 use super::answer::opens_with;
@@ -26,7 +34,7 @@ use crate::ports::mail_actions::{
 };
 use crate::ports::mail_provider::MailProviderError;
 use async_imap::types::NameAttribute;
-use lyonoyl_domain::message::Flags;
+use lyonoyl_domain::message::{Flags, UidValidity};
 use lyonoyl_domain::outgoing::Outgoing;
 
 /// Acts on one account's mailboxes, one conversation per round of instructions.
@@ -243,12 +251,13 @@ where
     Ok(Filing::Added)
 }
 
-/// The most lines an answer about one copy is read for.
+/// The most lines an answer is read for, wherever this file reads one to its end itself.
 ///
-/// An honest answer to one search or to one message added is its own line and a few about the
-/// mailbox. The deadline on the connection measures silence, so a server that keeps talking would
-/// hold the round for as long as it talks; past this many lines it is a conversation that broke.
-pub(crate) const LINES_ONE_COPY_IS_ANSWERED_IN: usize = 1024;
+/// An honest answer to one search, to one message added or to one change is its own line and a few
+/// about the mailbox. The deadline on the connection measures silence, so a server that keeps
+/// talking would hold the round for as long as it talks; past this many lines it is a conversation
+/// that broke.
+pub(crate) const LINES_AN_ANSWER_IS_READ_IN: usize = 1024;
 
 /// Whether a message carrying the name `named` is in the mailbox open on the session, or nothing
 /// when the server refuses to say.
@@ -285,7 +294,7 @@ where
         .map_err(|_| FilingError::FolderUnreachable)?;
 
     let mut found = false;
-    for _ in 0..LINES_ONE_COPY_IS_ANSWERED_IN {
+    for _ in 0..LINES_AN_ANSWER_IS_READ_IN {
         let Some(line) = session
             .read_response()
             .await
@@ -367,7 +376,7 @@ where
         .map_err(|_| FilingError::FolderUnreachable)?;
 
     let mut sent = false;
-    for _ in 0..LINES_ONE_COPY_IS_ANSWERED_IN {
+    for _ in 0..LINES_AN_ANSWER_IS_READ_IN {
         let Some(line) = session
             .read_response()
             .await
@@ -521,22 +530,7 @@ where
         } => (mailbox, uid_validity),
     };
 
-    // Opened for writing. A mailbox the server will not open is a mailbox nothing can be done
-    // in, and that is a refusal rather than something to try again.
-    let opened = session
-        .select(mailbox)
-        .await
-        .map_err(|error| refused_or_not_now(&error))?;
-
-    // The generation the server states now, against the one the number was taken under. A folder
-    // that renumbered has handed the same numbers to different messages, so a UID from before it
-    // names somebody else's message — and everything below this line is addressed by UID.
-    //
-    // A server that states no generation at all is one nothing can be checked against, and acting
-    // on a number that counts nothing is the thing this exists to prevent.
-    if opened.uid_validity != Some(addressed_under.get()) {
-        return Err(MailActionError::FolderRenumbered);
-    }
+    opened_under(session, mailbox, addressed_under).await?;
 
     match action {
         ServerAction::SetFlags {
@@ -544,18 +538,31 @@ where
         } => {
             let uid = uid.get().to_string();
 
-            if let Some(named) = named(add) {
+            let added = named(add);
+            if let Some(named) = &added {
                 store(session, &uid, &format!("+FLAGS.SILENT ({named})")).await?;
             }
             if let Some(named) = named(remove) {
-                store(session, &uid, &format!("-FLAGS.SILENT ({named})")).await?;
+                // After flags were added, a refusal leaves them added.
+                store(session, &uid, &format!("-FLAGS.SILENT ({named})"))
+                    .await
+                    .map_err(|error| {
+                        if added.is_some() {
+                            part_way(error)
+                        } else {
+                            error
+                        }
+                    })?;
             }
 
             Ok(())
         }
 
         ServerAction::MoveTo {
-            uid, destination, ..
+            uid,
+            destination,
+            earlier_copy_named,
+            ..
         } => {
             let uid = uid.get().to_string();
 
@@ -563,19 +570,37 @@ where
             // is never in both places or in neither. Without it the three steps below are what
             // there is, and the copy comes first: a copy that fails leaves the original where
             // it was, while a delete that fails after a copy leaves two.
-            if offers(session, "MOVE").await {
+            let offered = offered_by(session).await?;
+            if offered.has_str("MOVE") {
                 return session
                     .uid_mv(&uid, destination)
                     .await
                     .map_err(|error| refused_or_not_now(&error));
             }
 
-            session
-                .uid_copy(&uid, destination)
-                .await
-                .map_err(|error| refused_or_not_now(&error))?;
+            // Without UIDPLUS the original could never be removed by itself, so nothing is done
+            // at all, rather than a copy left beside it.
+            if !offered.has_str("UIDPLUS") {
+                return Err(MailActionError::Refused);
+            }
 
-            erase(session, &uid).await
+            // Told before, the move may have made its copy already: its answer lost, or the
+            // original refused after it. A copy found there is not made a second time.
+            let copied = match earlier_copy_named {
+                Some(named) => {
+                    copied_before(session, destination, named, mailbox, addressed_under).await?
+                }
+                None => false,
+            };
+            if !copied {
+                session
+                    .uid_copy(&uid, destination)
+                    .await
+                    .map_err(|error| refused_or_not_now(&error))?;
+            }
+
+            // From here a refusal leaves the copy where it was going.
+            mark_and_remove(session, &uid).await.map_err(part_way)
         }
 
         ServerAction::Erase { uid, .. } => {
@@ -586,6 +611,97 @@ where
     }
 }
 
+/// Opens `mailbox` for writing, in the generation the number was taken under or not at all.
+///
+/// A mailbox the server will not open is a mailbox nothing can be done in, and that is a refusal
+/// rather than something to try again. One that renumbered has handed the same numbers to different
+/// messages, so a UID from before it names somebody else's message—and everything after this is
+/// addressed by UID.
+///
+/// An answer that states no generation at all is one cut short: every server states it when it
+/// opens a mailbox (RFC 3501, RFC 9051), and the client library reads a connection that closed
+/// partway through the answer as a mailbox that stated nothing. A conversation that broke, rather
+/// than a folder that renumbered, and nothing more is sent down it.
+async fn opened_under<S>(
+    session: &mut async_imap::Session<S>,
+    mailbox: &str,
+    addressed_under: UidValidity,
+) -> Result<(), MailActionError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let opened = session
+        .select(mailbox)
+        .await
+        .map_err(|error| refused_or_not_now(&error))?;
+
+    match opened.uid_validity {
+        Some(stated) if stated == addressed_under.get() => Ok(()),
+        Some(_) => Err(MailActionError::FolderRenumbered),
+        None => Err(MailActionError::NotNow),
+    }
+}
+
+/// What the server says it can do, asked on the conversation as it stands.
+///
+/// The client library reads the answer to the command's tagged line without reading what that line
+/// says, and takes a connection that closes partway for an answer naming whatever arrived first.
+/// Neither is a server saying it cannot. The line that lists what a server can do names the version
+/// of the protocol it speaks, and the library's parser refuses one that does not, so a list without
+/// it is an answer in which no such line arrived: cut short, or not given. That, and an answer that
+/// failed, is a conversation that broke: "not now", which ends the conversation rather than sending
+/// the next command into it.
+async fn offered_by<S>(
+    session: &mut async_imap::Session<S>,
+) -> Result<Capabilities, MailActionError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let offered = session
+        .capabilities()
+        .await
+        .map_err(|_| MailActionError::NotNow)?;
+
+    match offered.has(&Capability::Imap4rev1) {
+        true => Ok(offered),
+        false => Err(MailActionError::NotNow),
+    }
+}
+
+/// Whether `destination` holds a message carrying the name `named` already: the copy an earlier
+/// telling of a move may have made, its answer lost or its original refused after it. `mailbox`,
+/// which the move is from, is opened again afterwards, in the generation its number was taken
+/// under.
+///
+/// A server that will not search, or a name no line can carry, is taken for no, and the message is
+/// copied again: two copies are mail kept twice, and an original removed beside no copy is mail
+/// lost. A search cut short or out of step is a conversation that broke.
+async fn copied_before<S>(
+    session: &mut async_imap::Session<S>,
+    destination: &str,
+    named: &str,
+    mailbox: &str,
+    addressed_under: UidValidity,
+) -> Result<bool, MailActionError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    // Opened to be read: nothing in it is to change.
+    session
+        .examine(destination)
+        .await
+        .map_err(|error| refused_or_not_now(&error))?;
+
+    let found = match already_there(session, named).await {
+        Ok(Some(found)) => found,
+        Ok(None) | Err(FilingError::RefusedForNow) => false,
+        Err(_) => return Err(MailActionError::NotNow),
+    };
+
+    opened_under(session, mailbox, addressed_under).await?;
+    Ok(found)
+}
+
 /// Marks one message deleted and removes that one message.
 ///
 /// Refused outright on a server without `UIDPLUS`: see the note at the top of this file.
@@ -593,29 +709,41 @@ async fn erase<S>(session: &mut async_imap::Session<S>, uid: &str) -> Result<(),
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
-    if !offers(session, "UIDPLUS").await {
+    if !offered_by(session).await?.has_str("UIDPLUS") {
         return Err(MailActionError::Refused);
     }
 
+    mark_and_remove(session, uid).await
+}
+
+/// Marks one message deleted and removes that one message, on a server known to offer `UIDPLUS`.
+///
+/// A refusal of the mark leaves nothing done; a refusal of the removal leaves the mark.
+async fn mark_and_remove<S>(
+    session: &mut async_imap::Session<S>,
+    uid: &str,
+) -> Result<(), MailActionError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
     store(session, uid, "+FLAGS.SILENT (\\Deleted)").await?;
 
-    let removed = session
-        .uid_expunge(uid)
-        .await
-        .map_err(|error| refused_or_not_now(&error))?;
-    pin_mut!(removed);
+    // What the answer names is of no interest: what was removed is what was named.
+    {
+        let _unread = session
+            .uid_expunge(uid)
+            .await
+            .map_err(|error| part_way(refused_or_not_now(&error)))?;
+    }
+    answered(session).await.map_err(part_way)
+}
 
-    // Drained to the end, because the command is not finished until the server has stopped
-    // talking — and a refusal arrives here rather than above. What it names is of no interest:
-    // what was removed is what was named.
-    while removed
-        .try_next()
-        .await
-        .map_err(|error| refused_or_not_now(&error))?
-        .is_some()
-    {}
-
-    Ok(())
+/// A refusal that came once a step of the work was done, which is not one with nothing done.
+fn part_way(error: MailActionError) -> MailActionError {
+    match error {
+        MailActionError::Refused => MailActionError::RefusedPartWay,
+        other => other,
+    }
 }
 
 async fn store<S>(
@@ -626,34 +754,55 @@ async fn store<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
-    let updates = session
-        .uid_store(uid, query)
-        .await
-        .map_err(|error| refused_or_not_now(&error))?;
-    pin_mut!(updates);
-
     // `.SILENT` asks the server to say nothing back, but a server is free to speak anyway, and the
-    // command is not finished until it has stopped. A refusal arrives here rather than above.
-    while updates
-        .try_next()
-        .await
-        .map_err(|error| refused_or_not_now(&error))?
-        .is_some()
-    {}
-
-    Ok(())
+    // command is not finished until it has stopped.
+    {
+        let _unread = session
+            .uid_store(uid, query)
+            .await
+            .map_err(|error| refused_or_not_now(&error))?;
+    }
+    answered(session).await
 }
 
-/// Whether the server said it can do something.
-async fn offers<S>(session: &mut async_imap::Session<S>, capability: &str) -> bool
+/// The answer to the command just sent, read here to the line that ends it.
+///
+/// The client library sends `STORE` and `EXPUNGE` and hands back a reader of their answers, and
+/// that reader stops at the command's tagged line whatever the line says: a refusal read through it
+/// is the server saying it did the thing. So the library's reader is let go unread, and the lines
+/// are read here instead. The tagged line read is the first one: a session here sends one command
+/// at a time and reads each answer to its end.
+async fn answered<S>(session: &mut async_imap::Session<S>) -> Result<(), MailActionError>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
-    match session.capabilities().await {
-        Ok(capabilities) => capabilities.has_str(capability),
-        // A server that will not say what it can do is treated as unable to do the careful thing.
-        Err(_) => false,
+    for _ in 0..LINES_AN_ANSWER_IS_READ_IN {
+        let Some(line) = session
+            .read_response()
+            .await
+            .map_err(|_| MailActionError::NotNow)?
+        else {
+            return Err(MailActionError::NotNow);
+        };
+
+        match line.parsed() {
+            Response::Done { status, .. } => {
+                return match status {
+                    Status::Ok => Ok(()),
+                    Status::No | Status::Bad => Err(MailActionError::Refused),
+                    _ => Err(MailActionError::NotNow),
+                };
+            }
+            Response::Data {
+                status: Status::Bye,
+                ..
+            } => return Err(MailActionError::NotNow),
+            _ => {}
+        }
     }
+
+    // A server that keeps talking past any honest answer: a conversation that broke.
+    Err(MailActionError::NotNow)
 }
 
 /// The flag names a server understands, or nothing when there are none to name.

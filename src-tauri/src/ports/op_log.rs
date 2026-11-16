@@ -30,7 +30,9 @@ pub struct RecordedOperation {
     pub attempts: u32,
     /// Why it stopped, for one that has. Nothing for one still on its way.
     pub stopped: Option<Stopped>,
-    /// Whether the server has already been told about this one at least once.
+    /// Whether the server has been told about this one and may have done some of it: told at least
+    /// once, other than a first telling it refused outright with nothing done, which
+    /// [`OperationLog::refused_untouched`] writes off.
     ///
     /// Written before the telling, so it survives a machine that stops in the moment between the
     /// server carrying the instruction out and the outcome being written down. What it decides is
@@ -119,6 +121,20 @@ pub trait OperationLog: Send + Sync {
     /// it would carry out something the person has already undone.
     fn about_to_tell(&self, id: OperationId) -> Result<(), OperationLogError>;
 
+    /// Writes down that the server refused this one outright the first time it was told, before
+    /// any of it was done, so that it counts as never told.
+    ///
+    /// What lets a person take back a filing the server refused: taken back, one the server never
+    /// heard of is taken away (`give_up`), and one it heard of may have been carried out in part.
+    /// Only while it is stopped; `ChangedUnderneath` when it no longer is.
+    fn refused_untouched(&self, id: OperationId) -> Result<(), OperationLogError>;
+
+    /// Takes away a change of flags the server refused, which is let go rather than stopped
+    /// (`after_refusal` in the domain): the message keeps the flags the server holds, and nothing
+    /// is left to tell it. Only a change of flags, and only while it is on its way;
+    /// `ChangedUnderneath` otherwise.
+    fn let_go(&self, id: OperationId) -> Result<(), OperationLogError>;
+
     /// Gives back what a round was handed and never told the server, due again at once.
     ///
     /// What a round does with the rest of what it holds when it stops early: the server could not
@@ -145,24 +161,25 @@ pub trait OperationLog: Send + Sync {
     ///
     /// From the beginning: the attempt count and the wait are cleared, because a person asking
     /// again is a new decision rather than the next retry of an old one — and what stopped it may
-    /// well have been fixed in between. A stop the server never heard of that has a later word of
-    /// its kind beside it, waiting or stopped after it, is taken away instead: the later word is
-    /// the one asked again. Answers with how many were put back.
+    /// well have been fixed in between. A stop with nothing of it done—never told, or refused
+    /// outright the first time it was—that has a later word of its kind beside it, waiting or
+    /// stopped after it, is taken away instead: the later word is the one asked again. Answers with
+    /// how many were put back.
     fn try_again(
         &self,
         account_id: &str,
         target: OperationTarget,
     ) -> Result<usize, OperationLogError>;
 
-    /// Takes away the filings about one message that stopped before the server heard of them, a
-    /// person having taken back what they asked for.
+    /// Takes away the filings about one message that stopped with nothing of them done, a person
+    /// having taken back what they asked for: never told, or refused outright the first time the
+    /// server was told (`refused_untouched`).
     ///
     /// The other answer to a stopped filing than asking again: nothing happened, so nothing is left
-    /// to undo, and what it asked for is no longer wanted. Only one the server was never told about:
-    /// told, it may have been carried out in part — a move made as a copy and then a delete the
-    /// server refused leaves the copy where it was going. And only while it is still stopped: asked
-    /// again since, it is waiting or carried out, and not this one's to remove. Answers with how
-    /// many were taken away.
+    /// to undo, and what it asked for is no longer wanted. Only those: told otherwise, it may have
+    /// been carried out in part—a move made as a copy and then a delete the server refused leaves
+    /// the copy where it was going. And only while it is still stopped: asked again since, it is
+    /// waiting or carried out, and not this one's to remove. Answers with how many were taken away.
     fn give_up(
         &self,
         account_id: &str,
@@ -326,6 +343,14 @@ impl<L: OperationLog + ?Sized> OperationLog for &L {
         target: OperationTarget,
     ) -> Result<usize, OperationLogError> {
         (**self).give_up(account_id, target)
+    }
+
+    fn refused_untouched(&self, id: OperationId) -> Result<(), OperationLogError> {
+        (**self).refused_untouched(id)
+    }
+
+    fn let_go(&self, id: OperationId) -> Result<(), OperationLogError> {
+        (**self).let_go(id)
     }
 
     fn folder_reset(&self, account_id: &str, folder: FolderId) -> Result<usize, OperationLogError> {

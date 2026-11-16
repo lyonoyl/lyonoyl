@@ -15,8 +15,8 @@ use crate::ports::op_log::{OperationId, OperationLog, OperationLogError, Recorde
 use crate::ports::placement::{Placements, Position};
 use lyonoyl_domain::folder::FolderRole;
 use lyonoyl_domain::operation::{
-    after_attempt, delete_mechanism, retry_after, when_the_message_cannot_be_found, Attempt,
-    DeleteMechanism, OperationKind, OperationState, Stopped,
+    after_attempt, after_refusal, delete_mechanism, retry_after, when_the_message_cannot_be_found,
+    Attempt, DeleteMechanism, OperationKind, OperationState, Stopped,
 };
 
 /// How many instructions one round carries out.
@@ -35,6 +35,9 @@ pub struct Applied {
     pub deferred: u32,
     /// Stopped and shown to the person: it cannot be done at all.
     pub conflicted: u32,
+    /// Refused and let go: a change of flags the server would not make, which leaves the message
+    /// with the flags the server holds.
+    pub let_go: u32,
     /// Of what was carried out, how many moved a message or took it away.
     ///
     /// The ones a pass has to read back: the index still has each of them where it was, and only
@@ -60,6 +63,11 @@ impl Applied {
 enum Answer {
     /// It was tried, and this is what it became.
     Became(OperationState, Option<Stopped>),
+    /// The server refused it, `untouched` when it did none of it. What a refusal becomes is the
+    /// domain's (`after_refusal`): a filing stops, and a change of flags is let go. A filing
+    /// refused untouched the first time the server heard of it is written down as never told:
+    /// taken back, it is then taken away, since nothing happened.
+    Refused { untouched: bool },
     /// The server heard it and answered "not now", or stopped answering altogether. Written down
     /// as waiting, and nothing more is said to the server this round: whatever the reason, the
     /// next instruction would meet it too.
@@ -140,6 +148,21 @@ where
                     }
                     Answer::NotNow => (OperationState::Pending, None),
                     Answer::Became(became, stopped) => (became, stopped),
+                    Answer::Refused { .. } => match after_refusal(waiting.operation.kind) {
+                        Some(became) => (became, Some(Stopped::TheServerRefused)),
+                        // Nothing was written onto the message, so it keeps what the server
+                        // holds. Gone with its account in the meantime, there is nothing left to
+                        // let go, which is not a reason to stop the round.
+                        None => {
+                            applied.handed += 1;
+                            applied.let_go += 1;
+                            match self.operations.let_go(waiting.id) {
+                                Ok(()) | Err(OperationLogError::ChangedUnderneath) => {}
+                                Err(error) => return Err(error.into()),
+                            }
+                            continue;
+                        }
+                    },
                 };
 
                 applied.handed += 1;
@@ -162,7 +185,19 @@ where
                     stopped,
                     retry_after(waiting.attempts),
                 ) {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        // Refused outright the first time the server heard of it: nothing of it
+                        // was done. Told before, the earlier telling may have been carried out
+                        // before its answer was lost, and it stays told.
+                        if matches!(answer, Answer::Refused { untouched: true })
+                            && !waiting.already_told
+                        {
+                            match self.operations.refused_untouched(waiting.id) {
+                                Ok(()) | Err(OperationLogError::ChangedUnderneath) => {}
+                                Err(error) => return Err(error.into()),
+                            }
+                        }
+                    }
                     // Taken back while it was being decided about, or gone with its account.
                     // Nothing is left to say it on, and that is not a reason to stop the round.
                     Err(OperationLogError::ChangedUnderneath) => {}
@@ -270,6 +305,7 @@ where
                     ));
                 };
 
+                let named = self.earlier_copy(waiting)?;
                 self.tell(
                     conversation,
                     waiting.id,
@@ -278,6 +314,7 @@ where
                         uid: *uid,
                         uid_validity: *uid_validity,
                         destination: &destination,
+                        earlier_copy_named: named.as_deref(),
                     },
                 )
             }
@@ -304,6 +341,7 @@ where
                             ));
                         };
 
+                        let named = self.earlier_copy(waiting)?;
                         self.tell(
                             conversation,
                             waiting.id,
@@ -312,6 +350,7 @@ where
                                 uid: *uid,
                                 uid_validity: *uid_validity,
                                 destination: &destination,
+                                earlier_copy_named: named.as_deref(),
                             },
                         )
                     }
@@ -327,6 +366,17 @@ where
                 }
             }
         }
+    }
+
+    /// For a move the server was told of before, the name its copy would carry, which the server is
+    /// asked for in the destination before a second copy is made. Nothing for one told for the
+    /// first time: the destination has no copy of this move to find.
+    fn earlier_copy(&self, waiting: &RecordedOperation) -> Result<Option<String>, UseCaseError> {
+        if !waiting.already_told {
+            return Ok(None);
+        }
+
+        Ok(self.placements.name_of(waiting.operation.target.message)?)
     }
 
     fn tell<'a>(
@@ -362,19 +412,21 @@ where
         let outcome = match acting.carry_out(action) {
             Ok(()) => Attempt::Carried,
             Err(MailActionError::NotNow) => return Ok(Answer::NotNow),
-            Err(MailActionError::Refused) => Attempt::Impossible,
+            Err(MailActionError::Refused) => return Ok(Answer::Refused { untouched: true }),
+            // Refused once part of it was done—a move's copy stands where it was going—which is
+            // not taken away as if nothing happened.
+            Err(MailActionError::RefusedPartWay) => {
+                return Ok(Answer::Refused { untouched: false })
+            }
             // The address is stale, not the instruction. A pass over that folder rewrites what
             // this was resolved against, and the same instruction then addresses the message it
             // was always about. Showing a person a conflict here would be showing them ours.
             Err(MailActionError::FolderRenumbered) => Attempt::NotNow,
         };
 
-        Ok(Answer::Became(
-            after_attempt(outcome),
-            // Only a stop has a reason. "Not now" is our problem rather than the person's, and
-            // "done" has nothing to explain.
-            matches!(outcome, Attempt::Impossible).then_some(Stopped::TheServerRefused),
-        ))
+        // No reason to give: "not now" is our problem rather than the person's, and "done" has
+        // nothing to explain.
+        Ok(Answer::Became(after_attempt(outcome), None))
     }
 }
 
@@ -481,6 +533,10 @@ mod tests {
         owes: bool,
         /// Whether the instruction was taken back after being handed out.
         withdrawn: bool,
+        /// What was written down as refused with nothing done.
+        untouched: Mutex<Vec<OperationId>>,
+        /// What was let go, refused.
+        let_go_of: Mutex<Vec<OperationId>>,
     }
 
     impl Queue {
@@ -548,6 +604,19 @@ mod tests {
             self.released.lock().expect("test lock").extend(ids);
             Ok(())
         }
+
+        fn refused_untouched(&self, id: OperationId) -> Result<(), OperationLogError> {
+            self.happened.lock().expect("test lock").push("untouched");
+            self.untouched.lock().expect("test lock").push(id);
+            Ok(())
+        }
+
+        fn let_go(&self, id: OperationId) -> Result<(), OperationLogError> {
+            self.happened.lock().expect("test lock").push("let go");
+            self.let_go_of.lock().expect("test lock").push(id);
+            Ok(())
+        }
+
         fn about_to_tell(&self, _id: OperationId) -> Result<(), OperationLogError> {
             if self.withdrawn {
                 return Err(OperationLogError::ChangedUnderneath);
@@ -660,6 +729,8 @@ mod tests {
     struct Index {
         sitting: Option<Position>,
         names: Vec<(u64, &'static str)>,
+        /// The name the message carries in its `Message-ID`.
+        named: Option<&'static str>,
         trash: Option<FolderId>,
         /// The flags written back, in the order they were, and on which copy.
         confirmed: Mutex<Vec<(FolderId, Uid, Flags, Flags)>>,
@@ -678,6 +749,7 @@ mod tests {
                     uid_validity: generation(),
                 }),
                 names: vec![(1, "INBOX"), (2, "Archive"), (4, "Trash")],
+                named: Some("one@example.com"),
                 trash: Some(folder(4)),
                 confirmed: Mutex::new(Vec::new()),
                 will_not_take_it: false,
@@ -704,6 +776,13 @@ mod tests {
                 .iter()
                 .find(|(id, _)| *id == folder.get())
                 .map(|(_, name)| (*name).to_owned()))
+        }
+
+        fn name_of(
+            &self,
+            _message: MessageId,
+        ) -> Result<Option<String>, crate::ports::placement::PlacementError> {
+            Ok(self.named.map(str::to_owned))
         }
 
         fn folder_for(
@@ -1042,13 +1121,55 @@ mod tests {
 
     #[test]
     fn a_server_that_refuses_outright_stops_the_instruction() {
-        let queue = Queue::holding(vec![waiting(read(), 0)]);
+        let queue = Queue::holding(vec![waiting(filed(), 0)]);
         let server = Server::answering(Err(MailActionError::Refused));
 
         let applied = round(&queue, &Index::default(), &server);
 
         assert_eq!(applied.conflicted, 1);
         assert_eq!(queue.outcome().became, OperationState::Conflicted);
+    }
+
+    #[test]
+    fn a_change_of_flags_the_server_refused_is_let_go_and_the_round_goes_on() {
+        // A stop on it would be one nothing clears: the message keeps what the server holds, and
+        // the instruction behind it is told down the same conversation.
+        for answer in [MailActionError::Refused, MailActionError::RefusedPartWay] {
+            let happened = std::sync::Arc::new(Mutex::new(Vec::new()));
+            let queue = Queue {
+                happened: happened.clone(),
+                ..Queue::holding(vec![numbered(1, read())])
+            };
+            *queue.behind.lock().expect("test lock") = vec![numbered(2, filed())];
+            let server = Server {
+                happened: happened.clone(),
+                ..Server::answering(Err(answer))
+            };
+
+            let applied = round(&queue, &Index::default(), &server);
+
+            assert_eq!(
+                *queue.let_go_of.lock().expect("test lock"),
+                vec![OperationId(1)],
+                "{answer:?}"
+            );
+            assert_eq!(
+                happened.lock().expect("test lock")[..6],
+                ["reached", "warned", "told", "let go", "warned", "told"],
+                "{answer:?}"
+            );
+            assert_eq!(
+                queue.written().iter().map(|one| one.id).collect::<Vec<_>>(),
+                vec![OperationId(2)],
+                "nothing is written down about the one let go: {answer:?}"
+            );
+            assert_eq!(
+                (applied.let_go, applied.conflicted, applied.handed),
+                (1, 1, 2),
+                "{answer:?}"
+            );
+            assert_eq!(server.reached(), 1, "{answer:?}");
+        }
     }
 
     #[test]
@@ -1124,10 +1245,133 @@ mod tests {
     }
 
     #[test]
+    fn a_refusal_with_nothing_done_the_first_time_is_written_down_as_never_told() {
+        // Taken back, a filing the server never heard of is taken away: nothing happened. Written
+        // down after the stop, which is the only order the log takes it in: before, the
+        // instruction is still on its way, and the log refuses.
+        let happened = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let queue = Queue {
+            happened: happened.clone(),
+            ..Queue::holding(vec![waiting(filed(), 0)])
+        };
+        let server = Server {
+            happened: happened.clone(),
+            ..Server::answering(Err(MailActionError::Refused))
+        };
+
+        round(&queue, &Index::default(), &server);
+
+        assert_eq!(queue.outcome().became, OperationState::Conflicted);
+        assert_eq!(queue.outcome().stopped, Some(Stopped::TheServerRefused));
+        assert_eq!(
+            *queue.untouched.lock().expect("test lock"),
+            vec![OperationId(1)]
+        );
+        assert_eq!(
+            *happened.lock().expect("test lock"),
+            vec!["reached", "warned", "told", "written down", "untouched"]
+        );
+    }
+
+    #[test]
+    fn a_refusal_after_an_earlier_telling_stays_told() {
+        // The earlier telling may have been carried out before its answer was lost.
+        let queue = Queue::holding(vec![already_told(filed())]);
+
+        round(
+            &queue,
+            &Index::default(),
+            &Server::answering(Err(MailActionError::Refused)),
+        );
+
+        assert_eq!(queue.outcome().stopped, Some(Stopped::TheServerRefused));
+        assert!(queue.untouched.lock().expect("test lock").is_empty());
+    }
+
+    #[test]
+    fn a_refusal_part_way_is_the_server_saying_no_and_stays_told() {
+        // A move's copy stands where it was going: taking it back must not say nothing happened.
+        let queue = Queue::holding(vec![waiting(filed(), 0)]);
+
+        round(
+            &queue,
+            &Index::default(),
+            &Server::answering(Err(MailActionError::RefusedPartWay)),
+        );
+
+        assert_eq!(queue.outcome().became, OperationState::Conflicted);
+        assert_eq!(queue.outcome().stopped, Some(Stopped::TheServerRefused));
+        assert!(queue.untouched.lock().expect("test lock").is_empty());
+    }
+
+    #[test]
+    fn a_move_told_before_names_the_copy_it_may_have_left() {
+        // The earlier telling may have made its copy, its answer lost or the original refused
+        // after it; the server is asked for it by the name the message carries before it copies a
+        // second time. A move into the trash is a move.
+        let to_trash = OperationKind::Delete {
+            intent: DeleteIntent::ToTrash,
+        };
+        for kind in [filed(), to_trash] {
+            let server = Server::default();
+
+            round(
+                &Queue::holding(vec![already_told(kind)]),
+                &Index::default(),
+                &server,
+            );
+
+            assert!(
+                server.told()[0].contains(r#"earlier_copy_named: Some("one@example.com")"#),
+                "{:?}",
+                server.told()
+            );
+        }
+    }
+
+    #[test]
+    fn a_move_told_for_the_first_time_has_no_copy_to_look_for() {
+        let server = Server::default();
+        let index = Index {
+            named: Some("one@example.com"),
+            ..Index::default()
+        };
+
+        round(&Queue::holding(vec![waiting(filed(), 0)]), &index, &server);
+
+        assert!(
+            server.told()[0].contains("earlier_copy_named: None"),
+            "{:?}",
+            server.told()
+        );
+    }
+
+    #[test]
+    fn a_move_told_before_of_a_message_with_no_name_is_copied_again() {
+        let server = Server::default();
+        let index = Index {
+            named: None,
+            ..Index::default()
+        };
+
+        round(
+            &Queue::holding(vec![already_told(filed())]),
+            &index,
+            &server,
+        );
+
+        assert!(
+            server.told()[0].contains("earlier_copy_named: None"),
+            "{:?}",
+            server.told()
+        );
+    }
+
+    #[test]
     fn a_server_saying_no_is_reported_as_the_server_saying_no() {
         assert_eq!(
             stopped_by(
-                &Queue::holding(vec![waiting(read(), 0)]),
+                &Queue::holding(vec![waiting(filed(), 0)]),
                 &Index::default(),
                 &Server::answering(Err(MailActionError::Refused))
             ),
@@ -1227,6 +1471,7 @@ mod tests {
         for answer in [
             Err(MailActionError::NotNow),
             Err(MailActionError::Refused),
+            Err(MailActionError::RefusedPartWay),
             Err(MailActionError::FolderRenumbered),
         ] {
             let queue = Queue::holding(vec![waiting(read(), 0)]);

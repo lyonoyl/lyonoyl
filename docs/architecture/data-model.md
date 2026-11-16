@@ -146,6 +146,8 @@ The four `CHECK`s refuse a move without a destination, a delete without its inte
 
 `sent_at` is committed before the server is told, so a process killed between telling the server and recording its answer leaves a row that says it went out: a message no longer where it was is read as the instruction carried out, and it is not sent again as untried.
 
+`sent_at` is cleared again only when the server refused the first telling outright with nothing of it done: the stop then counts as never told, and a filing taken back is taken away. A change of flags the server refused is not kept at all, and the message keeps the flags the server holds.
+
 ## The list window
 
 Measured on 100,000 messages in one folder, release build, on a Mac with Apple Silicon.

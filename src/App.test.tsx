@@ -6,7 +6,13 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { Profiler, useLayoutEffect, useState, type ReactNode } from "react";
+import {
+  Profiler,
+  StrictMode,
+  useLayoutEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   afterAll,
   afterEach,
@@ -41,6 +47,8 @@ vi.mock("@/shared/ipc/client", async () => {
     onMailChanged: vi.fn(),
     onOpenSettings: vi.fn(),
     onUndoAsked: vi.fn(),
+    setMenuUndoOffered: vi.fn(),
+    removeAccount: vi.fn(),
     onMailAsked: vi.fn(),
     onTheKeyArrived: vi.fn(),
     markMessageRead: vi.fn(),
@@ -97,6 +105,7 @@ const window_ = vi.mocked(client.getViewWindow);
 const mailChanged = vi.mocked(client.onMailChanged);
 const menuOpens = vi.mocked(client.onOpenSettings);
 const menuUndoes = vi.mocked(client.onUndoAsked);
+const menuOffers = vi.mocked(client.setMenuUndoOffered);
 const mailAsked = vi.mocked(client.onMailAsked);
 const keyArrived = vi.mocked(client.onTheKeyArrived);
 const marking = vi.mocked(client.markMessageRead);
@@ -175,6 +184,17 @@ const ACCOUNT = {
   folders: [INBOX],
 };
 
+/** What the settings show for the one account the window starts with. */
+const USER_SETTINGS = {
+  email: "user@example.com",
+  displayName: "User",
+  imapHost: "imap.example.com",
+  imapPort: 993,
+  imapEncryption: "tls" as const,
+  imapUsername: "user@example.com",
+  submission: null,
+};
+
 function renderApp() {
   render(
     <I18nProvider initial="en">
@@ -244,6 +264,8 @@ beforeEach(() => {
   menuOpens.mockResolvedValue(() => {});
   menuUndoes.mockReset();
   menuUndoes.mockResolvedValue(() => {});
+  menuOffers.mockReset();
+  menuOffers.mockResolvedValue(undefined);
   mailAsked.mockReset();
   mailAsked.mockResolvedValue(() => {});
   keyArrived.mockReset();
@@ -2053,16 +2075,6 @@ describe("App, the keys the window answers to", () => {
 });
 
 describe("App, the keys a list or a question keeps to itself", () => {
-  const USER_SETTINGS = {
-    email: "user@example.com",
-    displayName: "User",
-    imapHost: "imap.example.com",
-    imapPort: 993,
-    imapEncryption: "tls" as const,
-    imapUsername: "user@example.com",
-    submission: null,
-  };
-
   it("does not open a message when a letter is typed at a dropdown in the settings", async () => {
     // Typing the first letters of an entry is how a long list is got through. The window answers
     // `c` by opening a message, and the same letter doing both would put one over the settings.
@@ -3583,6 +3595,195 @@ describe("reading, as the window does it", () => {
         act(() => chosen());
         await settle();
       }
+
+      /** What the menu was last told about whether its Undo does anything. */
+      function offered() {
+        const said = menuOffers.mock.calls;
+        return said[said.length - 1]?.[0];
+      }
+
+      /** Whether the engine says there is typing to undo, as the test says. */
+      function typingToUndo(answer: boolean) {
+        Object.defineProperty(document, "queryCommandEnabled", {
+          configurable: true,
+          value: vi.fn(() => answer),
+        });
+      }
+
+      /** The window's answer to whether it is the one in front, where a test changes it. */
+      let inFront: ReturnType<typeof vi.spyOn> | null = null;
+
+      afterEach(() => {
+        Reflect.deleteProperty(document, "queryCommandEnabled");
+        inFront?.mockRestore();
+        inFront = null;
+      });
+
+      it("is greyed out while there is nothing to take back", async () => {
+        renderApp();
+        await screen.findByRole("listbox");
+        await settle();
+
+        expect(offered()).toBe(false);
+      });
+
+      it("is offered once a message is put away, and greyed out once it is back", async () => {
+        await throwTheFirstAway();
+        await waitFor(() => expect(offered()).toBe(true));
+
+        pressUndo(screen.getByRole("listbox"));
+
+        await waitFor(() => expect(undoing).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(offered()).toBe(false));
+      });
+
+      it("is offered in a field only once there is typing to undo", async () => {
+        typingToUndo(false);
+        renderApp();
+        const search = await screen.findByPlaceholderText("Search mail");
+        search.focus();
+        await waitFor(() => expect(offered()).toBe(false));
+
+        typingToUndo(true);
+        fireEvent.input(search, { target: { value: "a" } });
+
+        await waitFor(() => expect(offered()).toBe(true));
+      });
+
+      it("is greyed out under the list of keys, where it does nothing", async () => {
+        await throwTheFirstAway();
+        await waitFor(() => expect(offered()).toBe(true));
+
+        fireEvent.keyDown(window, { key: "?" });
+
+        await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+        await waitFor(() => expect(offered()).toBe(false));
+      });
+
+      it("tells the menu only of a change", async () => {
+        await throwTheFirstAway();
+        await settle();
+
+        const said = menuOffers.mock.calls.map(([one]) => one);
+        expect(said.length).toBeGreaterThan(0);
+        expect(said.some((one, at) => at > 0 && one === said[at - 1])).toBe(
+          false,
+        );
+      });
+
+      it("tells the menu only of a change when its effects run twice, as they do while developing", async () => {
+        render(
+          <StrictMode>
+            <I18nProvider initial="en">
+              <App />
+            </I18nProvider>
+          </StrictMode>,
+        );
+        await screen.findByRole("listbox");
+        await settle();
+
+        const said = menuOffers.mock.calls.map(([one]) => one);
+        expect(said.length).toBeGreaterThan(0);
+        expect(said.some((one, at) => at > 0 && one === said[at - 1])).toBe(
+          false,
+        );
+      });
+
+      it("reads the typing again once the edit is over, when the engine counts it", async () => {
+        // Measured on the engine: a paste reads inside its own input event as nothing to undo, and
+        // as something to undo once the event, and what runs straight after it, are over.
+        typingToUndo(false);
+        renderApp();
+        await screen.findByRole("listbox");
+        await settle();
+        const search = screen.getByPlaceholderText("Search mail");
+        search.focus();
+        await waitFor(() => expect(document.activeElement).toBe(search));
+        search.addEventListener("input", () =>
+          queueMicrotask(() => typingToUndo(true)),
+        );
+
+        // An edit the box's own handler does not see, so the search runs nothing and the field
+        // keeps the focus: what is read is the engine's answer, inside the event and after it.
+        fireEvent.input(search);
+
+        await waitFor(() => expect(offered()).toBe(true));
+      });
+
+      it("goes by the field rather than the message put away, and by the message once the focus leaves it", async () => {
+        typingToUndo(false);
+        await throwTheFirstAway();
+        const search = screen.getByPlaceholderText("Search mail");
+
+        search.focus();
+        await waitFor(() => expect(offered()).toBe(false));
+
+        search.blur();
+        await waitFor(() => expect(offered()).toBe(true));
+      });
+
+      it("goes by the typing rather than the message put away with a screen in front", async () => {
+        // Chosen there, it undoes the window's last typing and takes nothing back.
+        typingToUndo(false);
+        await throwTheFirstAway();
+        await waitFor(() => expect(offered()).toBe(true));
+
+        fireEvent.keyDown(window, { code: "Comma", metaKey: true });
+        await screen.findByRole("heading", { name: "Settings" });
+        await waitFor(() => expect(offered()).toBe(false));
+
+        typingToUndo(true);
+        screen.getByRole("button", { name: "Close this screen" }).focus();
+        await waitFor(() => expect(offered()).toBe(true));
+      });
+
+      it("is greyed out while the window is not the one in front, where the menu hears nothing for it", async () => {
+        await throwTheFirstAway();
+        await waitFor(() => expect(offered()).toBe(true));
+        inFront = vi.spyOn(document, "hasFocus");
+
+        inFront.mockReturnValue(false);
+        fireEvent.blur(window);
+        await waitFor(() => expect(offered()).toBe(false));
+
+        inFront.mockReturnValue(true);
+        fireEvent.focus(window);
+        await waitFor(() => expect(offered()).toBe(true));
+      });
+
+      it("is greyed out once there is no list for a message to come back into", async () => {
+        // The notice answers the key, and with no account left there is no notice.
+        vi.mocked(client.getAccountSettings).mockResolvedValue(USER_SETTINGS);
+        vi.mocked(client.removeAccount).mockResolvedValue();
+        await throwTheFirstAway();
+        await waitFor(() => expect(offered()).toBe(true));
+
+        fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+        fireEvent.click(
+          await screen.findByRole("button", { name: "Edit User" }),
+        );
+        fireEvent.click(
+          await screen.findByRole("button", { name: "Remove this account" }),
+        );
+        fireEvent.change(
+          await screen.findByLabelText("To confirm, type user@example.com"),
+          { target: { value: "user@example.com" } },
+        );
+        fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+        // The last account gone, the window has nothing left to show but the way to add one.
+        expect(
+          await screen.findByText(/connect your first mailbox/i),
+        ).toBeTruthy();
+        // Read afresh: the field the question had the focus in went with it, and a field taken
+        // out of the page says nothing as it goes. Settled before the menu is asked, which was
+        // told "no" last, while the settings stood in front.
+        screen
+          .getByRole("button", { name: "Connect an email account" })
+          .focus();
+        await settle();
+
+        expect(offered()).toBe(false);
+      });
 
       it("takes back the last message put away, as the key does", async () => {
         await throwTheFirstAway();

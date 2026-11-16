@@ -174,6 +174,24 @@ pub fn after_attempt(outcome: Attempt) -> OperationState {
     }
 }
 
+/// What an instruction the server refused becomes, by what it asks for: nothing, for a change of
+/// flags.
+///
+/// A filing stops, and a person is shown it, as anything that cannot be done stops
+/// ([`after_attempt`]). A change of flags is let go: the message keeps the flags the server holds,
+/// which is what a person sees of it, and a stop on it would be one nothing clears. Asked again, the
+/// server gives the same answer, and a flag is not a filing a person takes back. A folder somebody
+/// may read and not mark—a shared one, opened for reading only—refuses one for every message
+/// opened in it.
+pub fn after_refusal(kind: OperationKind) -> Option<OperationState> {
+    match kind {
+        OperationKind::SetFlags { .. } => None,
+        OperationKind::MoveTo { .. } | OperationKind::Delete { .. } => {
+            Some(after_attempt(Attempt::Impossible))
+        }
+    }
+}
+
 /// How long to wait before the next attempt.
 pub fn retry_after(attempts: u32) -> std::time::Duration {
     let at = (attempts as usize).min(RETRY_SECONDS.len() - 1);
@@ -844,6 +862,30 @@ mod tests {
         assert_eq!(
             when_the_message_cannot_be_found(),
             OperationState::Conflicted
+        );
+    }
+
+    #[test]
+    fn a_refused_filing_stops_and_a_refused_change_of_flags_is_let_go() {
+        // A stop on a flag would be one nothing clears: asked again, the server says the same, and
+        // a flag is not a filing to take back. The message keeps what the server holds.
+        let folder = FolderId::new(2).expect("non-zero");
+        assert_eq!(
+            after_refusal(OperationKind::MoveTo { folder }),
+            Some(OperationState::Conflicted)
+        );
+        assert_eq!(
+            after_refusal(OperationKind::Delete {
+                intent: DeleteIntent::ToTrash,
+            }),
+            Some(OperationState::Conflicted)
+        );
+        assert_eq!(
+            after_refusal(OperationKind::SetFlags {
+                add: Flags::SEEN,
+                remove: Flags::NONE,
+            }),
+            None
         );
     }
 

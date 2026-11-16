@@ -2521,7 +2521,7 @@ mod acting {
 
         let mut search_kept_talking = sent_mail_opened();
         search_kept_talking.write(ASKED_WHETHER_IT_IS_THERE);
-        for _ in 0..crate::infrastructure::imap::actions::LINES_ONE_COPY_IS_ANSWERED_IN {
+        for _ in 0..crate::infrastructure::imap::actions::LINES_AN_ANSWER_IS_READ_IN {
             search_kept_talking.read(b"* 1 EXISTS\r\n");
         }
         endings.push(("a search that kept talking", search_kept_talking));
@@ -2558,7 +2558,7 @@ mod acting {
         // once the copy was offered, and that counts against the copy for now.
         let mut script = announced();
         sent_whole(&mut script);
-        for _ in 0..=crate::infrastructure::imap::actions::LINES_ONE_COPY_IS_ANSWERED_IN {
+        for _ in 0..=crate::infrastructure::imap::actions::LINES_AN_ANSWER_IS_READ_IN {
             script.read(b"* 1 EXISTS\r\n");
         }
         script.read(b"A0005 OK APPEND completed\r\n");
@@ -2585,7 +2585,7 @@ mod acting {
         // append to be written.
         let mut script = sent_mail_opened();
         script.write(ASKED_WHETHER_IT_IS_THERE);
-        for _ in 0..=crate::infrastructure::imap::actions::LINES_ONE_COPY_IS_ANSWERED_IN {
+        for _ in 0..=crate::infrastructure::imap::actions::LINES_AN_ANSWER_IS_READ_IN {
             script.read(b"* 1 EXISTS\r\n");
         }
         script.read(b"A0004 OK SEARCH completed\r\n");
@@ -2633,9 +2633,11 @@ mod acting {
 
     #[tokio::test]
     async fn a_server_that_states_no_generation_is_not_acted_on() {
-        // RFC 3501 requires a server to state UIDVALIDITY when it opens a mailbox. One that does
-        // not is one there is nothing to check a number against, and every command below this
-        // point is addressed by number.
+        // RFC 3501 requires a server to state UIDVALIDITY when it opens a mailbox, and the client
+        // library reads a connection that closed partway through the answer as a mailbox that
+        // stated nothing. Either way there is nothing to check a number against, and every command
+        // below this point is addressed by number: nothing is sent, and the conversation, which
+        // may be one that broke, carries nothing further.
         let mut script = Builder::new();
         script
             .read(b"* OK [CAPABILITY IMAP4rev1] ready\r\n")
@@ -2659,7 +2661,7 @@ mod acting {
         )
         .await;
 
-        assert_eq!(outcome, Err(MailActionError::FolderRenumbered));
+        assert_eq!(outcome, Err(MailActionError::NotNow));
     }
 
     #[tokio::test]
@@ -2750,6 +2752,7 @@ mod acting {
                 uid: uid(42),
                 uid_validity: generation(),
                 destination: "Archive",
+                earlier_copy_named: None,
             },
         )
         .await
@@ -2822,6 +2825,344 @@ mod acting {
     }
 
     #[tokio::test]
+    async fn a_move_on_a_server_without_move_or_uidplus_is_refused_before_anything_is_copied() {
+        // The original could never be removed by itself, so nothing is done at all rather than a
+        // copy left beside it: a person taking the message back finds it untouched.
+        let mut script = Builder::new();
+        script
+            .read(b"* OK [CAPABILITY IMAP4rev1] ready\r\n")
+            .write(b"A0001 LOGIN \"person\" \"secret\"\r\n")
+            .read(b"A0001 OK LOGIN completed\r\n")
+            .write(b"A0002 SELECT \"INBOX\"\r\n")
+            .read(b"* OK [UIDVALIDITY 7] .\r\n")
+            .read(b"A0002 OK [READ-WRITE] SELECT completed\r\n")
+            .write(b"A0003 CAPABILITY\r\n")
+            .read(b"* CAPABILITY IMAP4rev1\r\n")
+            .read(b"A0003 OK CAPABILITY completed\r\n");
+
+        let mut session = acting_session(script).await;
+
+        let outcome = carry_out_on(
+            &mut session,
+            ServerAction::MoveTo {
+                mailbox: "INBOX",
+                uid: uid(42),
+                uid_validity: generation(),
+                destination: "Archive",
+                earlier_copy_named: None,
+            },
+        )
+        .await;
+
+        assert_eq!(outcome, Err(MailActionError::Refused));
+    }
+
+    #[tokio::test]
+    async fn a_move_without_move_copies_then_marks_and_removes_that_one_original() {
+        let mut script = Builder::new();
+        script
+            .read(b"* OK [CAPABILITY IMAP4rev1] ready\r\n")
+            .write(b"A0001 LOGIN \"person\" \"secret\"\r\n")
+            .read(b"A0001 OK LOGIN completed\r\n")
+            .write(b"A0002 SELECT \"INBOX\"\r\n")
+            .read(b"* OK [UIDVALIDITY 7] .\r\n")
+            .read(b"A0002 OK [READ-WRITE] SELECT completed\r\n")
+            .write(b"A0003 CAPABILITY\r\n")
+            .read(b"* CAPABILITY IMAP4rev1 UIDPLUS\r\n")
+            .read(b"A0003 OK CAPABILITY completed\r\n")
+            .write(b"A0004 UID COPY 42 \"Archive\"\r\n")
+            .read(b"A0004 OK COPY completed\r\n")
+            .write(b"A0005 UID STORE 42 +FLAGS.SILENT (\\Deleted)\r\n")
+            .read(b"A0005 OK STORE completed\r\n")
+            .write(b"A0006 UID EXPUNGE 42\r\n")
+            .read(b"* 3 EXPUNGE\r\n")
+            .read(b"A0006 OK EXPUNGE completed\r\n");
+
+        let mut session = acting_session(script).await;
+
+        let outcome = carry_out_on(
+            &mut session,
+            ServerAction::MoveTo {
+                mailbox: "INBOX",
+                uid: uid(42),
+                uid_validity: generation(),
+                destination: "Archive",
+                earlier_copy_named: None,
+            },
+        )
+        .await;
+
+        assert_eq!(outcome, Ok(()));
+    }
+
+    #[tokio::test]
+    async fn a_copy_the_server_refuses_leaves_nothing_done() {
+        // A copy that fails leaves the destination as it was.
+        let mut script = Builder::new();
+        script
+            .read(b"* OK [CAPABILITY IMAP4rev1] ready\r\n")
+            .write(b"A0001 LOGIN \"person\" \"secret\"\r\n")
+            .read(b"A0001 OK LOGIN completed\r\n")
+            .write(b"A0002 SELECT \"INBOX\"\r\n")
+            .read(b"* OK [UIDVALIDITY 7] .\r\n")
+            .read(b"A0002 OK [READ-WRITE] SELECT completed\r\n")
+            .write(b"A0003 CAPABILITY\r\n")
+            .read(b"* CAPABILITY IMAP4rev1 UIDPLUS\r\n")
+            .read(b"A0003 OK CAPABILITY completed\r\n")
+            .write(b"A0004 UID COPY 42 \"Archive\"\r\n")
+            .read(b"A0004 NO [OVERQUOTA] Quota exceeded\r\n");
+
+        let mut session = acting_session(script).await;
+
+        let outcome = carry_out_on(
+            &mut session,
+            ServerAction::MoveTo {
+                mailbox: "INBOX",
+                uid: uid(42),
+                uid_validity: generation(),
+                destination: "Archive",
+                earlier_copy_named: None,
+            },
+        )
+        .await;
+
+        assert_eq!(outcome, Err(MailActionError::Refused));
+    }
+
+    #[tokio::test]
+    async fn an_original_the_server_will_not_mark_after_its_copy_is_refused_part_way() {
+        // The copy stands where it was going: taking the message back must not say nothing
+        // happened.
+        let mut script = Builder::new();
+        script
+            .read(b"* OK [CAPABILITY IMAP4rev1] ready\r\n")
+            .write(b"A0001 LOGIN \"person\" \"secret\"\r\n")
+            .read(b"A0001 OK LOGIN completed\r\n")
+            .write(b"A0002 SELECT \"INBOX\"\r\n")
+            .read(b"* OK [UIDVALIDITY 7] .\r\n")
+            .read(b"A0002 OK [READ-WRITE] SELECT completed\r\n")
+            .write(b"A0003 CAPABILITY\r\n")
+            .read(b"* CAPABILITY IMAP4rev1 UIDPLUS\r\n")
+            .read(b"A0003 OK CAPABILITY completed\r\n")
+            .write(b"A0004 UID COPY 42 \"Archive\"\r\n")
+            .read(b"A0004 OK COPY completed\r\n")
+            .write(b"A0005 UID STORE 42 +FLAGS.SILENT (\\Deleted)\r\n")
+            .read(b"A0005 NO Permission denied\r\n");
+
+        let mut session = acting_session(script).await;
+
+        let outcome = carry_out_on(
+            &mut session,
+            ServerAction::MoveTo {
+                mailbox: "INBOX",
+                uid: uid(42),
+                uid_validity: generation(),
+                destination: "Archive",
+                earlier_copy_named: None,
+            },
+        )
+        .await;
+
+        assert_eq!(outcome, Err(MailActionError::RefusedPartWay));
+    }
+
+    #[tokio::test]
+    async fn an_original_the_server_will_not_remove_after_its_copy_is_refused_part_way() {
+        let mut script = Builder::new();
+        script
+            .read(b"* OK [CAPABILITY IMAP4rev1] ready\r\n")
+            .write(b"A0001 LOGIN \"person\" \"secret\"\r\n")
+            .read(b"A0001 OK LOGIN completed\r\n")
+            .write(b"A0002 SELECT \"INBOX\"\r\n")
+            .read(b"* OK [UIDVALIDITY 7] .\r\n")
+            .read(b"A0002 OK [READ-WRITE] SELECT completed\r\n")
+            .write(b"A0003 CAPABILITY\r\n")
+            .read(b"* CAPABILITY IMAP4rev1 UIDPLUS\r\n")
+            .read(b"A0003 OK CAPABILITY completed\r\n")
+            .write(b"A0004 UID COPY 42 \"Archive\"\r\n")
+            .read(b"A0004 OK COPY completed\r\n")
+            .write(b"A0005 UID STORE 42 +FLAGS.SILENT (\\Deleted)\r\n")
+            .read(b"A0005 OK STORE completed\r\n")
+            .write(b"A0006 UID EXPUNGE 42\r\n")
+            .read(b"A0006 NO Permission denied\r\n");
+
+        let mut session = acting_session(script).await;
+
+        let outcome = carry_out_on(
+            &mut session,
+            ServerAction::MoveTo {
+                mailbox: "INBOX",
+                uid: uid(42),
+                uid_validity: generation(),
+                destination: "Archive",
+                earlier_copy_named: None,
+            },
+        )
+        .await;
+
+        assert_eq!(outcome, Err(MailActionError::RefusedPartWay));
+    }
+
+    #[tokio::test]
+    async fn a_move_refused_in_one_step_leaves_nothing_done() {
+        let mut script = Builder::new();
+        script
+            .read(b"* OK [CAPABILITY IMAP4rev1] ready\r\n")
+            .write(b"A0001 LOGIN \"person\" \"secret\"\r\n")
+            .read(b"A0001 OK LOGIN completed\r\n")
+            .write(b"A0002 SELECT \"INBOX\"\r\n")
+            .read(b"* OK [UIDVALIDITY 7] .\r\n")
+            .read(b"A0002 OK [READ-WRITE] SELECT completed\r\n")
+            .write(b"A0003 CAPABILITY\r\n")
+            .read(b"* CAPABILITY IMAP4rev1 MOVE UIDPLUS\r\n")
+            .read(b"A0003 OK CAPABILITY completed\r\n")
+            .write(b"A0004 UID MOVE 42 \"Archive\"\r\n")
+            .read(b"A0004 NO [CANNOT] Not allowed\r\n");
+
+        let mut session = acting_session(script).await;
+
+        let outcome = carry_out_on(
+            &mut session,
+            ServerAction::MoveTo {
+                mailbox: "INBOX",
+                uid: uid(42),
+                uid_validity: generation(),
+                destination: "Archive",
+                earlier_copy_named: None,
+            },
+        )
+        .await;
+
+        assert_eq!(outcome, Err(MailActionError::Refused));
+    }
+
+    #[tokio::test]
+    async fn a_mark_the_server_refuses_before_an_erase_leaves_nothing_done() {
+        let mut script = Builder::new();
+        script
+            .read(b"* OK [CAPABILITY IMAP4rev1] ready\r\n")
+            .write(b"A0001 LOGIN \"person\" \"secret\"\r\n")
+            .read(b"A0001 OK LOGIN completed\r\n")
+            .write(b"A0002 SELECT \"INBOX\"\r\n")
+            .read(b"* OK [UIDVALIDITY 7] .\r\n")
+            .read(b"A0002 OK [READ-WRITE] SELECT completed\r\n")
+            .write(b"A0003 CAPABILITY\r\n")
+            .read(b"* CAPABILITY IMAP4rev1 UIDPLUS\r\n")
+            .read(b"A0003 OK CAPABILITY completed\r\n")
+            .write(b"A0004 UID STORE 42 +FLAGS.SILENT (\\Deleted)\r\n")
+            .read(b"A0004 NO Permission denied\r\n");
+
+        let mut session = acting_session(script).await;
+
+        let outcome = carry_out_on(
+            &mut session,
+            ServerAction::Erase {
+                mailbox: "INBOX",
+                uid: uid(42),
+                uid_validity: generation(),
+            },
+        )
+        .await;
+
+        assert_eq!(outcome, Err(MailActionError::Refused));
+    }
+
+    #[tokio::test]
+    async fn a_removal_the_server_refuses_after_the_mark_is_refused_part_way() {
+        let mut script = Builder::new();
+        script
+            .read(b"* OK [CAPABILITY IMAP4rev1] ready\r\n")
+            .write(b"A0001 LOGIN \"person\" \"secret\"\r\n")
+            .read(b"A0001 OK LOGIN completed\r\n")
+            .write(b"A0002 SELECT \"INBOX\"\r\n")
+            .read(b"* OK [UIDVALIDITY 7] .\r\n")
+            .read(b"A0002 OK [READ-WRITE] SELECT completed\r\n")
+            .write(b"A0003 CAPABILITY\r\n")
+            .read(b"* CAPABILITY IMAP4rev1 UIDPLUS\r\n")
+            .read(b"A0003 OK CAPABILITY completed\r\n")
+            .write(b"A0004 UID STORE 42 +FLAGS.SILENT (\\Deleted)\r\n")
+            .read(b"A0004 OK STORE completed\r\n")
+            .write(b"A0005 UID EXPUNGE 42\r\n")
+            .read(b"A0005 NO Permission denied\r\n");
+
+        let mut session = acting_session(script).await;
+
+        let outcome = carry_out_on(
+            &mut session,
+            ServerAction::Erase {
+                mailbox: "INBOX",
+                uid: uid(42),
+                uid_validity: generation(),
+            },
+        )
+        .await;
+
+        assert_eq!(outcome, Err(MailActionError::RefusedPartWay));
+    }
+
+    #[tokio::test]
+    async fn a_flag_taken_away_refused_after_one_was_added_is_refused_part_way() {
+        let mut script = Builder::new();
+        script
+            .read(b"* OK [CAPABILITY IMAP4rev1] ready\r\n")
+            .write(b"A0001 LOGIN \"person\" \"secret\"\r\n")
+            .read(b"A0001 OK LOGIN completed\r\n")
+            .write(b"A0002 SELECT \"INBOX\"\r\n")
+            .read(b"* OK [UIDVALIDITY 7] .\r\n")
+            .read(b"A0002 OK [READ-WRITE] SELECT completed\r\n")
+            .write(b"A0003 UID STORE 42 +FLAGS.SILENT (\\Seen)\r\n")
+            .read(b"A0003 OK STORE completed\r\n")
+            .write(b"A0004 UID STORE 42 -FLAGS.SILENT (\\Flagged)\r\n")
+            .read(b"A0004 NO Permission denied\r\n");
+
+        let mut session = acting_session(script).await;
+
+        let outcome = carry_out_on(
+            &mut session,
+            ServerAction::SetFlags {
+                mailbox: "INBOX",
+                uid: uid(42),
+                uid_validity: generation(),
+                add: Flags::SEEN,
+                remove: Flags::FLAGGED,
+            },
+        )
+        .await;
+
+        assert_eq!(outcome, Err(MailActionError::RefusedPartWay));
+    }
+
+    #[tokio::test]
+    async fn a_first_flag_change_refused_leaves_nothing_done() {
+        let mut script = Builder::new();
+        script
+            .read(b"* OK [CAPABILITY IMAP4rev1] ready\r\n")
+            .write(b"A0001 LOGIN \"person\" \"secret\"\r\n")
+            .read(b"A0001 OK LOGIN completed\r\n")
+            .write(b"A0002 SELECT \"INBOX\"\r\n")
+            .read(b"* OK [UIDVALIDITY 7] .\r\n")
+            .read(b"A0002 OK [READ-WRITE] SELECT completed\r\n")
+            .write(b"A0003 UID STORE 42 +FLAGS.SILENT (\\Seen)\r\n")
+            .read(b"A0003 NO Permission denied\r\n");
+
+        let mut session = acting_session(script).await;
+
+        let outcome = carry_out_on(
+            &mut session,
+            ServerAction::SetFlags {
+                mailbox: "INBOX",
+                uid: uid(42),
+                uid_validity: generation(),
+                add: Flags::SEEN,
+                remove: Flags::FLAGGED,
+            },
+        )
+        .await;
+
+        assert_eq!(outcome, Err(MailActionError::Refused));
+    }
+
+    #[tokio::test]
     async fn a_server_that_refuses_is_not_asked_again() {
         // A refusal spelled out by the server is an answer. Trying again gets the same one, and
         // the person is shown it instead.
@@ -2848,6 +3189,401 @@ mod acting {
         .await;
 
         assert_eq!(outcome, Err(MailActionError::Refused));
+    }
+
+    /// The conversation up to INBOX opened in the generation every number here was taken under.
+    fn inbox_open() -> Builder {
+        let mut script = opening(Builder::new());
+        script
+            .write(b"A0002 SELECT \"INBOX\"\r\n")
+            .read(b"* OK [UIDVALIDITY 7] .\r\n")
+            .read(b"A0002 OK [READ-WRITE] SELECT completed\r\n");
+        script
+    }
+
+    fn marking_read() -> ServerAction<'static> {
+        ServerAction::SetFlags {
+            mailbox: "INBOX",
+            uid: uid(42),
+            uid_validity: generation(),
+            add: Flags::SEEN,
+            remove: Flags::NONE,
+        }
+    }
+
+    fn moving(earlier_copy_named: Option<&'static str>) -> ServerAction<'static> {
+        ServerAction::MoveTo {
+            mailbox: "INBOX",
+            uid: uid(42),
+            uid_validity: generation(),
+            destination: "Archive",
+            earlier_copy_named,
+        }
+    }
+
+    fn erasing() -> ServerAction<'static> {
+        ServerAction::Erase {
+            mailbox: "INBOX",
+            uid: uid(42),
+            uid_validity: generation(),
+        }
+    }
+
+    /// The conversation `before` makes, then `command` and no answer to it: the connection closed,
+    /// a goodbye in place of one, and a read that failed, as one does once silence passes the
+    /// deadline. Each ends where its answer would, and fails on a line written after that.
+    fn unanswered(before: fn() -> Builder, command: &[u8]) -> Vec<(&'static str, Builder)> {
+        let mut closed = before();
+        closed.write(command);
+
+        let mut said_goodbye = before();
+        said_goodbye
+            .write(command)
+            .read(b"* BYE Server shutting down\r\n");
+
+        let mut went_silent = before();
+        went_silent.write(command).read_error(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "silent past the deadline",
+        ));
+
+        vec![
+            ("closed", closed),
+            ("a goodbye", said_goodbye),
+            ("silence", went_silent),
+        ]
+    }
+
+    #[tokio::test]
+    async fn a_question_about_what_the_server_can_do_left_unanswered_is_not_now() {
+        // Not a server saying it cannot do the careful thing: a conversation that broke, ended
+        // rather than handed the next command. Taken for a refusal, a move the server would carry
+        // out a minute later stops for good, and what waits behind it is sent into nothing.
+        for action in [moving(None), erasing()] {
+            for (ending, script) in unanswered(inbox_open, b"A0003 CAPABILITY\r\n") {
+                let mut session = acting_session(script).await;
+
+                let outcome = carry_out_on(&mut session, action.clone()).await;
+
+                assert_eq!(
+                    outcome,
+                    Err(MailActionError::NotNow),
+                    "{ending}: {action:?}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn an_answer_about_what_the_server_can_do_that_lists_nothing_is_not_now() {
+        // The list is the answer, and the tagged line alone says nothing about what the server can
+        // do: a server that will not say, or an answer that lost its list.
+        for (ending, tagged) in [
+            (
+                "an answer with no list",
+                &b"A0003 OK CAPABILITY completed\r\n"[..],
+            ),
+            ("a refusal to say", b"A0003 NO Not now\r\n"),
+        ] {
+            for action in [moving(None), erasing()] {
+                let mut script = inbox_open();
+                script.write(b"A0003 CAPABILITY\r\n").read(tagged);
+                let mut session = acting_session(script).await;
+
+                let outcome = carry_out_on(&mut session, action.clone()).await;
+
+                assert_eq!(
+                    outcome,
+                    Err(MailActionError::NotNow),
+                    "{ending}: {action:?}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_mailbox_whose_opening_is_cut_short_is_not_now() {
+        // Taken for a folder that renumbered, the conversation would be kept, and every
+        // instruction behind this one written down as told and sent into nothing.
+        let mut script = opening(Builder::new());
+        script.write(b"A0002 SELECT \"INBOX\"\r\n");
+        let mut session = acting_session(script).await;
+
+        assert_eq!(
+            carry_out_on(&mut session, marking_read()).await,
+            Err(MailActionError::NotNow)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_change_whose_answer_never_arrives_is_not_now() {
+        // The client library's reader ends quietly where the conversation does, which read as the
+        // server confirming a flag it never confirmed.
+        for (ending, script) in
+            unanswered(inbox_open, b"A0003 UID STORE 42 +FLAGS.SILENT (\\Seen)\r\n")
+        {
+            let mut session = acting_session(script).await;
+
+            let outcome = carry_out_on(&mut session, marking_read()).await;
+
+            assert_eq!(outcome, Err(MailActionError::NotNow), "{ending}");
+        }
+    }
+
+    /// INBOX open on a server that can remove one message by itself, and that message marked
+    /// deleted.
+    fn marked_deleted() -> Builder {
+        let mut script = inbox_open();
+        script
+            .write(b"A0003 CAPABILITY\r\n")
+            .read(b"* CAPABILITY IMAP4rev1 UIDPLUS\r\n")
+            .read(b"A0003 OK CAPABILITY completed\r\n")
+            .write(b"A0004 UID STORE 42 +FLAGS.SILENT (\\Deleted)\r\n")
+            .read(b"A0004 OK STORE completed\r\n");
+        script
+    }
+
+    #[tokio::test]
+    async fn a_removal_whose_answer_never_arrives_is_not_now_rather_than_refused_part_way() {
+        // Nothing says the server refused it. "Not now" ends the conversation; a refusal would
+        // keep it, for the next instruction to be sent into nothing.
+        for (ending, script) in unanswered(marked_deleted, b"A0005 UID EXPUNGE 42\r\n") {
+            let mut session = acting_session(script).await;
+
+            let outcome = carry_out_on(&mut session, erasing()).await;
+
+            assert_eq!(outcome, Err(MailActionError::NotNow), "{ending}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_change_the_server_calls_malformed_is_refused() {
+        let mut script = inbox_open();
+        script
+            .write(b"A0003 UID STORE 42 +FLAGS.SILENT (\\Seen)\r\n")
+            .read(b"A0003 BAD Command syntax error\r\n");
+        let mut session = acting_session(script).await;
+
+        assert_eq!(
+            carry_out_on(&mut session, marking_read()).await,
+            Err(MailActionError::Refused)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_warning_before_the_answer_is_not_the_answer() {
+        // An untagged NO is the server talking about something else; the tagged line answers.
+        let mut script = inbox_open();
+        script
+            .write(b"A0003 UID STORE 42 +FLAGS.SILENT (\\Seen)\r\n")
+            .read(b"* NO Disk space is running low\r\n")
+            .read(b"A0003 OK STORE completed\r\n");
+        let mut session = acting_session(script).await;
+
+        assert_eq!(carry_out_on(&mut session, marking_read()).await, Ok(()));
+    }
+
+    #[tokio::test]
+    async fn a_server_that_keeps_talking_instead_of_answering_a_change_is_not_listened_to_for_ever()
+    {
+        let mut script = inbox_open();
+        script.write(b"A0003 UID STORE 42 +FLAGS.SILENT (\\Seen)\r\n");
+        for _ in 0..=crate::infrastructure::imap::actions::LINES_AN_ANSWER_IS_READ_IN {
+            script.read(b"* 1 EXISTS\r\n");
+        }
+        script.read(b"A0003 OK STORE completed\r\n");
+        let mut session = acting_session(script).await;
+
+        let outcome = carry_out_on(&mut session, marking_read()).await;
+        heard_out(&mut session).await;
+
+        assert_eq!(outcome, Err(MailActionError::NotNow));
+    }
+
+    #[tokio::test]
+    async fn a_flag_taken_away_alone_and_refused_leaves_nothing_done() {
+        // Marking a message unread: a removal with nothing added before it.
+        let mut script = inbox_open();
+        script
+            .write(b"A0003 UID STORE 42 -FLAGS.SILENT (\\Seen)\r\n")
+            .read(b"A0003 NO Permission denied\r\n");
+        let mut session = acting_session(script).await;
+
+        let outcome = carry_out_on(
+            &mut session,
+            ServerAction::SetFlags {
+                mailbox: "INBOX",
+                uid: uid(42),
+                uid_validity: generation(),
+                add: Flags::NONE,
+                remove: Flags::SEEN,
+            },
+        )
+        .await;
+
+        assert_eq!(outcome, Err(MailActionError::Refused));
+    }
+
+    /// A move told before, on a server that copies and removes one message but cannot move: the
+    /// destination opened to be read.
+    fn destination_examined() -> Builder {
+        let mut script = inbox_open();
+        script
+            .write(b"A0003 CAPABILITY\r\n")
+            .read(b"* CAPABILITY IMAP4rev1 UIDPLUS\r\n")
+            .read(b"A0003 OK CAPABILITY completed\r\n")
+            .write(b"A0004 EXAMINE \"Archive\"\r\n")
+            .read(b"* OK [UIDVALIDITY 3] .\r\n")
+            .read(b"A0004 OK [READ-ONLY] EXAMINE completed\r\n");
+        script
+    }
+
+    /// The destination asked for a message of the name the original carries.
+    const SEARCHED_FOR_THE_COPY: &[u8] =
+        b"A0005 UID SEARCH HEADER Message-ID \"<one@example.com>\"\r\n";
+
+    fn told_move_asked() -> Builder {
+        let mut script = destination_examined();
+        script.write(SEARCHED_FOR_THE_COPY);
+        script
+    }
+
+    /// The original's mailbox opened again once the search has answered.
+    fn opened_again(script: &mut Builder) {
+        script
+            .write(b"A0006 SELECT \"INBOX\"\r\n")
+            .read(b"* OK [UIDVALIDITY 7] .\r\n")
+            .read(b"A0006 OK [READ-WRITE] SELECT completed\r\n");
+    }
+
+    /// The copy made, and the original removed.
+    fn copied_and_removed(script: &mut Builder) {
+        script
+            .write(b"A0007 UID COPY 42 \"Archive\"\r\n")
+            .read(b"A0007 OK COPY completed\r\n")
+            .write(b"A0008 UID STORE 42 +FLAGS.SILENT (\\Deleted)\r\n")
+            .read(b"A0008 OK STORE completed\r\n")
+            .write(b"A0009 UID EXPUNGE 42\r\n")
+            .read(b"A0009 OK EXPUNGE completed\r\n");
+    }
+
+    #[tokio::test]
+    async fn a_move_told_before_whose_copy_is_there_removes_only_the_original() {
+        // Its answer lost, or the original refused after the copy: the copy is not made twice.
+        // The script holds no line for one, and fails on one written.
+        let mut script = told_move_asked();
+        script
+            .read(b"* SEARCH 9\r\n")
+            .read(b"A0005 OK SEARCH completed\r\n");
+        opened_again(&mut script);
+        script
+            .write(b"A0007 UID STORE 42 +FLAGS.SILENT (\\Deleted)\r\n")
+            .read(b"A0007 OK STORE completed\r\n")
+            .write(b"A0008 UID EXPUNGE 42\r\n")
+            .read(b"A0008 OK EXPUNGE completed\r\n");
+        let mut session = acting_session(script).await;
+
+        assert_eq!(
+            carry_out_on(&mut session, moving(Some("one@example.com"))).await,
+            Ok(())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_move_told_before_whose_copy_is_not_there_is_copied() {
+        let mut script = told_move_asked();
+        script
+            .read(b"* SEARCH\r\n")
+            .read(b"A0005 OK SEARCH completed\r\n");
+        opened_again(&mut script);
+        copied_and_removed(&mut script);
+        let mut session = acting_session(script).await;
+
+        assert_eq!(
+            carry_out_on(&mut session, moving(Some("one@example.com"))).await,
+            Ok(())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_move_told_before_on_a_server_that_will_not_search_is_copied_again() {
+        // Two copies are mail kept twice; an original removed beside no copy is mail lost.
+        let mut script = told_move_asked();
+        script.read(b"A0005 NO [CANNOT] Search not allowed\r\n");
+        opened_again(&mut script);
+        copied_and_removed(&mut script);
+        let mut session = acting_session(script).await;
+
+        assert_eq!(
+            carry_out_on(&mut session, moving(Some("one@example.com"))).await,
+            Ok(())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_move_told_before_whose_search_goes_unanswered_is_not_now() {
+        // Nothing copied and nothing removed: the conversation broke.
+        for (ending, script) in unanswered(destination_examined, SEARCHED_FOR_THE_COPY) {
+            let mut session = acting_session(script).await;
+
+            let outcome = carry_out_on(&mut session, moving(Some("one@example.com"))).await;
+
+            assert_eq!(outcome, Err(MailActionError::NotNow), "{ending}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_move_told_before_whose_mailbox_renumbered_while_it_looked_is_left_alone() {
+        let mut script = told_move_asked();
+        script
+            .read(b"* SEARCH 9\r\n")
+            .read(b"A0005 OK SEARCH completed\r\n")
+            .write(b"A0006 SELECT \"INBOX\"\r\n")
+            .read(b"* OK [UIDVALIDITY 99] .\r\n")
+            .read(b"A0006 OK [READ-WRITE] SELECT completed\r\n");
+        let mut session = acting_session(script).await;
+
+        assert_eq!(
+            carry_out_on(&mut session, moving(Some("one@example.com"))).await,
+            Err(MailActionError::FolderRenumbered)
+        );
+    }
+
+    #[tokio::test]
+    async fn the_original_refused_again_beside_the_copy_found_is_refused_part_way() {
+        // The copy stands where it was going.
+        let mut script = told_move_asked();
+        script
+            .read(b"* SEARCH 9\r\n")
+            .read(b"A0005 OK SEARCH completed\r\n");
+        opened_again(&mut script);
+        script
+            .write(b"A0007 UID STORE 42 +FLAGS.SILENT (\\Deleted)\r\n")
+            .read(b"A0007 NO Permission denied\r\n");
+        let mut session = acting_session(script).await;
+
+        assert_eq!(
+            carry_out_on(&mut session, moving(Some("one@example.com"))).await,
+            Err(MailActionError::RefusedPartWay)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_move_told_before_on_a_server_that_moves_looks_for_no_copy() {
+        // One step leaves no copy behind for a second telling to find.
+        let mut script = inbox_open();
+        script
+            .write(b"A0003 CAPABILITY\r\n")
+            .read(b"* CAPABILITY IMAP4rev1 MOVE UIDPLUS\r\n")
+            .read(b"A0003 OK CAPABILITY completed\r\n")
+            .write(b"A0004 UID MOVE 42 \"Archive\"\r\n")
+            .read(b"A0004 OK MOVE completed\r\n");
+        let mut session = acting_session(script).await;
+
+        assert_eq!(
+            carry_out_on(&mut session, moving(Some("one@example.com"))).await,
+            Ok(())
+        );
     }
 }
 

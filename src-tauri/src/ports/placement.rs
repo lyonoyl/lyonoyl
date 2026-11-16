@@ -56,6 +56,11 @@ pub trait Placements: Send + Sync {
     /// The name the server knows a folder by.
     fn mailbox_of(&self, folder: FolderId) -> Result<Option<String>, PlacementError>;
 
+    /// The name a message carries in its `Message-ID`, without its angle brackets, where it carries
+    /// one: what a move the server was told of before asks the destination for, before it copies a
+    /// second time.
+    fn name_of(&self, message: MessageId) -> Result<Option<String>, PlacementError>;
+
     /// The folder an account keeps a given kind of mail in, where it has one.
     ///
     /// What decides whether "delete" can mean "put it where it can be got back". An account with
@@ -92,6 +97,10 @@ impl<P: Placements + ?Sized> Placements for &P {
 
     fn mailbox_of(&self, folder: FolderId) -> Result<Option<String>, PlacementError> {
         (**self).mailbox_of(folder)
+    }
+
+    fn name_of(&self, message: MessageId) -> Result<Option<String>, PlacementError> {
+        (**self).name_of(message)
     }
 
     fn folder_for(

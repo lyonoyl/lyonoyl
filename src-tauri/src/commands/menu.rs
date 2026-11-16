@@ -62,6 +62,31 @@ pub async fn set_menu_words(
     Ok(())
 }
 
+/// Says whether choosing the menu's Undo does anything now, so that it is greyed out when it would
+/// not, as the system's is with nothing to undo.
+#[tauri::command]
+pub async fn set_menu_undo_offered(app: AppHandle, offered: bool) -> Result<(), CommandError> {
+    #[cfg(target_os = "macos")]
+    {
+        use crate::infrastructure::menu_bar;
+
+        let (answer, changed) = tokio::sync::oneshot::channel();
+        let menu = app.clone();
+        app.run_on_main_thread(move || {
+            let _ = answer.send(menu_bar::offer_undo(&menu, offered));
+        })
+        .map_err(|_| unchanged())?;
+        changed
+            .await
+            .map_err(|_| unchanged())?
+            .map_err(|_| unchanged())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, offered);
+
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 fn unchanged() -> CommandError {
     CommandError::new(ErrorCode::Internal, "The menu could not be changed.")
