@@ -44,6 +44,13 @@ export function useFiling(
   const putAway = useRef<PutAway | null>(null);
   /** Bumped when somebody asks for it back by key; the notice is what knows how to answer. */
   const [takeBackAsked, setTakeBackAsked] = useState(0);
+  /**
+   * What the notice is asking the core to take back, while the answer is on its way. Held here
+   * rather than in the notice, which a screen opened in the meantime takes out of the tree: the
+   * key pressed again once it has closed would ask a second time, and the late first answer would
+   * leave the second line saying the message could not be put back over a list that has it.
+   */
+  const inFlight = useRef<PutAway | null>(null);
   /** The one just put back, which is a different thing to tell the list than a filing. */
   const [back, setBack] = useState<string | null>(null);
   /** A message marked read by being opened and put back to unread from the notice. */
@@ -66,13 +73,14 @@ export function useFiling(
   }, []);
 
   const putBack = useCallback(
-    (messageId: string) => {
+    (messageId: string, sayingWhere = false) => {
       // Back, by the notice's button or by the key: nothing is left for the key to take back, and
-      // nothing for the notice to say about it.
+      // nothing for the notice to say about it -- unless it is the line the key raised, which says
+      // where the message went back to and then goes by itself, as any line does.
       const about = (one: PutAway | null) =>
         one !== null && one !== "forGood" && one.messageId === messageId;
       if (about(putAway.current)) putAway.current = null;
-      setNotice((was) => (about(was) ? null : was));
+      if (!sayingWhere) setNotice((was) => (about(was) ? null : was));
       setBack(messageId);
       // Read again as well as shown again: once the server has carried the filing out and a pass
       // has read it back, the list no longer holds the row it would show, and only its own answer
@@ -111,10 +119,13 @@ export function useFiling(
     putAway.current = "forGood";
   }, []);
 
-  /** The key: the notice is raised about what was last put away and asked for it back. */
+  /**
+   * The key: the notice is raised about what was last put away and asked for it back. Nothing
+   * while an answer is on its way, which is what the press would ask for again.
+   */
   const takeBackByKey = useCallback(() => {
     const last = putAway.current;
-    if (last === null) return;
+    if (last === null || inFlight.current !== null) return;
     setNotice(last);
     setTakeBackAsked((asked) => asked + 1);
   }, []);
@@ -134,6 +145,7 @@ export function useFiling(
     filed,
     notice,
     takeBackAsked,
+    inFlight,
     told,
     filedAway,
     putBack,

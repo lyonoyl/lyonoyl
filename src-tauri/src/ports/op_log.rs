@@ -127,13 +127,17 @@ pub trait OperationLog: Send + Sync {
     /// every change made while it was. Only what is still waiting is given back.
     fn release(&self, ids: &[OperationId]) -> Result<(), OperationLogError>;
 
-    /// Takes back what was asked for about one message, while it is still only asked for.
+    /// Takes back a filing asked for about one message — a move, or a delete — while it is still
+    /// only asked for.
     ///
     /// What "undo" means before a server has heard: the instruction never happened, and the
     /// message goes back to being what the index says it is. Only what has not been sent —
     /// something the server has done, or is being told right now, is undone by asking for the
     /// opposite, which is a new instruction and not the absence of an old one. Answers with how
     /// many were taken back.
+    ///
+    /// Filings only, because a filing is what a person takes back: a mark as read from opening the
+    /// message stays, as it does when the line under the list is answered.
     fn cancel(&self, account_id: &str, target: OperationTarget)
         -> Result<usize, OperationLogError>;
 
@@ -141,8 +145,25 @@ pub trait OperationLog: Send + Sync {
     ///
     /// From the beginning: the attempt count and the wait are cleared, because a person asking
     /// again is a new decision rather than the next retry of an old one — and what stopped it may
-    /// well have been fixed in between. Answers with how many were put back.
+    /// well have been fixed in between. A stop the server never heard of that has a later word of
+    /// its kind beside it, waiting or stopped after it, is taken away instead: the later word is
+    /// the one asked again. Answers with how many were put back.
     fn try_again(
+        &self,
+        account_id: &str,
+        target: OperationTarget,
+    ) -> Result<usize, OperationLogError>;
+
+    /// Takes away the filings about one message that stopped before the server heard of them, a
+    /// person having taken back what they asked for.
+    ///
+    /// The other answer to a stopped filing than asking again: nothing happened, so nothing is left
+    /// to undo, and what it asked for is no longer wanted. Only one the server was never told about:
+    /// told, it may have been carried out in part — a move made as a copy and then a delete the
+    /// server refused leaves the copy where it was going. And only while it is still stopped: asked
+    /// again since, it is waiting or carried out, and not this one's to remove. Answers with how
+    /// many were taken away.
+    fn give_up(
         &self,
         account_id: &str,
         target: OperationTarget,
@@ -174,7 +195,8 @@ pub trait OperationLog: Send + Sync {
         target: OperationTarget,
     ) -> Result<Vec<RecordedOperation>, OperationLogError>;
 
-    /// The last thing the server was actually told about this message, if it still remembers.
+    /// The last filing — a move, or a delete — the server was actually told about for this message,
+    /// if it still remembers.
     ///
     /// What a way back is built from. While an instruction is waiting, taking it back is removing
     /// it; once it has gone through there is nothing to remove, and putting the message back is a
@@ -186,6 +208,10 @@ pub trait OperationLog: Send + Sync {
     /// An instruction that stopped counts as well, when it is the newest: the caller has to see
     /// that what it would be undoing did not happen, rather than be handed an older instruction
     /// about the same message and undo that instead.
+    ///
+    /// Filings only. A flag changed since is not what a person takes back: going to a message that
+    /// came back with its filing stopped marks it read, and undoing that would turn it unread and
+    /// leave the filing where it was.
     ///
     /// Nothing once it has been forgotten, which is an honest answer: a filing from last week is
     /// not something anybody is undoing from a line under the list.
@@ -292,6 +318,14 @@ impl<L: OperationLog + ?Sized> OperationLog for &L {
         target: OperationTarget,
     ) -> Result<usize, OperationLogError> {
         (**self).try_again(account_id, target)
+    }
+
+    fn give_up(
+        &self,
+        account_id: &str,
+        target: OperationTarget,
+    ) -> Result<usize, OperationLogError> {
+        (**self).give_up(account_id, target)
     }
 
     fn folder_reset(&self, account_id: &str, folder: FolderId) -> Result<usize, OperationLogError> {

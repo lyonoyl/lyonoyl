@@ -253,10 +253,14 @@ pub async fn empty_folder(
     Ok(asked.1)
 }
 
-/// Takes back what was just asked for, while the server has not heard about it.
+/// Takes back the last filing of a message — the move, or the delete — that the window offers to
+/// undo.
 ///
-/// What "undo" means in the moment it is offered. Something already carried out is undone by asking
-/// for the opposite, which is an ordinary instruction and not this.
+/// Three answers, and the window hears two of them as one. Removed: the filing was still waiting,
+/// or stopped before the server heard of it. Asked for: the server had carried it out, and a way
+/// back is now in the queue like any other instruction. Or nothing that can be done, which is the
+/// one answered `false`: deleted for good, forgotten, no longer where it was asked about, or stopped
+/// after the server was told of it.
 #[tauri::command]
 pub async fn undo_action(
     app: tauri::AppHandle,

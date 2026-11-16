@@ -5,9 +5,11 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type MutableRefObject,
 } from "react";
 
-import { undoAction } from "@/shared/ipc/client";
+import { folderName } from "@/entities/folder";
+import { getMailboxTree, undoAction } from "@/shared/ipc/client";
 import type { Translator } from "@/shared/i18n";
 
 /** A message just filed away or thrown out, as the pane that did it describes it. */
@@ -45,6 +47,7 @@ const MOVING_MS = 200;
 export function FilingNotice({
   filed,
   takeBackAsked = 0,
+  inFlight,
   onTakenBack,
   onGone,
   onUnreadAgain,
@@ -59,8 +62,17 @@ export function FilingNotice({
    * say.
    */
   takeBackAsked?: number;
-  /** Told when the message is back where it was, so the list can show it again. */
-  onTakenBack: (messageId: string) => void;
+  /**
+   * The line whose way back is still being answered, held by whoever shows this so it outlives
+   * the line: a screen opened while the answer is on its way takes the line out of the tree, and
+   * the line drawn after it closed must not ask a second time. Kept here when nobody holds it.
+   */
+  inFlight?: MutableRefObject<PutAway | null>;
+  /**
+   * Told when the message is back where it was, so the list can show it again, and whether this
+   * line goes on to say where it went back to — the line the key raised, which then goes by itself.
+   */
+  onTakenBack: (messageId: string, sayingWhere: boolean) => void;
   /**
    * Told once this is off the screen.
    *
@@ -79,10 +91,15 @@ export function FilingNotice({
   onUnreadAgain?: (messageId: string, folderId: FolderIdDto) => void;
   t: Translator;
 }) {
-  /** `asking` is a line the key raised, drawn as nothing while its answer is on its way. */
+  /**
+   * `asking` is a line the key raised, drawn as nothing while its answer is on its way, and `back`
+   * is that line once the message is back, saying where.
+   */
   const [answered, setAnswered] = useState<
-    "offered" | "asking" | "tooLate" | "gone"
+    "offered" | "asking" | "tooLate" | "gone" | "back"
   >("offered");
+  /** The folder the message went back to, as the sidebar names it, for a line that says so. */
+  const [backIn, setBackIn] = useState("");
   /** Whole seconds left, which is what the ring drains by and what the circle says. */
   const [left, setLeft] = useState(NOTICE_MS / 1000);
   /**
@@ -115,7 +132,36 @@ export function FilingNotice({
    * The line whose way back is still being answered, so a second press about it asks nothing. One
    * line's, so an answer that never comes holds back no other line's way back.
    */
-  const asking = useRef<PutAway | null>(null);
+  const ownInFlight = useRef<PutAway | null>(null);
+  const asking = inFlight ?? ownInFlight;
+  /** What the line has come to, and whom to tell it went, as they are when it leaves the tree. */
+  const leftAs = useRef({ answered, filed, onGone });
+  useLayoutEffect(() => {
+    leftAs.current = { answered, filed, onGone };
+  });
+
+  // Taken out of the tree once it has its answer -- a screen opened over the list while it said
+  // where the message went back to, that it could not be put back, or that emptying the trash
+  // cannot be undone, or while the answer was on its way -- the line is done with, and is
+  // forgotten. Held, the screen closed again drew the offer it had answered, and its Undo asked a
+  // second time about a message already back. One still only offered comes back with the list,
+  // the way it went: it still means what it says. And an answer arriving after it went is about no
+  // line on the screen, so it says nothing of where the message went: the list shows it back.
+  useEffect(
+    () => () => {
+      const { answered, filed, onGone } = leftAs.current;
+      about.current = null;
+      if (
+        answered === "asking" ||
+        answered === "back" ||
+        answered === "tooLate" ||
+        filed === "forGood"
+      ) {
+        onGone?.();
+      }
+    },
+    [],
+  );
 
   // The clock is the countdown itself rather than a timer beside it. A timer that was restarted
   // whenever somebody stopped hovering gave them five fresh seconds while the circle said one --
@@ -180,13 +226,25 @@ export function FilingNotice({
       const asked = filed;
       asking.current = asked;
       if (quietly) setAnswered("asking");
-      undoAction(asked.messageId, asked.folderId)
-        .then((takenBack) => {
+      // Raised by the key, the line is about a message that may be in a folder nobody is looking
+      // at, and back there changes nothing on the screen: so it says where it went back to. The
+      // folder is named while the core answers; a name that cannot be had says nothing at all.
+      const named = quietly
+        ? nameOfFolder(asked.folderId, t)
+        : Promise.resolve(null);
+      Promise.all([undoAction(asked.messageId, asked.folderId), named])
+        .then(([takenBack, name]) => {
+          const here = about.current === asked;
+          const sayingWhere = takenBack && here && name !== null;
           // Back, whatever this line says by now: the list shows it again either way.
-          if (takenBack) onTakenBack(asked.messageId);
-          if (about.current === asked) {
-            setAnswered(takenBack ? "gone" : "tooLate");
+          if (takenBack) onTakenBack(asked.messageId, sayingWhere);
+          if (!here) return;
+          if (sayingWhere) {
+            setBackIn(name);
+            setAnswered("back");
+            return;
           }
+          setAnswered(takenBack ? "gone" : "tooLate");
         })
         .catch(() => {
           // It stays as it was: an offer that failed must not look like one that worked. A line the
@@ -197,7 +255,7 @@ export function FilingNotice({
           if (asking.current === asked) asking.current = null;
         });
     },
-    [filed, onTakenBack, onUnreadAgain],
+    [filed, onTakenBack, onUnreadAgain, t],
   );
 
   // A press of the key: raised by it, the line is answered before anything of it is drawn; pressed
@@ -230,7 +288,9 @@ export function FilingNotice({
       ? t("list.emptyingCannotBeUndone")
       : answered === "tooLate"
         ? t("list.cannotBringBack")
-        : t(WORD[filed.what]);
+        : answered === "back"
+          ? t("list.movedBackTo", { folder: backIn })
+          : t(WORD[filed.what]);
 
   return (
     // Floating over the list rather than sitting under it. Under it, it pushed the rows up by its
@@ -264,6 +324,25 @@ export function FilingNotice({
       )}
     </div>
   );
+}
+
+/**
+ * What the folder is called where the person sees it, beside the list: its role's word, or the
+ * name it has on the server. Nothing when it cannot be found, or the folders cannot be read.
+ */
+function nameOfFolder(
+  folderId: FolderIdDto,
+  t: Translator,
+): Promise<string | null> {
+  return getMailboxTree()
+    .then(({ accounts }) => {
+      for (const account of accounts) {
+        const folder = account.folders.find((one) => one.folderId === folderId);
+        if (folder) return folderName(folder, t);
+      }
+      return null;
+    })
+    .catch(() => null);
 }
 
 /**

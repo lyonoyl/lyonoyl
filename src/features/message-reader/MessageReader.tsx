@@ -496,8 +496,14 @@ export function MessageReader({
       className="flex min-h-0 flex-1 flex-col overflow-auto"
     >
       <header className="border-b border-border p-6">
-        <div className="flex items-start justify-between gap-4">
-          <h1 dir="auto" className="text-lg font-semibold tracking-tight">
+        {/* The subject and the buttons share a line while the pane leaves the subject room beside
+            them, and the buttons take a line of their own under it when it does not: kept beside
+            a subject that wraps, they ran past a window at its smallest, out of reach. */}
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <h1
+            dir="auto"
+            className="min-w-0 flex-[1_1_12rem] text-lg font-semibold tracking-tight [overflow-wrap:anywhere]"
+          >
             {message.subject ?? t("list.noSubject")}
           </h1>
 
@@ -507,7 +513,7 @@ export function MessageReader({
               An icon and a hint rather than a word: the arrow into a tray is what people already
               read as "put this on my computer", and the name is still there for anyone who needs
               it — as the hint, and as the button's own name for a screen reader. */}
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="ms-auto flex shrink-0 items-center gap-1">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

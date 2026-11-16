@@ -40,6 +40,7 @@ vi.mock("@/shared/ipc/client", async () => {
     setAccountCollapsed: vi.fn(),
     onMailChanged: vi.fn(),
     onOpenSettings: vi.fn(),
+    onUndoAsked: vi.fn(),
     onMailAsked: vi.fn(),
     onTheKeyArrived: vi.fn(),
     markMessageRead: vi.fn(),
@@ -95,6 +96,7 @@ function sidebar(accounts: AccountNodeDto[]): MailboxTreeDto {
 const window_ = vi.mocked(client.getViewWindow);
 const mailChanged = vi.mocked(client.onMailChanged);
 const menuOpens = vi.mocked(client.onOpenSettings);
+const menuUndoes = vi.mocked(client.onUndoAsked);
 const mailAsked = vi.mocked(client.onMailAsked);
 const keyArrived = vi.mocked(client.onTheKeyArrived);
 const marking = vi.mocked(client.markMessageRead);
@@ -240,6 +242,8 @@ beforeEach(() => {
   mailChanged.mockResolvedValue(() => {});
   menuOpens.mockReset();
   menuOpens.mockResolvedValue(() => {});
+  menuUndoes.mockReset();
+  menuUndoes.mockResolvedValue(() => {});
   mailAsked.mockReset();
   mailAsked.mockResolvedValue(() => {});
   keyArrived.mockReset();
@@ -1751,6 +1755,41 @@ describe("the application menu's settings item", () => {
 
     expect(stop).toHaveBeenCalled();
   });
+
+  it("stops listening for the menu's Undo once the window has gone", async () => {
+    const stop = vi.fn();
+    menuUndoes.mockResolvedValue(stop);
+    const { unmount } = render(
+      <I18nProvider initial="en">
+        <App />
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(menuUndoes).toHaveBeenCalled());
+    await act(async () => {});
+
+    unmount();
+
+    expect(stop).toHaveBeenCalled();
+  });
+
+  it("stops listening for the menu's Undo that was still being set up when the window went", async () => {
+    const stop = vi.fn();
+    let listening: (stop: () => void) => void = () => {};
+    menuUndoes.mockImplementation(
+      () => new Promise<() => void>((resolve) => (listening = resolve)),
+    );
+    const { unmount } = render(
+      <I18nProvider initial="en">
+        <App />
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(menuUndoes).toHaveBeenCalled());
+
+    unmount();
+    await act(async () => listening(stop));
+
+    expect(stop).toHaveBeenCalled();
+  });
 });
 
 describe("App, the onboarding", () => {
@@ -1958,6 +1997,35 @@ describe("App, the keys the window answers to", () => {
 
     fireEvent.keyDown(panel, { key: "Escape", bubbles: true });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("holds every other key while the list of keys is open, and the window behind it out of reach", async () => {
+    // The list says it is the only thing on the screen. A key acting behind it would be the window
+    // doing something nobody can see under the dimmed list.
+    renderApp();
+    await screen.findByRole("button", { name: /settings/i });
+    fireEvent.keyDown(window, { key: "?" });
+    const panel = await screen.findByRole("dialog");
+
+    fireEvent.keyDown(panel, { key: "c", bubbles: true });
+    fireEvent.keyDown(panel, {
+      key: ",",
+      code: "Comma",
+      metaKey: true,
+      bubbles: true,
+    });
+
+    expect(screen.queryByLabelText(/^subject$/i)).toBeNull();
+    expect(document.querySelector("[data-settings-body]")).toBeNull();
+    expect(screen.getAllByRole("dialog")).toEqual([panel]);
+    expect(document.querySelector("main")?.hasAttribute("inert")).toBe(true);
+
+    // Closed, the window is reached and listens again.
+    fireEvent.keyDown(panel, { key: "Escape", bubbles: true });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.querySelector("main")?.hasAttribute("inert")).toBe(false);
+    fireEvent.keyDown(window, { key: "?" });
+    expect(await screen.findByRole("dialog")).toBeTruthy();
   });
 
   it("does not act on a letter typed into a field", async () => {
@@ -3356,6 +3424,66 @@ describe("reading, as the window does it", () => {
       expect(marking).not.toHaveBeenCalled();
     });
 
+    it("says where the message went back to, which may be a folder nobody is looking at", async () => {
+      await throwTheFirstAway();
+
+      pressUndo(screen.getByRole("listbox"));
+
+      expect(await screen.findByText("Moved back to Inbox")).toBeTruthy();
+      // The line is the notice's while it speaks, and the corner with it.
+      expect(screen.queryByText("Marked read")).toBeNull();
+    });
+
+    it("asks once when the key is pressed again after a screen opened while the answer was on its way", async () => {
+      // The first answer lands in a line no longer in the tree. Asked a second time, the core found
+      // nothing left to take back and the second line said the message could not be put back over
+      // a list that had it back.
+      await throwTheFirstAway();
+      let answer: (takenBack: boolean) => void = () => {};
+      undoing.mockImplementation(
+        () => new Promise<boolean>((resolve) => (answer = resolve)),
+      );
+      pressUndo(screen.getByRole("listbox"));
+      await waitFor(() => expect(undoing).toHaveBeenCalledTimes(1));
+
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      await screen.findByRole("heading", { name: "Settings" });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Close this screen" }),
+      );
+      await screen.findByRole("listbox");
+      pressUndo(screen.getByRole("listbox"));
+      await settle();
+      // Nothing is raised while the answer is on its way: drawn, the line would offer the way back
+      // to a message already being brought back.
+      expect(screen.queryByText("Moved to the trash")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+      await act(async () => answer(true));
+      await settle();
+
+      expect(undoing).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText(/could not put the message back/)).toBeNull();
+    });
+
+    it("offers nothing again once a screen opened over the line saying where the message went has closed", async () => {
+      await throwTheFirstAway();
+      pressUndo(screen.getByRole("listbox"));
+      await screen.findByText("Moved back to Inbox");
+
+      // Opened while the line still speaks, the settings take the list and the line with them.
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      await screen.findByRole("heading", { name: "Settings" });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Close this screen" }),
+      );
+      await screen.findByRole("listbox");
+      await settle();
+
+      expect(screen.queryByText("Moved to the trash")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+      expect(undoing).toHaveBeenCalledTimes(1);
+    });
+
     it("reads the list again once the message is back, as the button does", async () => {
       await throwTheFirstAway();
       const rows = window_.mock.calls.length;
@@ -3417,6 +3545,100 @@ describe("reading, as the window does it", () => {
 
       expect(leftAlone).toBe(true);
       expect(undoing).not.toHaveBeenCalled();
+    });
+
+    it("takes nothing back under the list of keys", async () => {
+      await throwTheFirstAway();
+      fireEvent.keyDown(window, { key: "?" });
+      const panel = await screen.findByRole("dialog");
+
+      pressUndo(panel);
+      await settle();
+
+      expect(undoing).not.toHaveBeenCalled();
+      expect(screen.getByRole("dialog")).toBe(panel);
+    });
+
+    describe("Undo chosen from the menu bar", () => {
+      /** The engine's own undo, which the menu's first Undo asked for. */
+      let typingUndone = vi.fn(() => true);
+
+      beforeEach(() => {
+        typingUndone = vi.fn(() => true);
+        Object.defineProperty(document, "execCommand", {
+          configurable: true,
+          value: typingUndone,
+        });
+      });
+
+      afterEach(() => {
+        Reflect.deleteProperty(document, "execCommand");
+      });
+
+      /** Undo chosen, as the core tells the window when it is. */
+      async function chooseUndo() {
+        await waitFor(() => expect(menuUndoes).toHaveBeenCalled());
+        const chosen =
+          menuUndoes.mock.calls[menuUndoes.mock.calls.length - 1][0];
+        act(() => chosen());
+        await settle();
+      }
+
+      it("takes back the last message put away, as the key does", async () => {
+        await throwTheFirstAway();
+
+        await chooseUndo();
+
+        await waitFor(() => expect(undoing).toHaveBeenCalledWith("m-1", "1"));
+        expect(undoing).toHaveBeenCalledTimes(1);
+        expect(typingUndone).not.toHaveBeenCalled();
+      });
+
+      it("gives a field somebody types in its own undo, and takes nothing back", async () => {
+        await throwTheFirstAway();
+        screen.getByPlaceholderText("Search mail").focus();
+
+        await chooseUndo();
+
+        expect(typingUndone).toHaveBeenCalledWith("undo");
+        expect(undoing).not.toHaveBeenCalled();
+      });
+
+      it("undoes the window's last typing with a screen in front of the list, and takes nothing back behind it", async () => {
+        await throwTheFirstAway();
+        fireEvent.keyDown(window, { code: "Comma", metaKey: true });
+        await screen.findByRole("heading", { name: "Settings" });
+        (document.activeElement as HTMLElement | null)?.blur();
+
+        await chooseUndo();
+
+        expect(typingUndone).toHaveBeenCalledWith("undo");
+        expect(undoing).not.toHaveBeenCalled();
+      });
+
+      it("does nothing under the list of keys", async () => {
+        await throwTheFirstAway();
+        fireEvent.keyDown(window, { key: "?" });
+        await screen.findByRole("dialog");
+
+        await chooseUndo();
+
+        expect(typingUndone).not.toHaveBeenCalled();
+        expect(undoing).not.toHaveBeenCalled();
+      });
+
+      it("asks once when the key and the menu answer the same press", async () => {
+        // The window takes the key where nobody types, so the menu never hears that press; and the
+        // menu heard once is one take back, not a second on top of the key's.
+        await throwTheFirstAway();
+        const list = screen.getByRole("listbox");
+
+        const leftAlone = pressUndo(list);
+        await chooseUndo();
+
+        expect(leftAlone).toBe(false);
+        expect(undoing).toHaveBeenCalledTimes(1);
+      });
     });
 
     it("keeps the key from the system where nothing has been put away, and asks nothing", async () => {

@@ -40,6 +40,7 @@ import { useFiling } from "@/app/useFiling";
 import { Sidebar } from "@/app/Sidebar";
 import { StorageRecovery, startTheWindowAgain } from "@/app/StorageRecovery";
 import { Keys } from "@/app/Keys";
+import { MenuUndo } from "@/app/MenuUndo";
 import { EmptyWorkspace } from "@/app/EmptyWorkspace";
 import { useReadChanges } from "@/features/mailbox-tree/useReadChanges";
 import { WhatChanged } from "@/features/updates/WhatChanged";
@@ -395,8 +396,15 @@ function App() {
     (preferences === null
       ? state.status === "loading"
       : !preferences.welcomed);
-  /** Whether anything covers the window, so the window behind it neither listens nor is reached. */
-  const covered = asking || greeting;
+  /** The list of the window's keys, which says it is the only thing on the screen while it is. */
+  const [showingKeys, setShowingKeys] = useState(false);
+  /**
+   * Whether anything covers the window, so the window behind it neither listens nor is reached.
+   *
+   * The list of keys too: open, a key that acted behind it would act where nobody sees, `c` opening
+   * a message to write and Cmd+Z putting one back under the dimmed list.
+   */
+  const covered = asking || greeting || showingKeys;
 
   /** Bumped when somebody asks for an answer by key; the reader is what knows how to make one. */
   const [answerAsked, setAnswerAsked] = useState(0);
@@ -406,7 +414,6 @@ function App() {
   const [forwardAsked, setForwardAsked] = useState(0);
   /** The same, for throwing the message being read away. */
   const [throwAwayAsked, setThrowAwayAsked] = useState(0);
-  const [showingKeys, setShowingKeys] = useState(false);
 
   /**
    * Nobody has connected a mailbox yet.
@@ -580,8 +587,9 @@ function App() {
 
       // The last message put away, back by the key every application on the desk undoes with, for
       // as long as the core can put it back. Where somebody types it is the field's own undo, and
-      // with a screen in front it is that screen's: the list and the message are not there to take
-      // anything back into.
+      // with a screen in front it is the window's last typing, as the system's Undo gave it: the
+      // list and the message are not there to take anything back into. Both are left to the menu's
+      // Undo, which `MenuUndo` answers.
       if (takesBack(event)) {
         if (
           somebodyIsTyping(event.target) ||
@@ -591,8 +599,10 @@ function App() {
           return;
         }
 
-        // Taken whether or not anything is put away: left to the system, the key undoes what was
-        // last typed into a field that no longer has the focus, the search box behind the list.
+        // Taken whether or not anything is put away, so the menu's Undo does not answer the same
+        // press a second time. Until the window has named that Undo, the menu's is the one it
+        // started with, which undoes what was last typed into a field that no longer has the
+        // focus, the search box behind the list.
         event.preventDefault();
         filing.takeBackByKey();
         return;
@@ -749,6 +759,11 @@ function App() {
 
   return (
     <>
+      <MenuUndo
+        covered={covered}
+        screenInFront={showing !== null}
+        onTakeBack={filing.takeBackByKey}
+      />
       {showingKeys && <Keys onClose={() => setShowingKeys(false)} t={t} />}
 
       {asking && (
@@ -1072,6 +1087,7 @@ function App() {
               <FilingNotice
                 filed={filing.notice}
                 takeBackAsked={filing.takeBackAsked}
+                inFlight={filing.inFlight}
                 onTakenBack={filing.putBack}
                 onGone={filing.forgetWhatWasFiled}
                 onUnreadAgain={filing.markUnreadAgain}

@@ -300,13 +300,24 @@ pub fn run() {
 
             bootstrap::ring_when_there_is_something_to_say(app.handle(), bell.clone());
 
-            // The settings item in the application's menu, once the window has named it: the
-            // window opens them, the way its own keys do.
+            // The menu's own items, once the window has named them: the settings item, which the
+            // window opens the way its own keys do, and Undo, which the window answers as it
+            // answers the key — while it is the window in front. With the About panel in front, or
+            // the window minimized, Undo is about what the person is looking at, and a message taken
+            // back behind it would be taken back where nobody sees.
             app.on_menu_event(|app, event| {
                 use tauri::Emitter;
 
                 if event.id() == commands::menu::SETTINGS {
                     let _ = app.emit(commands::menu::OPEN_SETTINGS, ());
+                } else if event.id() == commands::menu::UNDO {
+                    let in_front = app
+                        .get_webview_window("main")
+                        .and_then(|window| window.is_focused().ok())
+                        .unwrap_or(false);
+                    if in_front {
+                        let _ = app.emit(commands::menu::UNDO_ASKED, ());
+                    }
                 }
             });
 

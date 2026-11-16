@@ -1612,6 +1612,14 @@ mod tests {
                 unreachable!("a pass does not put anything back")
             }
 
+            fn give_up(
+                &self,
+                _account_id: &str,
+                _target: OperationTarget,
+            ) -> Result<usize, OperationLogError> {
+                unreachable!("a pass gives nothing up")
+            }
+
             fn settled_for(
                 &self,
                 _account_id: &str,

@@ -329,8 +329,19 @@ pub fn coalesced(earlier: MailOperation, later: MailOperation) -> Option<MailOpe
             OperationKind::MoveTo { folder }
         }
 
-        // Deleting swallows what was asked before it: flags on a message about to go are of no
-        // interest, and a move into the folder it is being deleted from is undone by the delete.
+        // A flag and a delete into the trash stay two. The delete can still be taken back, and
+        // taking it back leaves the flag where it was asked for: a message read and then thrown
+        // away comes back read, and reaches the trash read if it goes.
+        (
+            OperationKind::SetFlags { .. },
+            OperationKind::Delete {
+                intent: DeleteIntent::ToTrash,
+            },
+        ) => return None,
+
+        // Anything else before a delete is swallowed by it: flags on a message deleted for good
+        // are of no interest, and a move into the folder it is being deleted from is undone by the
+        // delete.
         (_, OperationKind::Delete { intent }) => OperationKind::Delete { intent },
 
         // Anything after a delete stays separate. Marking a deleted message read is either a
@@ -594,13 +605,13 @@ mod tests {
     }
 
     #[test]
-    fn a_delete_swallows_what_was_asked_before_it() {
+    fn a_delete_for_good_swallows_what_was_asked_before_it() {
         let one = coalesced(
             asked(target(1, 1), read()),
             asked(
                 target(1, 1),
                 OperationKind::Delete {
-                    intent: DeleteIntent::ToTrash,
+                    intent: DeleteIntent::Permanently,
                 },
             ),
         )
@@ -609,8 +620,26 @@ mod tests {
         assert_eq!(
             one.kind,
             OperationKind::Delete {
-                intent: DeleteIntent::ToTrash
+                intent: DeleteIntent::Permanently
             }
+        );
+    }
+
+    #[test]
+    fn a_flag_stays_beside_a_delete_into_the_trash() {
+        // The delete can still be taken back, and taking it back must leave the message read:
+        // folded, the mark as read from opening it went with the delete.
+        assert_eq!(
+            coalesced(
+                asked(target(1, 1), read()),
+                asked(
+                    target(1, 1),
+                    OperationKind::Delete {
+                        intent: DeleteIntent::ToTrash
+                    }
+                )
+            ),
+            None
         );
     }
 

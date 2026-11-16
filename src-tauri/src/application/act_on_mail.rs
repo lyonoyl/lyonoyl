@@ -244,6 +244,14 @@ mod tests {
             unreachable!("asking for something does not put anything back")
         }
 
+        fn give_up(
+            &self,
+            _account_id: &str,
+            _target: OperationTarget,
+        ) -> Result<usize, OperationLogError> {
+            unreachable!("asking for something gives nothing up")
+        }
+
         fn due(
             &self,
             _account_id: &str,
@@ -521,7 +529,30 @@ mod tests {
     }
 
     #[test]
-    fn a_delete_takes_the_place_of_what_was_asked_before_it() {
+    fn a_delete_for_good_takes_the_place_of_what_was_asked_before_it() {
+        let log = FakeLog::holding(vec![read_op(target(1, 1))]);
+
+        ActOnMail::new(&log)
+            .delete("acc-1", target(1, 1), DeleteIntent::Permanently)
+            .expect("it is written");
+
+        let written = log.only_write();
+
+        assert_eq!(written.replacing, vec![OperationId(1)]);
+        assert_eq!(
+            written
+                .operation
+                .expect("something to tell the server")
+                .kind,
+            OperationKind::Delete {
+                intent: DeleteIntent::Permanently
+            }
+        );
+    }
+
+    #[test]
+    fn a_delete_into_the_trash_leaves_a_flag_asked_before_it() {
+        // Taking the delete back must find the mark as read still waiting.
         let log = FakeLog::holding(vec![read_op(target(1, 1))]);
 
         ActOnMail::new(&log)
@@ -530,7 +561,7 @@ mod tests {
 
         let written = log.only_write();
 
-        assert_eq!(written.replacing, vec![OperationId(1)]);
+        assert_eq!(written.replacing, Vec::new());
         assert_eq!(
             written
                 .operation

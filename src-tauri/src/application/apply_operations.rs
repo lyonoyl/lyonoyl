@@ -523,6 +523,14 @@ mod tests {
             unreachable!("carrying something out does not put anything back")
         }
 
+        fn give_up(
+            &self,
+            _account_id: &str,
+            _target: OperationTarget,
+        ) -> Result<usize, OperationLogError> {
+            unreachable!("carrying something out gives nothing up")
+        }
+
         fn due(
             &self,
             _account_id: &str,
