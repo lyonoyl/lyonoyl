@@ -1,10 +1,16 @@
 //! Putting a message back, whether or not the server has heard yet.
 //!
 //! Undo has two halves and they are different things. While an instruction is still waiting, taking
-//! it back is removing it: nothing happened, and nothing has to be undone. Once a server has
-//! carried it out there is nothing left to remove, and putting the message back is an instruction
-//! of its own — a second thing asked for, which goes through the queue like any other and can
-//! itself fail, wait or be shown as stopped.
+//! it back is removing it: nothing happened, and nothing has to be undone. The same holds for one
+//! that stopped with nothing of it done—before the server heard of it, or refused outright the first
+//! time it did—which did not happen either. Once a server has carried it out there is nothing left
+//! to remove, and putting the message back is an instruction of its own — a second thing asked for,
+//! which goes through the queue like any other and can itself fail, wait or be shown as stopped. One
+//! that stopped after the server was told otherwise is neither: it may have been carried out in
+//! part, and stays on its row for a person to see.
+//!
+//! What is taken back is always a filing — a move, or a delete. A flag changed since, the mark as
+//! read from opening the message, is not what a person is taking back.
 //!
 //! The two are one action to the person, so they are one use case here. What they must never be is
 //! one *pretending* to be the other: a way back offered after the fact and quietly doing nothing is
@@ -20,12 +26,15 @@ use lyonoyl_domain::operation::{undoing, OperationKind, OperationState, Operatio
 /// What happened when somebody asked for a message back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TakenBack {
-    /// The instruction had not gone yet, and now there is none.
+    /// The filing had not happened — still waiting, or stopped with nothing of it done, before the
+    /// server heard of it or refused outright the first time it did — and now there is none.
     Removed,
     /// It had gone, and a second instruction will put the message back.
     AskedFor,
-    /// It had gone and cannot be undone — a message deleted for good, one this device has
-    /// forgotten it ever moved, or an instruction that stopped rather than happened.
+    /// It cannot be undone — a message deleted for good, one this device has forgotten it ever
+    /// moved, one no longer where it was asked about, a filing that stopped after the server was
+    /// told of it and may have done some of it, or one asked for again from its row since it
+    /// stopped.
     NotPossible,
 }
 
@@ -59,12 +68,12 @@ impl<L: OperationLog + Clone, P: Placements> TakeBack<L, P> {
             return Ok(TakenBack::NotPossible);
         };
 
-        // The newest instruction about it stopped, so what the person is taking back did not
-        // happen, and what it is shown as — stopped, on its row — is already the answer. Undoing
-        // whatever was carried out before it instead, the mark as read from opening it, would
-        // change a message nobody asked about and say the undo had worked.
+        // The newest filing about it stopped, so what the person is taking back may not have
+        // happened, and taking it back is taking it away. Never by undoing whatever was carried
+        // out before it instead: that would change a message nobody asked about and say the undo
+        // had worked.
         if settled.operation.state == OperationState::Conflicted {
-            return Ok(TakenBack::NotPossible);
+            return self.give_up(account_id, &settled, target);
         }
 
         let Some(back) = undoing(settled.operation.kind, target.folder) else {
@@ -84,6 +93,43 @@ impl<L: OperationLog + Clone, P: Placements> TakeBack<L, P> {
         )?;
 
         Ok(TakenBack::AskedFor)
+    }
+
+    /// Takes away a filing that stopped, so the message is what the index says it is, with nothing
+    /// on its row any more.
+    ///
+    /// Only one with nothing of it done: never told, or refused outright the first time the server
+    /// was. Told otherwise, it may have been carried out in part: a move made as a copy and then a
+    /// delete the server refused leaves the copy where it was going, and the original perhaps
+    /// marked deleted, so the row goes on saying the server would not do it. And
+    /// only while the index has the message where it was asked about: moved on another device
+    /// since, or deleted there, it is not in the folder it would be said to be back in. A stop that
+    /// says the message was not there is out of date once it is: a stop is drawn only on a row the
+    /// index holds, and that one says the message is missing from where it sits.
+    fn give_up(
+        &self,
+        account_id: &str,
+        stopped: &RecordedOperation,
+        target: OperationTarget,
+    ) -> Result<TakenBack, UseCaseError> {
+        if stopped.already_told {
+            return Ok(TakenBack::NotPossible);
+        }
+        if self
+            .placements
+            .where_it_sits(target.folder, target.message)?
+            .is_none()
+        {
+            return Ok(TakenBack::NotPossible);
+        }
+
+        // None taken away means it was asked for again from its row in the meantime, and is
+        // waiting or carried out now: the person's latest word, and not this one's to remove.
+        Ok(if self.operations.give_up(account_id, target)? > 0 {
+            TakenBack::Removed
+        } else {
+            TakenBack::NotPossible
+        })
     }
 
     /// The folder the message ended up in.
@@ -143,16 +189,23 @@ mod tests {
     use crate::ports::op_log::{OperationId, OperationLogError, RecordedOperation};
     use crate::ports::placement::{PlacementError, Position};
     use lyonoyl_domain::message::{FolderId, MessageId, Uid};
-    use lyonoyl_domain::operation::{DeleteIntent, MailOperation};
+    use lyonoyl_domain::operation::{DeleteIntent, MailOperation, Stopped};
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Default)]
     struct Queue {
         cancels: usize,
         settled: Option<MailOperation>,
+        /// Why the settled instruction stopped, for one that has.
+        stopped: Option<Stopped>,
         asked: Arc<Mutex<Vec<MailOperation>>>,
         /// Whether the move being undone is still waiting to be read back.
         owes: bool,
+        /// Whether what stopped has been asked for again since, so there is nothing to take away.
+        asked_again: bool,
+        /// Whether the server was told about the settled instruction.
+        told: bool,
+        given_up: Arc<Mutex<Vec<OperationTarget>>>,
     }
 
     impl OperationLog for Queue {
@@ -183,7 +236,23 @@ mod tests {
         }
 
         fn try_again(&self, _: &str, _: OperationTarget) -> Result<usize, OperationLogError> {
-            unreachable!("nothing stopped here")
+            unreachable!("taking something back asks for nothing again")
+        }
+
+        fn give_up(&self, _: &str, target: OperationTarget) -> Result<usize, OperationLogError> {
+            if self.asked_again {
+                return Ok(0);
+            }
+            self.given_up.lock().expect("test lock").push(target);
+            Ok(1)
+        }
+
+        fn refused_untouched(&self, _id: OperationId) -> Result<(), OperationLogError> {
+            unreachable!("taking something back tells no server")
+        }
+
+        fn let_go(&self, _id: OperationId) -> Result<(), OperationLogError> {
+            unreachable!("taking something back tells no server")
         }
 
         fn folder_reset(&self, _: &str, _: FolderId) -> Result<usize, OperationLogError> {
@@ -233,8 +302,8 @@ mod tests {
                 id: OperationId(1),
                 operation,
                 attempts: 1,
-                stopped: None,
-                already_told: false,
+                stopped: self.stopped,
+                already_told: self.told,
             }))
         }
 
@@ -286,6 +355,10 @@ mod tests {
             unreachable!("nothing is sent here")
         }
 
+        fn name_of(&self, _: MessageId) -> Result<Option<String>, PlacementError> {
+            unreachable!("nothing is sent here")
+        }
+
         fn folder_for(&self, _: i64, role: FolderRole) -> Result<Option<FolderId>, PlacementError> {
             Ok(match role {
                 FolderRole::Trash => self.trash,
@@ -329,16 +402,35 @@ mod tests {
         .expect("something was asked for")
     }
 
-    #[test]
-    fn an_instruction_that_stopped_is_not_taken_back_by_undoing_the_one_before_it() {
-        let queue = Queue {
+    /// A move into folder 2 that stopped, for the reason given, and whether the server had been
+    /// told about it — which it always has for a refusal, the server being the one that refused.
+    fn stopped_because(why: Option<Stopped>) -> Queue {
+        Queue {
             settled: Some(MailOperation {
                 state: OperationState::Conflicted,
                 ..on_its_way_into(2)
             }),
+            stopped: why,
+            told: why == Some(Stopped::TheServerRefused),
             ..Queue::default()
-        };
+        }
+    }
+
+    /// The index holding the message where it was asked about, in the inbox.
+    fn still_in_the_inbox() -> Where {
+        Where {
+            holding: vec![(1, 7)],
+            ..Where::default()
+        }
+    }
+
+    #[test]
+    fn an_instruction_that_stopped_is_taken_away_and_not_undone_by_undoing_the_one_before_it() {
+        // Nothing happened, so nothing is asked of the server: what was carried out before it, the
+        // mark as read from opening the message, stays as it is.
+        let queue = stopped_because(Some(Stopped::FolderIsNotThere));
         let asked = Arc::clone(&queue.asked);
+        let given_up = Arc::clone(&queue.given_up);
 
         let taken = TakeBack::new(
             queue,
@@ -349,6 +441,103 @@ mod tests {
         )
         .execute("acc-1", 1, was_in_the_inbox())
         .expect("answers");
+
+        assert_eq!(taken, TakenBack::Removed);
+        assert_eq!(
+            *given_up.lock().expect("test lock"),
+            vec![was_in_the_inbox()]
+        );
+        assert!(asked.lock().expect("test lock").is_empty());
+    }
+
+    #[test]
+    fn a_stop_the_server_never_heard_of_with_the_message_still_where_it_was_is_taken_away() {
+        // Decided before anything was said to the server — the folder gone, nowhere to keep
+        // deleted mail, the message not there when it was looked for and back since — and so does
+        // a stop with no reason written.
+        for why in [
+            Some(Stopped::FolderIsNotThere),
+            Some(Stopped::NowhereToKeepDeletedMail),
+            Some(Stopped::MessageIsNotThere),
+            None,
+        ] {
+            let queue = stopped_because(why);
+            let given_up = Arc::clone(&queue.given_up);
+
+            let taken = TakeBack::new(queue, still_in_the_inbox())
+                .execute("acc-1", 1, was_in_the_inbox())
+                .expect("answers");
+
+            assert_eq!(taken, TakenBack::Removed, "{why:?}");
+            assert_eq!(given_up.lock().expect("test lock").len(), 1, "{why:?}");
+        }
+    }
+
+    #[test]
+    fn a_stop_the_server_was_told_about_is_kept() {
+        // A move made as a copy and then a delete the server refused leaves the copy where it was
+        // going. Whatever the reason written, a stop the server heard of may be half carried out.
+        for why in Stopped::ALL.into_iter().map(Some).chain([None]) {
+            let queue = Queue {
+                told: true,
+                ..stopped_because(why)
+            };
+            let asked = Arc::clone(&queue.asked);
+            let given_up = Arc::clone(&queue.given_up);
+
+            let taken = TakeBack::new(queue, still_in_the_inbox())
+                .execute("acc-1", 1, was_in_the_inbox())
+                .expect("answers");
+
+            assert_eq!(taken, TakenBack::NotPossible, "{why:?}");
+            assert!(given_up.lock().expect("test lock").is_empty(), "{why:?}");
+            assert!(asked.lock().expect("test lock").is_empty(), "{why:?}");
+        }
+    }
+
+    #[test]
+    fn a_stop_whose_message_is_no_longer_where_it_was_asked_about_is_kept() {
+        // Moved on another device since, or deleted there: it is not in the folder the line would
+        // say it is back in.
+        let queue = stopped_because(Some(Stopped::FolderIsNotThere));
+        let given_up = Arc::clone(&queue.given_up);
+
+        let taken = TakeBack::new(queue, Where::default())
+            .execute("acc-1", 1, was_in_the_inbox())
+            .expect("answers");
+
+        assert_eq!(taken, TakenBack::NotPossible);
+        assert!(given_up.lock().expect("test lock").is_empty());
+    }
+
+    #[test]
+    fn a_message_that_was_not_there_to_move_is_not_said_to_be_back_while_it_is_still_not() {
+        // Moved on another device or deleted there: it is not in the folder it would be put back
+        // into, and its row says so already.
+        let queue = stopped_because(Some(Stopped::MessageIsNotThere));
+        let asked = Arc::clone(&queue.asked);
+        let given_up = Arc::clone(&queue.given_up);
+
+        let taken = TakeBack::new(queue, Where::default())
+            .execute("acc-1", 1, was_in_the_inbox())
+            .expect("answers");
+
+        assert_eq!(taken, TakenBack::NotPossible);
+        assert!(given_up.lock().expect("test lock").is_empty());
+        assert!(asked.lock().expect("test lock").is_empty());
+    }
+
+    #[test]
+    fn an_instruction_asked_for_again_since_it_stopped_is_not_said_to_be_taken_back() {
+        let queue = Queue {
+            asked_again: true,
+            ..stopped_because(Some(Stopped::FolderIsNotThere))
+        };
+        let asked = Arc::clone(&queue.asked);
+
+        let taken = TakeBack::new(queue, still_in_the_inbox())
+            .execute("acc-1", 1, was_in_the_inbox())
+            .expect("answers");
 
         assert_eq!(taken, TakenBack::NotPossible);
         assert!(asked.lock().expect("test lock").is_empty());

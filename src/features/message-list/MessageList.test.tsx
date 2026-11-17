@@ -1910,6 +1910,64 @@ describe("filing a message away", () => {
     await waitFor(() => expect(archiving).toHaveBeenCalledWith("2", "1"));
   });
 
+  /** A list that tells the window what was filed from it, and how. */
+  function renderTelling() {
+    marking.mockResolvedValue(1);
+    windowFor.mockImplementation(async (request) => page(request.offset, 3));
+    const filed = vi.fn();
+    render(
+      <I18nProvider initial="en">
+        <MessageList
+          scope={{ kind: "folder", folderId: "1" }}
+          onOpen={vi.fn()}
+          onFiled={filed}
+        />
+      </I18nProvider>,
+    );
+    return filed;
+  }
+
+  it("says a message filed from its row went to the archive", async () => {
+    // What the window is told is what the line under the list says. Told it was deleted, the line
+    // said the message had gone to the trash while the account's archive held it.
+    archiving.mockResolvedValue(undefined);
+    const filed = renderTelling();
+    await settled();
+
+    fireEvent.contextMenu(screen.getByText("Subject 1"));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
+
+    await waitFor(() =>
+      expect(filed).toHaveBeenCalledWith({
+        messageId: "2",
+        folderId: "1",
+        what: "archived",
+      }),
+    );
+    expect(filed).not.toHaveBeenCalledWith(
+      expect.objectContaining({ what: "deleted" }),
+    );
+  });
+
+  it("says a message thrown away from its row went to the trash", async () => {
+    deleting.mockResolvedValue(undefined);
+    const filed = renderTelling();
+    await settled();
+
+    fireEvent.contextMenu(screen.getByText("Subject 2"));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Move to trash" }),
+    );
+
+    await waitFor(() =>
+      expect(filed).toHaveBeenCalledWith({
+        messageId: "3",
+        folderId: "1",
+        what: "deleted",
+      }),
+    );
+  });
+
   it("throws the selected message away on the key every system throws things away with", async () => {
     deleting.mockResolvedValue(undefined);
     const { opened, file } = renderFilable(5);

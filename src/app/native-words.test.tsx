@@ -39,14 +39,16 @@ beforeEach(() => {
 });
 
 describe("the words the core shows by itself", () => {
-  it("hands over what the menu's settings item says, and what a notification says", async () => {
+  it("hands over what the menu's settings item and its Undo say, and what a notification says", async () => {
     render(
       <I18nProvider initial="en">
         <NativeWords />
       </I18nProvider>,
     );
 
-    await waitFor(() => expect(menu).toHaveBeenLastCalledWith("Settings…"));
+    await waitFor(() =>
+      expect(menu).toHaveBeenLastCalledWith("Settings…", "Undo"),
+    );
     expect(notification).toHaveBeenCalledTimes(1);
   });
 
@@ -57,12 +59,14 @@ describe("the words the core shows by itself", () => {
         <NativeWords />
       </I18nProvider>,
     );
-    await waitFor(() => expect(menu).toHaveBeenLastCalledWith("Settings…"));
+    await waitFor(() =>
+      expect(menu).toHaveBeenLastCalledWith("Settings…", "Undo"),
+    );
 
     act(() => choose("ru"));
 
     await waitFor(() =>
-      expect(menu).toHaveBeenLastCalledWith("Настройки…"),
+      expect(menu).toHaveBeenLastCalledWith("Настройки…", "Отменить"),
     );
     expect(notification).toHaveBeenCalledTimes(2);
   });

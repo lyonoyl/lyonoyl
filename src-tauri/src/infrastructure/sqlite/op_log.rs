@@ -187,8 +187,9 @@ impl OperationLog for SqliteOperationLog {
 
     /// Written before the server is told, and committed on its own.
     ///
-    /// `sent_at` is set once and never moved: what matters is that this instruction has been out
-    /// at all, not when it last was. One statement, so it and a person taking the instruction back
+    /// `sent_at` is set once, and moved by nothing told after it: what matters is that this
+    /// instruction has been out at all, not when it last was. Only a first telling the server
+    /// refused outright with nothing done takes it away again (`refused_untouched`). One statement, so it and a person taking the instruction back
     /// cannot both win: either this finds it still waiting and it is on its way, or it finds
     /// nothing and the server is told nothing.
     fn about_to_tell(&self, id: OperationId) -> Result<(), OperationLogError> {
@@ -260,6 +261,48 @@ impl OperationLog for SqliteOperationLog {
         }
     }
 
+    fn refused_untouched(&self, id: OperationId) -> Result<(), OperationLogError> {
+        let connection = self
+            .pool
+            .get()
+            .map_err(|_| OperationLogError::Unavailable)?;
+
+        let written = connection
+            .execute(
+                // Only one that stopped: a refusal written down a moment ago, and not asked again
+                // or taken back since.
+                "UPDATE op_log SET sent_at = NULL WHERE id = ?1 AND state = 'conflicted'",
+                [id.0],
+            )
+            .map_err(|_| OperationLogError::Unavailable)?;
+
+        if written == 0 {
+            return Err(OperationLogError::ChangedUnderneath);
+        }
+        Ok(())
+    }
+
+    fn let_go(&self, id: OperationId) -> Result<(), OperationLogError> {
+        let connection = self
+            .pool
+            .get()
+            .map_err(|_| OperationLogError::Unavailable)?;
+
+        let taken = connection
+            .execute(
+                // Only a change of flags, and only one still on its way: a filing the server
+                // refused stops for a person instead.
+                "DELETE FROM op_log WHERE id = ?1 AND kind = 'set_flags' AND state = 'pending'",
+                [id.0],
+            )
+            .map_err(|_| OperationLogError::Unavailable)?;
+
+        if taken == 0 {
+            return Err(OperationLogError::ChangedUnderneath);
+        }
+        Ok(())
+    }
+
     fn release(&self, ids: &[OperationId]) -> Result<(), OperationLogError> {
         if ids.is_empty() {
             return Ok(());
@@ -306,8 +349,10 @@ impl OperationLog for SqliteOperationLog {
                 // out right now, is undone by asking for the opposite; and something a person has
                 // been shown is theirs to decide about — removing either here would be deciding
                 // for them, and removing the first would lose the undo to the server that heard.
+                // And only a filing: a mark as read waiting behind it is not what is taken back.
                 "DELETE FROM op_log
                  WHERE account_id = ?1 AND message_id = ?2 AND folder_id = ?3
+                   AND kind IN ('move', 'delete')
                    AND state IN ('pending', 'needs_reresolve') AND sent_at IS NULL",
                 rusqlite::params![
                     account_id,
@@ -323,12 +368,39 @@ impl OperationLog for SqliteOperationLog {
         account_id: &str,
         target: OperationTarget,
     ) -> Result<usize, OperationLogError> {
-        let connection = self
+        let (message, folder) = (target.message.get() as i64, target.folder.get() as i64);
+        let mut connection = self
             .pool
             .get()
             .map_err(|_| OperationLogError::Unavailable)?;
+        let asking = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| OperationLogError::Unavailable)?;
 
-        connection
+        // The queue holds one waiting instruction of a kind about a message, so two put back at
+        // once are refused together and the button does nothing for good: a stop with nothing of
+        // it done—never told, or refused outright the first time—goes when a later word of its
+        // kind stands beside it, waiting or stopped after it, since the later word is the one asked
+        // again.
+        asking
+            .execute(
+                "DELETE FROM op_log
+                 WHERE account_id = ?1 AND message_id = ?2 AND folder_id = ?3
+                   AND state = 'conflicted' AND sent_at IS NULL
+                   AND EXISTS (
+                       SELECT 1 FROM op_log AS later
+                       WHERE later.account_id = op_log.account_id
+                         AND later.message_id = op_log.message_id
+                         AND later.folder_id = op_log.folder_id
+                         AND later.kind = op_log.kind
+                         AND later.sent_at IS NULL
+                         AND (later.state IN ('pending', 'needs_reresolve')
+                              OR (later.state = 'conflicted' AND later.id > op_log.id)))",
+                rusqlite::params![account_id, message, folder],
+            )
+            .map_err(|_| OperationLogError::Unavailable)?;
+
+        let put_back = asking
             .execute(
                 // Only what stopped, and only about this message in this folder. The count and the
                 // wait go back to nothing: asking again is a decision, not the next retry.
@@ -336,10 +408,42 @@ impl OperationLog for SqliteOperationLog {
                  SET state = 'pending', attempts = 0, try_after = 0, last_error = NULL
                  WHERE account_id = ?1 AND message_id = ?2 AND folder_id = ?3
                    AND state = 'conflicted'",
+                rusqlite::params![account_id, message, folder],
+            )
+            .map_err(|_| OperationLogError::Unavailable)?;
+
+        asking
+            .commit()
+            .map_err(|_| OperationLogError::Unavailable)?;
+        Ok(put_back)
+    }
+
+    fn give_up(
+        &self,
+        account_id: &str,
+        target: OperationTarget,
+    ) -> Result<usize, OperationLogError> {
+        let connection = self
+            .pool
+            .get()
+            .map_err(|_| OperationLogError::Unavailable)?;
+
+        connection
+            .execute(
+                // Every filing about this message that stopped, and only while it is stopped:
+                // asked again in the meantime it is waiting, or carried out, and removing it then
+                // would be taking back what the person has just asked for once more. Only one with
+                // nothing of it done—never told, or refused outright the first time—since one told
+                // otherwise may have been carried out in part; and never a flag, which is not a
+                // filing.
+                "DELETE FROM op_log
+                 WHERE account_id = ?1 AND message_id = ?2 AND folder_id = ?3
+                   AND kind IN ('move', 'delete')
+                   AND state = 'conflicted' AND sent_at IS NULL",
                 rusqlite::params![
                     account_id,
                     target.message.get() as i64,
-                    target.folder.get() as i64
+                    target.folder.get() as i64,
                 ],
             )
             .map_err(|_| OperationLogError::Unavailable)
@@ -357,15 +461,16 @@ impl OperationLog for SqliteOperationLog {
 
         connection
             .query_row(
-                // The newest, because a message may have been moved twice and only the last move
-                // is the one a way back is about. One on its way to the server counts, because
-                // taking it back is no longer possible: what it says may be happening now. One
-                // that stopped counts too, so that it is what the caller sees rather than the
-                // older instruction beneath it.
+                // The newest filing, because a message may have been moved twice and only the last
+                // move is the one a way back is about, and a flag changed since is not a filing.
+                // One on its way to the server counts, because taking it back is no longer
+                // possible: what it says may be happening now. One that stopped counts too, so
+                // that it is what the caller sees rather than the older instruction beneath it.
                 "SELECT id, message_id, folder_id, kind, flags_add, flags_remove, move_to,
                         delete_intent, state, attempts, last_error, sent_at
                  FROM op_log
                  WHERE account_id = ?1 AND message_id = ?2 AND folder_id = ?3
+                   AND kind IN ('move', 'delete')
                    AND (state IN ('done', 'conflicted')
                         OR (state IN ('pending', 'needs_reresolve') AND sent_at IS NOT NULL))
                  ORDER BY id DESC
@@ -945,10 +1050,7 @@ mod tests {
             &[],
             Some(asked(
                 target(1, 1),
-                OperationKind::SetFlags {
-                    add: Flags::SEEN,
-                    remove: Flags::NONE,
-                },
+                OperationKind::MoveTo { folder: folder(9) },
             )),
         )
         .expect("it is written");
@@ -1742,10 +1844,7 @@ mod tests {
             &[],
             Some(asked(
                 target(1, 1),
-                OperationKind::SetFlags {
-                    add: Flags::SEEN,
-                    remove: Flags::NONE,
-                },
+                OperationKind::MoveTo { folder: folder(9) },
             )),
         )
         .expect("it is written");
@@ -1764,10 +1863,7 @@ mod tests {
         // deleting the record of what was done would be the application forgetting it did it.
         let db = TempProfile::new("cancel-done");
         let log = db.log();
-        let kind = OperationKind::SetFlags {
-            add: Flags::SEEN,
-            remove: Flags::NONE,
-        };
+        let kind = OperationKind::MoveTo { folder: folder(9) };
 
         log.record("acc-1", &[], Some(asked(target(1, 1), kind)))
             .expect("it is written");
@@ -1789,13 +1885,11 @@ mod tests {
 
     #[test]
     fn what_a_person_has_been_shown_is_not_taken_back_behind_their_back() {
-        // A conflict is theirs to decide about. Undo removing it would answer for them.
+        // A stop is theirs to decide about, and cancel never takes one away: only a person taking
+        // the message back gives it up, through give_up, and only one the server never heard of.
         let db = TempProfile::new("cancel-conflicted");
         let log = db.log();
-        let kind = OperationKind::SetFlags {
-            add: Flags::SEEN,
-            remove: Flags::NONE,
-        };
+        let kind = OperationKind::MoveTo { folder: folder(9) };
 
         log.record("acc-1", &[], Some(asked(target(1, 1), kind)))
             .expect("it is written");
@@ -1815,10 +1909,7 @@ mod tests {
     fn undoing_one_message_leaves_the_others_alone() {
         let db = TempProfile::new("cancel-scope");
         let log = db.log();
-        let kind = OperationKind::SetFlags {
-            add: Flags::SEEN,
-            remove: Flags::NONE,
-        };
+        let kind = OperationKind::MoveTo { folder: folder(9) };
 
         for (message, folder) in [(1, 1), (2, 1), (1, 2)] {
             log.record("acc-1", &[], Some(asked(target(message, folder), kind)))
@@ -1919,6 +2010,651 @@ mod tests {
 
         assert_eq!(log.try_again("acc-1", target(1, 1)).expect("readable"), 0);
         assert_eq!(log.due("acc-1", 10).expect("readable")[0].attempts, 0);
+    }
+
+    /// One instruction about each of the messages given, stopped, and what the log names them by.
+    fn stopped_instructions(log: &SqliteOperationLog, on: &[OperationTarget]) -> Vec<OperationId> {
+        for target in on {
+            log.record(
+                "acc-1",
+                &[],
+                Some(asked(
+                    *target,
+                    OperationKind::MoveTo {
+                        folder: FolderId::new(9).expect("non-zero"),
+                    },
+                )),
+            )
+            .expect("it is written");
+        }
+        let due = log.due("acc-1", 10).expect("readable");
+        for waiting in &due {
+            log.attempted(
+                waiting.id,
+                OperationState::Conflicted,
+                Some(Stopped::FolderIsNotThere),
+                Duration::ZERO,
+            )
+            .expect("it stops");
+        }
+        due.into_iter().map(|recorded| recorded.id).collect()
+    }
+
+    #[test]
+    fn giving_up_takes_away_the_one_that_stopped_and_nothing_else() {
+        // A person took back what it asked for. What it leaves is the message as the index has it:
+        // nothing on its row, nothing to undo, and nothing of the other messages' instructions.
+        let db = TempProfile::new("give-up");
+        let log = db.log();
+        let ids = stopped_instructions(&log, &[target(1, 1), target(2, 1)]);
+
+        assert_eq!(log.give_up("acc-1", target(1, 1)).expect("readable"), 1);
+
+        assert_eq!(
+            log.settled_for("acc-1", target(1, 1)).expect("readable"),
+            None
+        );
+        assert!(log
+            .still_named("acc-1")
+            .expect("readable")
+            .iter()
+            .all(|named| named.get() != 1));
+        assert_eq!(
+            log.settled_for("acc-1", target(2, 1))
+                .expect("readable")
+                .map(|other| other.id),
+            Some(ids[1]),
+            "giving up one message's instruction took another's"
+        );
+        assert_eq!(
+            log.give_up("acc-1", target(1, 1)).expect("readable"),
+            0,
+            "it is gone already"
+        );
+    }
+
+    #[test]
+    fn giving_up_leaves_what_is_waiting_or_carried_out() {
+        // Asked again from its row it is waiting, and carried out it is what happened: taking either
+        // away here would undo the person's latest word, or lose the way back to the server that
+        // heard it.
+        let db = TempProfile::new("give-up-not-stopped");
+        let log = db.log();
+        let kind = OperationKind::MoveTo {
+            folder: FolderId::new(9).expect("non-zero"),
+        };
+
+        log.record("acc-1", &[], Some(asked(target(1, 1), kind)))
+            .expect("it is written");
+        log.record("acc-1", &[], Some(asked(target(2, 1), kind)))
+            .expect("it is written");
+        let due = log.due("acc-1", 10).expect("readable");
+        let carried = due[1].id;
+        log.attempted(carried, OperationState::Done, None, Duration::ZERO)
+            .expect("it is carried out");
+
+        assert_eq!(log.give_up("acc-1", target(1, 1)).expect("readable"), 0);
+        assert_eq!(log.give_up("acc-1", target(2, 1)).expect("readable"), 0);
+        assert_eq!(
+            log.outstanding_for("acc-1", target(1, 1))
+                .expect("readable")
+                .len(),
+            1,
+            "the waiting one went"
+        );
+        assert!(log
+            .settled_for("acc-1", target(2, 1))
+            .expect("readable")
+            .is_some());
+
+        // And once asked again, the one that stopped is waiting, not something to give up.
+        stopped_instructions(&log, &[target(3, 1)]);
+        log.try_again("acc-1", target(3, 1)).expect("readable");
+        assert_eq!(log.give_up("acc-1", target(3, 1)).expect("readable"), 0);
+    }
+
+    #[test]
+    fn one_account_never_gives_up_another_ones_instruction() {
+        let db = TempProfile::new("give-up-account");
+        let log = db.log();
+        stopped_instructions(&log, &[target(1, 1)]);
+
+        assert_eq!(log.give_up("acc-2", target(1, 1)).expect("readable"), 0);
+        assert!(log
+            .settled_for("acc-1", target(1, 1))
+            .expect("readable")
+            .is_some());
+    }
+
+    #[test]
+    fn a_way_back_is_built_from_the_newest_filing_and_not_a_flag_changed_since() {
+        // Archived, and stopped before the server heard; the message came back to its row, and
+        // going to it marked it read. Pressing undo is taking the archive back, and answered with
+        // the mark as read it would turn the message unread and leave the archive where it was.
+        let db = TempProfile::new("way-back-filing");
+        let log = db.log();
+        stopped_instructions(&log, &[target(1, 1)]);
+        carried(
+            &log,
+            OperationKind::SetFlags {
+                add: Flags::SEEN,
+                remove: Flags::NONE,
+            },
+            target(1, 1),
+        );
+
+        let newest = log
+            .settled_for("acc-1", target(1, 1))
+            .expect("readable")
+            .expect("the filing is remembered");
+        assert!(matches!(
+            newest.operation.kind,
+            OperationKind::MoveTo { .. }
+        ));
+        assert_eq!(newest.operation.state, OperationState::Conflicted);
+    }
+
+    #[test]
+    fn taking_back_a_filing_leaves_a_flag_waiting_beside_it() {
+        // Opened, so marked read, and archived, both still waiting: what is taken back is the
+        // archive, and the message stays read.
+        let db = TempProfile::new("cancel-filing");
+        let log = db.log();
+        for kind in [
+            OperationKind::SetFlags {
+                add: Flags::SEEN,
+                remove: Flags::NONE,
+            },
+            OperationKind::MoveTo { folder: folder(9) },
+        ] {
+            log.record("acc-1", &[], Some(asked(target(1, 1), kind)))
+                .expect("it is written");
+        }
+
+        assert_eq!(log.cancel("acc-1", target(1, 1)).expect("readable"), 1);
+
+        let left = log
+            .outstanding_for("acc-1", target(1, 1))
+            .expect("readable");
+        assert_eq!(left.len(), 1);
+        assert!(matches!(
+            left[0].operation.kind,
+            OperationKind::SetFlags { .. }
+        ));
+    }
+
+    #[test]
+    fn giving_up_takes_every_stopped_filing_about_the_message_and_none_of_its_flags() {
+        // Archived twice from its row and stopped both times, then taken back: both go, or the
+        // older one is laid over the row again while the line says the message is back. What was
+        // done to its flags is not a filing and stays — the mark as read from opening it, and a
+        // flag that stopped as well.
+        let db = TempProfile::new("give-up-filings");
+        let log = db.log();
+        carried(
+            &log,
+            OperationKind::SetFlags {
+                add: Flags::SEEN,
+                remove: Flags::NONE,
+            },
+            target(1, 1),
+        );
+        stopped_instructions(&log, &[target(1, 1)]);
+        stopped_instructions(&log, &[target(1, 1)]);
+        log.record(
+            "acc-1",
+            &[],
+            Some(asked(
+                target(1, 1),
+                OperationKind::SetFlags {
+                    add: Flags::FLAGGED,
+                    remove: Flags::NONE,
+                },
+            )),
+        )
+        .expect("it is written");
+        let flag = log.due("acc-1", 10).expect("readable")[0].id;
+        log.attempted(
+            flag,
+            OperationState::Conflicted,
+            Some(Stopped::TheServerRefused),
+            Duration::ZERO,
+        )
+        .expect("it stops");
+
+        assert_eq!(log.give_up("acc-1", target(1, 1)).expect("readable"), 2);
+        assert_eq!(
+            log.settled_for("acc-1", target(1, 1)).expect("readable"),
+            None,
+            "a filing was left"
+        );
+        assert_eq!(
+            kinds_left(&db),
+            [("set_flags", "conflicted"), ("set_flags", "done")]
+                .map(|(kind, state)| (kind.to_owned(), state.to_owned()))
+                .to_vec(),
+            "a flag was taken with the filings"
+        );
+    }
+
+    #[test]
+    fn giving_up_keeps_a_stop_the_server_heard_of_and_takes_one_whose_message_was_not_there() {
+        // Told, the server may have carried out part of it: a move made as a copy and then a
+        // delete it refused leaves the copy where it was going. A stop saying the message was not
+        // there is never told, and whether the message is back is the caller's to ask.
+        let db = TempProfile::new("give-up-kept");
+        let log = db.log();
+        let kind = OperationKind::MoveTo { folder: folder(9) };
+        for on in [target(1, 1), target(2, 1)] {
+            log.record("acc-1", &[], Some(asked(on, kind)))
+                .expect("it is written");
+        }
+        let due = log.due("acc-1", 10).expect("readable");
+        let id_of = |on: OperationTarget| {
+            due.iter()
+                .find(|one| one.operation.target == on)
+                .expect("handed out")
+                .id
+        };
+        log.about_to_tell(id_of(target(1, 1))).expect("on its way");
+        log.attempted(
+            id_of(target(1, 1)),
+            OperationState::Conflicted,
+            Some(Stopped::TheServerRefused),
+            Duration::ZERO,
+        )
+        .expect("it stops");
+        log.attempted(
+            id_of(target(2, 1)),
+            OperationState::Conflicted,
+            Some(Stopped::MessageIsNotThere),
+            Duration::ZERO,
+        )
+        .expect("it stops");
+
+        assert_eq!(log.give_up("acc-1", target(1, 1)).expect("readable"), 0);
+        assert_eq!(log.give_up("acc-1", target(2, 1)).expect("readable"), 1);
+        assert_eq!(rows_in(&db), 1);
+    }
+
+    #[test]
+    fn giving_up_is_about_one_folder_and_takes_a_stop_with_no_reason_written() {
+        let db = TempProfile::new("give-up-folder");
+        let log = db.log();
+        // The same message in another folder, stopped there.
+        stopped_instructions(&log, &[target(1, 2)]);
+        log.record(
+            "acc-1",
+            &[],
+            Some(asked(
+                target(1, 1),
+                OperationKind::MoveTo { folder: folder(9) },
+            )),
+        )
+        .expect("it is written");
+        let waiting = log.due("acc-1", 10).expect("readable")[0].id;
+        log.attempted(waiting, OperationState::Conflicted, None, Duration::ZERO)
+            .expect("it stops with no reason written");
+
+        assert_eq!(log.give_up("acc-1", target(1, 1)).expect("readable"), 1);
+        assert_eq!(rows_in(&db), 1);
+        assert!(
+            log.settled_for("acc-1", target(1, 2))
+                .expect("readable")
+                .is_some(),
+            "the same message's stop in another folder was taken"
+        );
+    }
+
+    #[test]
+    fn a_way_back_is_built_from_the_newest_of_two_filings() {
+        // Archived, then deleted: the way back is the delete's.
+        let db = TempProfile::new("way-back-newest");
+        let log = db.log();
+        carried(
+            &log,
+            OperationKind::MoveTo { folder: folder(9) },
+            target(1, 1),
+        );
+        carried(
+            &log,
+            OperationKind::Delete {
+                intent: DeleteIntent::ToTrash,
+            },
+            target(1, 1),
+        );
+
+        let newest = log
+            .settled_for("acc-1", target(1, 1))
+            .expect("readable")
+            .expect("both are remembered");
+        assert!(matches!(
+            newest.operation.kind,
+            OperationKind::Delete { .. }
+        ));
+    }
+
+    #[test]
+    fn asking_again_about_two_stopped_deletes_puts_back_the_later() {
+        // Deleted twice from a row whose account keeps no deleted mail, both stopped before the
+        // server heard. Put back together they are two waiting deletes of one message, which the
+        // queue refuses, and the button did nothing for good.
+        let db = TempProfile::new("try-again-two");
+        let log = db.log();
+        let kind = OperationKind::Delete {
+            intent: DeleteIntent::ToTrash,
+        };
+        for _ in 0..2 {
+            log.record("acc-1", &[], Some(asked(target(1, 1), kind)))
+                .expect("it is written");
+            let waiting = log.due("acc-1", 10).expect("readable")[0].id;
+            log.attempted(
+                waiting,
+                OperationState::Conflicted,
+                Some(Stopped::NowhereToKeepDeletedMail),
+                Duration::ZERO,
+            )
+            .expect("it stops");
+        }
+
+        assert_eq!(log.try_again("acc-1", target(1, 1)).expect("put back"), 1);
+        assert_eq!(log.due("acc-1", 10).expect("readable").len(), 1);
+        assert_eq!(rows_in(&db), 1);
+    }
+
+    #[test]
+    fn asking_again_beside_a_waiting_filing_of_its_kind_leaves_the_waiting_one() {
+        // Stopped, and filed again from its row while the server was out of reach: the waiting
+        // move is the later word, and the stop goes rather than collide with it.
+        let db = TempProfile::new("try-again-beside");
+        let log = db.log();
+        stopped_instructions(&log, &[target(1, 1)]);
+        log.record(
+            "acc-1",
+            &[],
+            Some(asked(
+                target(1, 1),
+                OperationKind::MoveTo { folder: folder(8) },
+            )),
+        )
+        .expect("it is written");
+
+        assert_eq!(log.try_again("acc-1", target(1, 1)).expect("answers"), 0);
+
+        let waiting = log
+            .outstanding_for("acc-1", target(1, 1))
+            .expect("readable");
+        assert_eq!(waiting.len(), 1);
+        assert_eq!(
+            waiting[0].operation.kind,
+            OperationKind::MoveTo { folder: folder(8) }
+        );
+        assert_eq!(rows_in(&db), 1);
+    }
+
+    #[test]
+    fn asking_again_puts_back_a_stop_whose_kind_has_no_later_word() {
+        // A mark as read waiting beside a stopped move is another kind of instruction: the move is
+        // still what is asked again.
+        let db = TempProfile::new("try-again-kinds");
+        let log = db.log();
+        stopped_instructions(&log, &[target(1, 1)]);
+        log.record(
+            "acc-1",
+            &[],
+            Some(asked(
+                target(1, 1),
+                OperationKind::SetFlags {
+                    add: Flags::SEEN,
+                    remove: Flags::NONE,
+                },
+            )),
+        )
+        .expect("it is written");
+
+        assert_eq!(log.try_again("acc-1", target(1, 1)).expect("put back"), 1);
+        assert_eq!(rows_in(&db), 2);
+    }
+
+    /// A move told to the server and stopped by its refusal, and what the log names it by.
+    fn refused_move(log: &SqliteOperationLog) -> OperationId {
+        log.record(
+            "acc-1",
+            &[],
+            Some(asked(
+                target(1, 1),
+                OperationKind::MoveTo { folder: folder(9) },
+            )),
+        )
+        .expect("it is written");
+        let id = log.due("acc-1", 10).expect("readable")[0].id;
+        log.about_to_tell(id).expect("on its way");
+        log.attempted(
+            id,
+            OperationState::Conflicted,
+            Some(Stopped::TheServerRefused),
+            Duration::ZERO,
+        )
+        .expect("it stops");
+        id
+    }
+
+    #[test]
+    fn a_refusal_with_nothing_done_counts_as_never_told_and_is_given_up() {
+        // The server heard it and did none of it: taken back, it is taken away.
+        let db = TempProfile::new("refused-untouched");
+        let log = db.log();
+        let id = refused_move(&log);
+
+        log.refused_untouched(id).expect("written down");
+
+        let stopped = log
+            .settled_for("acc-1", target(1, 1))
+            .expect("readable")
+            .expect("remembered");
+        assert!(!stopped.already_told);
+        assert_eq!(stopped.stopped, Some(Stopped::TheServerRefused));
+        assert_eq!(log.give_up("acc-1", target(1, 1)).expect("readable"), 1);
+    }
+
+    #[test]
+    fn a_refusal_left_told_is_not_given_up() {
+        let db = TempProfile::new("refused-told");
+        let log = db.log();
+        refused_move(&log);
+
+        assert_eq!(log.give_up("acc-1", target(1, 1)).expect("readable"), 0);
+    }
+
+    #[test]
+    fn only_a_stop_is_written_down_as_refused_with_nothing_done() {
+        // One on its way, or carried out, has been heard of, and stays so.
+        let db = TempProfile::new("refused-untouched-only");
+        let log = db.log();
+        log.record(
+            "acc-1",
+            &[],
+            Some(asked(
+                target(1, 1),
+                OperationKind::MoveTo { folder: folder(9) },
+            )),
+        )
+        .expect("it is written");
+        let id = log.due("acc-1", 10).expect("readable")[0].id;
+        log.about_to_tell(id).expect("on its way");
+
+        assert_eq!(
+            log.refused_untouched(id),
+            Err(OperationLogError::ChangedUnderneath)
+        );
+        assert!(
+            log.settled_for("acc-1", target(1, 1))
+                .expect("readable")
+                .expect("on its way")
+                .already_told
+        );
+
+        log.attempted(id, OperationState::Done, None, Duration::ZERO)
+            .expect("carried out");
+        assert_eq!(
+            log.refused_untouched(id),
+            Err(OperationLogError::ChangedUnderneath)
+        );
+        assert!(
+            log.settled_for("acc-1", target(1, 1))
+                .expect("readable")
+                .expect("carried out")
+                .already_told
+        );
+    }
+
+    /// An instruction of `kind` about message 1, handed out and on its way to the server.
+    fn on_its_way(log: &SqliteOperationLog, kind: OperationKind) -> OperationId {
+        log.record("acc-1", &[], Some(asked(target(1, 1), kind)))
+            .expect("it is written");
+        let id = log.due("acc-1", 10).expect("readable")[0].id;
+        log.about_to_tell(id).expect("on its way");
+        id
+    }
+
+    fn a_read_mark() -> OperationKind {
+        OperationKind::SetFlags {
+            add: Flags::SEEN,
+            remove: Flags::NONE,
+        }
+    }
+
+    #[test]
+    fn a_change_of_flags_the_server_refused_is_let_go() {
+        let db = TempProfile::new("let-go");
+        let log = db.log();
+        let id = on_its_way(&log, a_read_mark());
+
+        log.let_go(id).expect("taken away");
+
+        assert_eq!(rows_in(&db), 0);
+        assert_eq!(
+            log.let_go(id),
+            Err(OperationLogError::ChangedUnderneath),
+            "gone already"
+        );
+    }
+
+    #[test]
+    fn only_a_change_of_flags_on_its_way_is_let_go() {
+        // A filing the server refused stops for a person, and one carried out is not on its way.
+        let db = TempProfile::new("let-go-only");
+        let log = db.log();
+        let filing = on_its_way(&log, OperationKind::MoveTo { folder: folder(9) });
+
+        assert_eq!(
+            log.let_go(filing),
+            Err(OperationLogError::ChangedUnderneath)
+        );
+
+        log.attempted(filing, OperationState::Done, None, Duration::ZERO)
+            .expect("carried out");
+        let read = on_its_way(&log, a_read_mark());
+        log.attempted(read, OperationState::Done, None, Duration::ZERO)
+            .expect("carried out");
+
+        assert_eq!(log.let_go(read), Err(OperationLogError::ChangedUnderneath));
+        assert_eq!(rows_in(&db), 2);
+    }
+
+    #[test]
+    fn a_message_read_and_thrown_away_comes_back_read_when_it_is_taken_back() {
+        // Opened, so marked read, and thrown away before the server heard of either: taking the
+        // delete back leaves the mark as read waiting. Folded into the delete, it went with it.
+        use crate::application::act_on_mail::ActOnMail;
+        use crate::application::take_back::{TakeBack, TakenBack};
+
+        let db = TempProfile::new("read-then-deleted");
+        ActOnMail::new(db.log())
+            .set_read("acc-1", target(1, 1), true)
+            .expect("written down");
+        ActOnMail::new(db.log())
+            .delete("acc-1", target(1, 1), DeleteIntent::ToTrash)
+            .expect("written down");
+
+        assert_eq!(
+            TakeBack::new(db.log(), Nowhere)
+                .execute("acc-1", 1, target(1, 1))
+                .expect("answers"),
+            TakenBack::Removed
+        );
+
+        let left = db
+            .log()
+            .outstanding_for("acc-1", target(1, 1))
+            .expect("readable");
+        assert_eq!(left.len(), 1);
+        assert!(matches!(
+            left[0].operation.kind,
+            OperationKind::SetFlags { add, .. } if add.contains(Flags::SEEN)
+        ));
+    }
+
+    /// Placements nobody asks about: what is taken back while it is still waiting needs none.
+    struct Nowhere;
+
+    impl crate::ports::placement::Placements for Nowhere {
+        fn where_it_sits(
+            &self,
+            _: FolderId,
+            _: MessageId,
+        ) -> Result<
+            Option<crate::ports::placement::Position>,
+            crate::ports::placement::PlacementError,
+        > {
+            unreachable!("a waiting filing is taken back without asking where the message is")
+        }
+
+        fn mailbox_of(
+            &self,
+            _: FolderId,
+        ) -> Result<Option<String>, crate::ports::placement::PlacementError> {
+            unreachable!("nothing is sent")
+        }
+
+        fn name_of(
+            &self,
+            _: MessageId,
+        ) -> Result<Option<String>, crate::ports::placement::PlacementError> {
+            unreachable!("nothing is sent")
+        }
+
+        fn folder_for(
+            &self,
+            _: i64,
+            _: lyonoyl_domain::folder::FolderRole,
+        ) -> Result<Option<FolderId>, crate::ports::placement::PlacementError> {
+            unreachable!("nothing is asked of the trash")
+        }
+
+        fn confirmed_flags(
+            &self,
+            _: FolderId,
+            _: &crate::ports::placement::Position,
+            _: Flags,
+            _: Flags,
+        ) -> Result<bool, crate::ports::placement::PlacementError> {
+            unreachable!("nothing is told")
+        }
+    }
+
+    /// What the log still holds, as the kind and the state of each row.
+    fn kinds_left(profile: &TempProfile) -> Vec<(String, String)> {
+        let connection = profile.pool.get().expect("connection");
+        let mut statement = connection
+            .prepare("SELECT kind, state FROM op_log ORDER BY kind, state")
+            .expect("prepared");
+        let rows = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .expect("readable")
+            .collect::<Result<Vec<(String, String)>, _>>()
+            .expect("readable");
+        rows
     }
 
     #[test]
@@ -2592,8 +3328,15 @@ mod tests {
         // what they were: unsent, uncounted, and free to be taken back.
         let db = TempProfile::new("released");
         let log = db.log();
-        log.record("acc-1", &[], Some(asked(target(1, 1), read())))
-            .expect("it is written");
+        log.record(
+            "acc-1",
+            &[],
+            Some(asked(
+                target(1, 1),
+                OperationKind::MoveTo { folder: folder(9) },
+            )),
+        )
+        .expect("it is written");
         let id = log.due("acc-1", 10).expect("readable")[0].id;
         assert!(log.due("acc-1", 10).expect("readable").is_empty(), "held");
 

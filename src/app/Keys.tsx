@@ -36,6 +36,7 @@ export function Keys({ onClose, t }: { onClose: () => void; t: Translator }) {
       keys: [named.delete, chordName(named, named.delete)],
       what: "keys.throwAway",
     },
+    { keys: [chordName(named, "Z")], what: "keys.takeBack" },
     { keys: [named.escape], what: "keys.leave" },
     { keys: ["?"], what: "keys.showThese" },
     { keys: [chordName(named, ",")], what: "keys.settings" },

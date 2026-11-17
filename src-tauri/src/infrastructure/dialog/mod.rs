@@ -16,6 +16,7 @@ use std::thread::ThreadId;
 
 use tauri::{AppHandle, Runtime};
 
+use crate::infrastructure::menu_bar;
 use crate::ports::file_export::{FileExport, FileExportError, FileToSave, SavedFile};
 use crate::ports::file_import::{ChosenFile, FileImport, FileImportError};
 use crate::ports::journal::{Journal, Note};
@@ -45,15 +46,18 @@ impl<R: Runtime> SystemSaveDialog<R> {
 
         let suggested_name = suggested_name.to_owned();
         let (answer, wait) = mpsc::channel();
+        let app = self.app.clone();
 
         self.app
             .run_on_main_thread(move || {
                 // Blocks the event loop for as long as the panel is up, which is what a modal
                 // dialog is: the system spins its own loop underneath and the window keeps
                 // drawing. Nothing after this line runs until the person has answered.
-                let chosen = rfd::FileDialog::new()
-                    .set_file_name(suggested_name)
-                    .save_file();
+                let chosen = menu_bar::with_system_undo(&app, || {
+                    rfd::FileDialog::new()
+                        .set_file_name(suggested_name)
+                        .save_file()
+                });
 
                 let _ = answer.send(chosen);
             })
@@ -198,10 +202,13 @@ impl<R: Runtime> FileImport for SystemOpenDialog<R> {
         }
 
         let (answer, wait) = mpsc::channel();
+        let app = self.app.clone();
 
         self.app
             .run_on_main_thread(move || {
-                let _ = answer.send(rfd::FileDialog::new().pick_file());
+                let chosen =
+                    menu_bar::with_system_undo(&app, || rfd::FileDialog::new().pick_file());
+                let _ = answer.send(chosen);
             })
             .map_err(|_| FileImportError::CannotAsk)?;
 

@@ -174,6 +174,24 @@ pub fn after_attempt(outcome: Attempt) -> OperationState {
     }
 }
 
+/// What an instruction the server refused becomes, by what it asks for: nothing, for a change of
+/// flags.
+///
+/// A filing stops, and a person is shown it, as anything that cannot be done stops
+/// ([`after_attempt`]). A change of flags is let go: the message keeps the flags the server holds,
+/// which is what a person sees of it, and a stop on it would be one nothing clears. Asked again, the
+/// server gives the same answer, and a flag is not a filing a person takes back. A folder somebody
+/// may read and not mark—a shared one, opened for reading only—refuses one for every message
+/// opened in it.
+pub fn after_refusal(kind: OperationKind) -> Option<OperationState> {
+    match kind {
+        OperationKind::SetFlags { .. } => None,
+        OperationKind::MoveTo { .. } | OperationKind::Delete { .. } => {
+            Some(after_attempt(Attempt::Impossible))
+        }
+    }
+}
+
 /// How long to wait before the next attempt.
 pub fn retry_after(attempts: u32) -> std::time::Duration {
     let at = (attempts as usize).min(RETRY_SECONDS.len() - 1);
@@ -329,8 +347,19 @@ pub fn coalesced(earlier: MailOperation, later: MailOperation) -> Option<MailOpe
             OperationKind::MoveTo { folder }
         }
 
-        // Deleting swallows what was asked before it: flags on a message about to go are of no
-        // interest, and a move into the folder it is being deleted from is undone by the delete.
+        // A flag and a delete into the trash stay two. The delete can still be taken back, and
+        // taking it back leaves the flag where it was asked for: a message read and then thrown
+        // away comes back read, and reaches the trash read if it goes.
+        (
+            OperationKind::SetFlags { .. },
+            OperationKind::Delete {
+                intent: DeleteIntent::ToTrash,
+            },
+        ) => return None,
+
+        // Anything else before a delete is swallowed by it: flags on a message deleted for good
+        // are of no interest, and a move into the folder it is being deleted from is undone by the
+        // delete.
         (_, OperationKind::Delete { intent }) => OperationKind::Delete { intent },
 
         // Anything after a delete stays separate. Marking a deleted message read is either a
@@ -594,13 +623,13 @@ mod tests {
     }
 
     #[test]
-    fn a_delete_swallows_what_was_asked_before_it() {
+    fn a_delete_for_good_swallows_what_was_asked_before_it() {
         let one = coalesced(
             asked(target(1, 1), read()),
             asked(
                 target(1, 1),
                 OperationKind::Delete {
-                    intent: DeleteIntent::ToTrash,
+                    intent: DeleteIntent::Permanently,
                 },
             ),
         )
@@ -609,8 +638,26 @@ mod tests {
         assert_eq!(
             one.kind,
             OperationKind::Delete {
-                intent: DeleteIntent::ToTrash
+                intent: DeleteIntent::Permanently
             }
+        );
+    }
+
+    #[test]
+    fn a_flag_stays_beside_a_delete_into_the_trash() {
+        // The delete can still be taken back, and taking it back must leave the message read:
+        // folded, the mark as read from opening it went with the delete.
+        assert_eq!(
+            coalesced(
+                asked(target(1, 1), read()),
+                asked(
+                    target(1, 1),
+                    OperationKind::Delete {
+                        intent: DeleteIntent::ToTrash
+                    }
+                )
+            ),
+            None
         );
     }
 
@@ -815,6 +862,30 @@ mod tests {
         assert_eq!(
             when_the_message_cannot_be_found(),
             OperationState::Conflicted
+        );
+    }
+
+    #[test]
+    fn a_refused_filing_stops_and_a_refused_change_of_flags_is_let_go() {
+        // A stop on a flag would be one nothing clears: asked again, the server says the same, and
+        // a flag is not a filing to take back. The message keeps what the server holds.
+        let folder = FolderId::new(2).expect("non-zero");
+        assert_eq!(
+            after_refusal(OperationKind::MoveTo { folder }),
+            Some(OperationState::Conflicted)
+        );
+        assert_eq!(
+            after_refusal(OperationKind::Delete {
+                intent: DeleteIntent::ToTrash,
+            }),
+            Some(OperationState::Conflicted)
+        );
+        assert_eq!(
+            after_refusal(OperationKind::SetFlags {
+                add: Flags::SEEN,
+                remove: Flags::NONE,
+            }),
+            None
         );
     }
 

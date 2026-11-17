@@ -6,7 +6,13 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { Profiler, useLayoutEffect, useState, type ReactNode } from "react";
+import {
+  Profiler,
+  StrictMode,
+  useLayoutEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   afterAll,
   afterEach,
@@ -40,6 +46,9 @@ vi.mock("@/shared/ipc/client", async () => {
     setAccountCollapsed: vi.fn(),
     onMailChanged: vi.fn(),
     onOpenSettings: vi.fn(),
+    onUndoAsked: vi.fn(),
+    setMenuUndoOffered: vi.fn(),
+    removeAccount: vi.fn(),
     onMailAsked: vi.fn(),
     onTheKeyArrived: vi.fn(),
     markMessageRead: vi.fn(),
@@ -49,6 +58,7 @@ vi.mock("@/shared/ipc/client", async () => {
     forgetAttachment: vi.fn(),
     deleteMessage: vi.fn(),
     undoAction: vi.fn(),
+    emptyFolder: vi.fn(),
     getAccountSettings: vi.fn(),
     getPaneWidths: vi.fn(),
     setPaneWidth: vi.fn(),
@@ -94,6 +104,8 @@ function sidebar(accounts: AccountNodeDto[]): MailboxTreeDto {
 const window_ = vi.mocked(client.getViewWindow);
 const mailChanged = vi.mocked(client.onMailChanged);
 const menuOpens = vi.mocked(client.onOpenSettings);
+const menuUndoes = vi.mocked(client.onUndoAsked);
+const menuOffers = vi.mocked(client.setMenuUndoOffered);
 const mailAsked = vi.mocked(client.onMailAsked);
 const keyArrived = vi.mocked(client.onTheKeyArrived);
 const marking = vi.mocked(client.markMessageRead);
@@ -102,6 +114,7 @@ const archiving = vi.mocked(client.archiveMessage);
 const answering = vi.mocked(client.answerAudience);
 const forwarding = vi.mocked(client.forwardMessage);
 const undoing = vi.mocked(client.undoAction);
+const emptying = vi.mocked(client.emptyFolder);
 const reading = vi.mocked(client.getMessage);
 const opening = vi.mocked(client.openingMessage);
 const paneWidths = vi.mocked(client.getPaneWidths);
@@ -171,6 +184,17 @@ const ACCOUNT = {
   folders: [INBOX],
 };
 
+/** What the settings show for the one account the window starts with. */
+const USER_SETTINGS = {
+  email: "user@example.com",
+  displayName: "User",
+  imapHost: "imap.example.com",
+  imapPort: 993,
+  imapEncryption: "tls" as const,
+  imapUsername: "user@example.com",
+  submission: null,
+};
+
 function renderApp() {
   render(
     <I18nProvider initial="en">
@@ -238,6 +262,10 @@ beforeEach(() => {
   mailChanged.mockResolvedValue(() => {});
   menuOpens.mockReset();
   menuOpens.mockResolvedValue(() => {});
+  menuUndoes.mockReset();
+  menuUndoes.mockResolvedValue(() => {});
+  menuOffers.mockReset();
+  menuOffers.mockResolvedValue(undefined);
   mailAsked.mockReset();
   mailAsked.mockResolvedValue(() => {});
   keyArrived.mockReset();
@@ -1749,6 +1777,41 @@ describe("the application menu's settings item", () => {
 
     expect(stop).toHaveBeenCalled();
   });
+
+  it("stops listening for the menu's Undo once the window has gone", async () => {
+    const stop = vi.fn();
+    menuUndoes.mockResolvedValue(stop);
+    const { unmount } = render(
+      <I18nProvider initial="en">
+        <App />
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(menuUndoes).toHaveBeenCalled());
+    await act(async () => {});
+
+    unmount();
+
+    expect(stop).toHaveBeenCalled();
+  });
+
+  it("stops listening for the menu's Undo that was still being set up when the window went", async () => {
+    const stop = vi.fn();
+    let listening: (stop: () => void) => void = () => {};
+    menuUndoes.mockImplementation(
+      () => new Promise<() => void>((resolve) => (listening = resolve)),
+    );
+    const { unmount } = render(
+      <I18nProvider initial="en">
+        <App />
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(menuUndoes).toHaveBeenCalled());
+
+    unmount();
+    await act(async () => listening(stop));
+
+    expect(stop).toHaveBeenCalled();
+  });
 });
 
 describe("App, the onboarding", () => {
@@ -1958,6 +2021,35 @@ describe("App, the keys the window answers to", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  it("holds every other key while the list of keys is open, and the window behind it out of reach", async () => {
+    // The list says it is the only thing on the screen. A key acting behind it would be the window
+    // doing something nobody can see under the dimmed list.
+    renderApp();
+    await screen.findByRole("button", { name: /settings/i });
+    fireEvent.keyDown(window, { key: "?" });
+    const panel = await screen.findByRole("dialog");
+
+    fireEvent.keyDown(panel, { key: "c", bubbles: true });
+    fireEvent.keyDown(panel, {
+      key: ",",
+      code: "Comma",
+      metaKey: true,
+      bubbles: true,
+    });
+
+    expect(screen.queryByLabelText(/^subject$/i)).toBeNull();
+    expect(document.querySelector("[data-settings-body]")).toBeNull();
+    expect(screen.getAllByRole("dialog")).toEqual([panel]);
+    expect(document.querySelector("main")?.hasAttribute("inert")).toBe(true);
+
+    // Closed, the window is reached and listens again.
+    fireEvent.keyDown(panel, { key: "Escape", bubbles: true });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.querySelector("main")?.hasAttribute("inert")).toBe(false);
+    fireEvent.keyDown(window, { key: "?" });
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+  });
+
   it("does not act on a letter typed into a field", async () => {
     // `c` in a subject line must not throw away the message being written and open another.
     renderApp();
@@ -1983,16 +2075,6 @@ describe("App, the keys the window answers to", () => {
 });
 
 describe("App, the keys a list or a question keeps to itself", () => {
-  const USER_SETTINGS = {
-    email: "user@example.com",
-    displayName: "User",
-    imapHost: "imap.example.com",
-    imapPort: 993,
-    imapEncryption: "tls" as const,
-    imapUsername: "user@example.com",
-    submission: null,
-  };
-
   it("does not open a message when a letter is typed at a dropdown in the settings", async () => {
     // Typing the first letters of an entry is how a long list is got through. The window answers
     // `c` by opening a message, and the same letter doing both would put one over the settings.
@@ -3294,5 +3376,518 @@ describe("reading, as the window does it", () => {
     await waitFor(() =>
       expect(window_.mock.calls.length).toBeGreaterThan(rows),
     );
+  });
+
+  describe("taking back by key", () => {
+    const TRASH = {
+      folderId: "3",
+      name: "Trash",
+      role: "trash" as const,
+      total: 1,
+      unread: 0,
+      draftsHere: 0,
+      canReceive: true,
+    };
+
+    beforeEach(() => {
+      undoing.mockReset();
+      undoing.mockResolvedValue(true);
+      emptying.mockReset();
+      deleting.mockResolvedValue(undefined);
+      reading.mockImplementation(async (messageId: string) =>
+        details(messageId),
+      );
+    });
+
+    /** Cmd+Z, as a person presses it: answers whether the system was left to take it. */
+    function pressUndo(on: Element | Window) {
+      return fireEvent.keyDown(on, { key: "z", code: "KeyZ", metaKey: true });
+    }
+
+    /** A moment for anything the press set going to land. */
+    function settle() {
+      return act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    }
+
+    /** Throws the first message away from the list, and waits for the next one to open. */
+    async function throwTheFirstAway() {
+      renderApp();
+      fireEvent.click(await screen.findByText("About m-1"));
+      await screen.findByRole("heading", { name: "About m-1" });
+      fireEvent.keyDown(screen.getByRole("listbox"), { key: "Delete" });
+      // To the trash, which the list asks for as not for good.
+      await waitFor(() =>
+        expect(deleting).toHaveBeenCalledWith("m-1", "1", false),
+      );
+      await screen.findByRole("heading", { name: "About m-2" });
+      // Opened unread, and marked read for it: the notice says so now, in place of the one about
+      // the message thrown away.
+      await screen.findByText("Marked read");
+    }
+
+    it("takes back the message last thrown away, past the mark the next one got for being opened", async () => {
+      await throwTheFirstAway();
+      marking.mockClear();
+
+      pressUndo(screen.getByRole("listbox"));
+
+      await waitFor(() => expect(undoing).toHaveBeenCalledWith("m-1", "1"));
+      expect(undoing).toHaveBeenCalledTimes(1);
+      expect(marking).not.toHaveBeenCalled();
+    });
+
+    it("says where the message went back to, which may be a folder nobody is looking at", async () => {
+      await throwTheFirstAway();
+
+      pressUndo(screen.getByRole("listbox"));
+
+      expect(await screen.findByText("Moved back to Inbox")).toBeTruthy();
+      // The line is the notice's while it speaks, and the corner with it.
+      expect(screen.queryByText("Marked read")).toBeNull();
+    });
+
+    it("asks once when the key is pressed again after a screen opened while the answer was on its way", async () => {
+      // The first answer lands in a line no longer in the tree. Asked a second time, the core found
+      // nothing left to take back and the second line said the message could not be put back over
+      // a list that had it back.
+      await throwTheFirstAway();
+      let answer: (takenBack: boolean) => void = () => {};
+      undoing.mockImplementation(
+        () => new Promise<boolean>((resolve) => (answer = resolve)),
+      );
+      pressUndo(screen.getByRole("listbox"));
+      await waitFor(() => expect(undoing).toHaveBeenCalledTimes(1));
+
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      await screen.findByRole("heading", { name: "Settings" });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Close this screen" }),
+      );
+      await screen.findByRole("listbox");
+      pressUndo(screen.getByRole("listbox"));
+      await settle();
+      // Nothing is raised while the answer is on its way: drawn, the line would offer the way back
+      // to a message already being brought back.
+      expect(screen.queryByText("Moved to the trash")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+      await act(async () => answer(true));
+      await settle();
+
+      expect(undoing).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText(/could not put the message back/)).toBeNull();
+    });
+
+    it("offers nothing again once a screen opened over the line saying where the message went has closed", async () => {
+      await throwTheFirstAway();
+      pressUndo(screen.getByRole("listbox"));
+      await screen.findByText("Moved back to Inbox");
+
+      // Opened while the line still speaks, the settings take the list and the line with them.
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      await screen.findByRole("heading", { name: "Settings" });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Close this screen" }),
+      );
+      await screen.findByRole("listbox");
+      await settle();
+
+      expect(screen.queryByText("Moved to the trash")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+      expect(undoing).toHaveBeenCalledTimes(1);
+    });
+
+    it("reads the list again once the message is back, as the button does", async () => {
+      await throwTheFirstAway();
+      const rows = window_.mock.calls.length;
+
+      pressUndo(screen.getByRole("listbox"));
+
+      await waitFor(() =>
+        expect(window_.mock.calls.length).toBeGreaterThan(rows),
+      );
+    });
+
+    it("asks once however often the key is pressed, and nothing once the message is back", async () => {
+      let answer: (takenBack: boolean) => void = () => {};
+      undoing.mockImplementation(
+        () => new Promise<boolean>((resolve) => (answer = resolve)),
+      );
+      await throwTheFirstAway();
+      const list = screen.getByRole("listbox");
+
+      pressUndo(list);
+      pressUndo(list);
+      await act(async () => answer(true));
+      pressUndo(list);
+      await settle();
+
+      expect(undoing).toHaveBeenCalledTimes(1);
+    });
+
+    it("says when the message cannot be brought back", async () => {
+      undoing.mockResolvedValue(false);
+      await throwTheFirstAway();
+
+      pressUndo(screen.getByRole("listbox"));
+
+      expect(
+        await screen.findByText("Lyonoyl Mail could not put the message back"),
+      ).toBeTruthy();
+    });
+
+    it("leaves the key to the field where somebody types", async () => {
+      await throwTheFirstAway();
+      const field = screen.getByPlaceholderText("Search mail");
+      field.focus();
+
+      const leftAlone = pressUndo(field);
+      await settle();
+
+      expect(leftAlone).toBe(true);
+      expect(undoing).not.toHaveBeenCalled();
+    });
+
+    it("leaves the key to a screen in front of the list, and takes nothing back behind it", async () => {
+      await throwTheFirstAway();
+      fireEvent.keyDown(window, { code: "Comma", metaKey: true });
+      await screen.findByRole("heading", { name: "Settings" });
+
+      const leftAlone = pressUndo(window);
+      await settle();
+
+      expect(leftAlone).toBe(true);
+      expect(undoing).not.toHaveBeenCalled();
+    });
+
+    it("takes nothing back under the list of keys", async () => {
+      await throwTheFirstAway();
+      fireEvent.keyDown(window, { key: "?" });
+      const panel = await screen.findByRole("dialog");
+
+      pressUndo(panel);
+      await settle();
+
+      expect(undoing).not.toHaveBeenCalled();
+      expect(screen.getByRole("dialog")).toBe(panel);
+    });
+
+    describe("Undo chosen from the menu bar", () => {
+      /** The engine's own undo, which the menu's first Undo asked for. */
+      let typingUndone = vi.fn(() => true);
+
+      beforeEach(() => {
+        typingUndone = vi.fn(() => true);
+        Object.defineProperty(document, "execCommand", {
+          configurable: true,
+          value: typingUndone,
+        });
+      });
+
+      afterEach(() => {
+        Reflect.deleteProperty(document, "execCommand");
+      });
+
+      /** Undo chosen, as the core tells the window when it is. */
+      async function chooseUndo() {
+        await waitFor(() => expect(menuUndoes).toHaveBeenCalled());
+        const chosen =
+          menuUndoes.mock.calls[menuUndoes.mock.calls.length - 1][0];
+        act(() => chosen());
+        await settle();
+      }
+
+      /** What the menu was last told about whether its Undo does anything. */
+      function offered() {
+        const said = menuOffers.mock.calls;
+        return said[said.length - 1]?.[0];
+      }
+
+      /** Whether the engine says there is typing to undo, as the test says. */
+      function typingToUndo(answer: boolean) {
+        Object.defineProperty(document, "queryCommandEnabled", {
+          configurable: true,
+          value: vi.fn(() => answer),
+        });
+      }
+
+      /** The window's answer to whether it is the one in front, where a test changes it. */
+      let inFront: ReturnType<typeof vi.spyOn> | null = null;
+
+      afterEach(() => {
+        Reflect.deleteProperty(document, "queryCommandEnabled");
+        inFront?.mockRestore();
+        inFront = null;
+      });
+
+      it("is greyed out while there is nothing to take back", async () => {
+        renderApp();
+        await screen.findByRole("listbox");
+        await settle();
+
+        expect(offered()).toBe(false);
+      });
+
+      it("is offered once a message is put away, and greyed out once it is back", async () => {
+        await throwTheFirstAway();
+        await waitFor(() => expect(offered()).toBe(true));
+
+        pressUndo(screen.getByRole("listbox"));
+
+        await waitFor(() => expect(undoing).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(offered()).toBe(false));
+      });
+
+      it("is offered in a field only once there is typing to undo", async () => {
+        typingToUndo(false);
+        renderApp();
+        const search = await screen.findByPlaceholderText("Search mail");
+        search.focus();
+        await waitFor(() => expect(offered()).toBe(false));
+
+        typingToUndo(true);
+        fireEvent.input(search, { target: { value: "a" } });
+
+        await waitFor(() => expect(offered()).toBe(true));
+      });
+
+      it("is greyed out under the list of keys, where it does nothing", async () => {
+        await throwTheFirstAway();
+        await waitFor(() => expect(offered()).toBe(true));
+
+        fireEvent.keyDown(window, { key: "?" });
+
+        await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+        await waitFor(() => expect(offered()).toBe(false));
+      });
+
+      it("tells the menu only of a change", async () => {
+        await throwTheFirstAway();
+        await settle();
+
+        const said = menuOffers.mock.calls.map(([one]) => one);
+        expect(said.length).toBeGreaterThan(0);
+        expect(said.some((one, at) => at > 0 && one === said[at - 1])).toBe(
+          false,
+        );
+      });
+
+      it("tells the menu only of a change when its effects run twice, as they do while developing", async () => {
+        render(
+          <StrictMode>
+            <I18nProvider initial="en">
+              <App />
+            </I18nProvider>
+          </StrictMode>,
+        );
+        await screen.findByRole("listbox");
+        await settle();
+
+        const said = menuOffers.mock.calls.map(([one]) => one);
+        expect(said.length).toBeGreaterThan(0);
+        expect(said.some((one, at) => at > 0 && one === said[at - 1])).toBe(
+          false,
+        );
+      });
+
+      it("reads the typing again once the edit is over, when the engine counts it", async () => {
+        // Measured on the engine: a paste reads inside its own input event as nothing to undo, and
+        // as something to undo once the event, and what runs straight after it, are over.
+        typingToUndo(false);
+        renderApp();
+        await screen.findByRole("listbox");
+        await settle();
+        const search = screen.getByPlaceholderText("Search mail");
+        search.focus();
+        await waitFor(() => expect(document.activeElement).toBe(search));
+        search.addEventListener("input", () =>
+          queueMicrotask(() => typingToUndo(true)),
+        );
+
+        // An edit the box's own handler does not see, so the search runs nothing and the field
+        // keeps the focus: what is read is the engine's answer, inside the event and after it.
+        fireEvent.input(search);
+
+        await waitFor(() => expect(offered()).toBe(true));
+      });
+
+      it("goes by the field rather than the message put away, and by the message once the focus leaves it", async () => {
+        typingToUndo(false);
+        await throwTheFirstAway();
+        const search = screen.getByPlaceholderText("Search mail");
+
+        search.focus();
+        await waitFor(() => expect(offered()).toBe(false));
+
+        search.blur();
+        await waitFor(() => expect(offered()).toBe(true));
+      });
+
+      it("goes by the typing rather than the message put away with a screen in front", async () => {
+        // Chosen there, it undoes the window's last typing and takes nothing back.
+        typingToUndo(false);
+        await throwTheFirstAway();
+        await waitFor(() => expect(offered()).toBe(true));
+
+        fireEvent.keyDown(window, { code: "Comma", metaKey: true });
+        await screen.findByRole("heading", { name: "Settings" });
+        await waitFor(() => expect(offered()).toBe(false));
+
+        typingToUndo(true);
+        screen.getByRole("button", { name: "Close this screen" }).focus();
+        await waitFor(() => expect(offered()).toBe(true));
+      });
+
+      it("is greyed out while the window is not the one in front, where the menu hears nothing for it", async () => {
+        await throwTheFirstAway();
+        await waitFor(() => expect(offered()).toBe(true));
+        inFront = vi.spyOn(document, "hasFocus");
+
+        inFront.mockReturnValue(false);
+        fireEvent.blur(window);
+        await waitFor(() => expect(offered()).toBe(false));
+
+        inFront.mockReturnValue(true);
+        fireEvent.focus(window);
+        await waitFor(() => expect(offered()).toBe(true));
+      });
+
+      it("is greyed out once there is no list for a message to come back into", async () => {
+        // The notice answers the key, and with no account left there is no notice.
+        vi.mocked(client.getAccountSettings).mockResolvedValue(USER_SETTINGS);
+        vi.mocked(client.removeAccount).mockResolvedValue();
+        await throwTheFirstAway();
+        await waitFor(() => expect(offered()).toBe(true));
+
+        fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+        fireEvent.click(
+          await screen.findByRole("button", { name: "Edit User" }),
+        );
+        fireEvent.click(
+          await screen.findByRole("button", { name: "Remove this account" }),
+        );
+        fireEvent.change(
+          await screen.findByLabelText("To confirm, type user@example.com"),
+          { target: { value: "user@example.com" } },
+        );
+        fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+        // The last account gone, the window has nothing left to show but the way to add one.
+        expect(
+          await screen.findByText(/connect your first mailbox/i),
+        ).toBeTruthy();
+        // Read afresh: the field the question had the focus in went with it, and a field taken
+        // out of the page says nothing as it goes. Settled before the menu is asked, which was
+        // told "no" last, while the settings stood in front.
+        screen
+          .getByRole("button", { name: "Connect an email account" })
+          .focus();
+        await settle();
+
+        expect(offered()).toBe(false);
+      });
+
+      it("takes back the last message put away, as the key does", async () => {
+        await throwTheFirstAway();
+
+        await chooseUndo();
+
+        await waitFor(() => expect(undoing).toHaveBeenCalledWith("m-1", "1"));
+        expect(undoing).toHaveBeenCalledTimes(1);
+        expect(typingUndone).not.toHaveBeenCalled();
+      });
+
+      it("gives a field somebody types in its own undo, and takes nothing back", async () => {
+        await throwTheFirstAway();
+        screen.getByPlaceholderText("Search mail").focus();
+
+        await chooseUndo();
+
+        expect(typingUndone).toHaveBeenCalledWith("undo");
+        expect(undoing).not.toHaveBeenCalled();
+      });
+
+      it("undoes the window's last typing with a screen in front of the list, and takes nothing back behind it", async () => {
+        await throwTheFirstAway();
+        fireEvent.keyDown(window, { code: "Comma", metaKey: true });
+        await screen.findByRole("heading", { name: "Settings" });
+        (document.activeElement as HTMLElement | null)?.blur();
+
+        await chooseUndo();
+
+        expect(typingUndone).toHaveBeenCalledWith("undo");
+        expect(undoing).not.toHaveBeenCalled();
+      });
+
+      it("does nothing under the list of keys", async () => {
+        await throwTheFirstAway();
+        fireEvent.keyDown(window, { key: "?" });
+        await screen.findByRole("dialog");
+
+        await chooseUndo();
+
+        expect(typingUndone).not.toHaveBeenCalled();
+        expect(undoing).not.toHaveBeenCalled();
+      });
+
+      it("asks once when the key and the menu answer the same press", async () => {
+        // The window takes the key where nobody types, so the menu never hears that press; and the
+        // menu heard once is one take back, not a second on top of the key's.
+        await throwTheFirstAway();
+        const list = screen.getByRole("listbox");
+
+        const leftAlone = pressUndo(list);
+        await chooseUndo();
+
+        expect(leftAlone).toBe(false);
+        expect(undoing).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("keeps the key from the system where nothing has been put away, and asks nothing", async () => {
+      // Left to the system, the key undoes what was last typed into a field that no longer has the
+      // focus, the search box behind the list.
+      renderApp();
+      await screen.findByText("About m-1");
+
+      const leftAlone = pressUndo(window);
+      await settle();
+
+      expect(leftAlone).toBe(false);
+      expect(undoing).not.toHaveBeenCalled();
+    });
+
+    it("says emptying the trash cannot be undone, rather than bringing back what went before it", async () => {
+      emptying.mockResolvedValue(1);
+      tree.mockResolvedValue(
+        sidebar([{ ...ACCOUNT, folders: [INBOX, ARCHIVE, TRASH] }]),
+      );
+      window_.mockImplementation(async (request) => {
+        const folder =
+          request.scope.kind === "folder" ? request.scope.folderId : "1";
+        const rows =
+          folder === "3"
+            ? [row("t-1", "3")]
+            : [row("m-1", "1"), row("m-2", "1")];
+        return { rows, total: rows.length, viewEpoch: "1", notAnswering: [] };
+      });
+      await throwTheFirstAway();
+      // The corner is the notice's while it speaks, and the trash offers to be emptied only once it
+      // has finished: put back to unread, the message it is about takes it away.
+      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      fireEvent.click(screen.getByRole("button", { name: /^trash/i }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Empty the trash" }),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Delete them for good" }),
+      );
+      await waitFor(() => expect(emptying).toHaveBeenCalledWith("3"));
+
+      pressUndo(window);
+
+      expect(
+        await screen.findByText("Emptying the trash cannot be undone"),
+      ).toBeTruthy();
+      expect(undoing).not.toHaveBeenCalled();
+    });
   });
 });

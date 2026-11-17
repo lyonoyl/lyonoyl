@@ -132,7 +132,7 @@ export function MessageList({
   /** Bumped by the caller when the index changed, which is when this reads what it holds again. */
   generation?: number;
   /**
-   * Told when a message was thrown away from here, in the same words the reader uses.
+   * Told when a message was thrown away or filed from here, in the same words the reader uses.
    *
    * What comes back through `filed` is what closes the list up over it, so a message thrown away
    * by a key and one thrown away by a button leave in exactly the same way.
@@ -140,7 +140,7 @@ export function MessageList({
   onFiled?: (filed: {
     messageId: string;
     folderId: FolderIdDto;
-    what: "deleted" | "read";
+    what: "archived" | "deleted" | "read";
   }) => void;
   /**
    * Where the person left this mailbox, read once when the list appears: the message they had open
@@ -255,7 +255,7 @@ export function MessageList({
   const archive = useCallback(
     (messageId: string, folderId: FolderIdDto) => {
       archiveMessage(messageId, folderId)
-        .then(() => onFiled?.({ messageId, folderId, what: "deleted" }))
+        .then(() => onFiled?.({ messageId, folderId, what: "archived" }))
         .catch(() => {
           /* Said on the row by the next window, the same way a refused deletion is. */
         });

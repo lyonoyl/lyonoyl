@@ -386,6 +386,7 @@ impl WorkspaceSync {
                     ("carried", Value::Count(u64::from(carried.carried_out))),
                     ("deferred", Value::Count(u64::from(carried.deferred))),
                     ("conflicted", Value::Count(u64::from(carried.conflicted))),
+                    ("letGo", Value::Count(u64::from(carried.let_go))),
                     ("relocated", Value::Count(u64::from(carried.relocated))),
                     (
                         "stoppedShort",

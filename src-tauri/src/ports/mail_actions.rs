@@ -34,6 +34,13 @@ pub enum ServerAction<'a> {
         uid: Uid,
         uid_validity: UidValidity,
         destination: &'a str,
+        /// For a move the server was told of before, the name the message carries in its
+        /// `Message-ID`. The earlier telling may have left its copy in the destination—its answer
+        /// lost, or the original refused after the copy—and the destination is asked for a message
+        /// of that name before a second copy is made. Nothing for a move told for the first time,
+        /// and for a message that carries no name, which is copied again: two copies are mail kept
+        /// twice, and an original removed beside no copy is mail lost.
+        earlier_copy_named: Option<&'a str>,
     },
     /// Mark and expunge: for an account with nowhere to keep deleted mail, and only ever when the
     /// person asked for that plainly.
@@ -51,9 +58,15 @@ pub enum MailActionError {
     #[error("the server could not be reached, or would not do it now")]
     NotNow,
     /// It cannot be done and asking again will not change that: the message is not there any more,
-    /// the mailbox is gone, the server refused outright.
+    /// the mailbox is gone, the server refused outright. Nothing of it was done.
     #[error("the server will not do it at all")]
     Refused,
+    /// Refused once part of it was done, and asking again will not change that: a move made as a
+    /// copy whose original the server would not then remove, which leaves the copy where it was
+    /// going; a message marked deleted that the server would not remove; or flags added beside
+    /// others the server would not then take away.
+    #[error("the server did part of it and refused the rest")]
+    RefusedPartWay,
     /// The mailbox states a different generation than the address was taken under, so nothing was
     /// done. Not the person's problem and not a refusal: the address is out of date, and the pass
     /// that reads the folder is what brings it up to date. Asking again after that works.

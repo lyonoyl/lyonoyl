@@ -13,15 +13,16 @@ vi.mock("@/shared/ipc/client", async () => {
   return {
     ...actual,
     howThingsAre: vi.fn(),
+    onMailAsked: vi.fn(),
     onMailChanged: vi.fn(),
     whatIsBeingRead: vi.fn(),
   };
 });
 
-const { howThingsAre, onMailChanged, whatIsBeingRead } = await import(
-  "@/shared/ipc/client"
-);
+const { howThingsAre, onMailAsked, onMailChanged, whatIsBeingRead } =
+  await import("@/shared/ipc/client");
 const asking = vi.mocked(howThingsAre);
+const askedOfTheQueue = vi.mocked(onMailAsked);
 const changed = vi.mocked(onMailChanged);
 const beingRead = vi.mocked(whatIsBeingRead);
 
@@ -47,6 +48,7 @@ function show(how: Partial<HowThingsAreDto> = {}, className?: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   changed.mockResolvedValue(() => {});
+  askedOfTheQueue.mockResolvedValue(() => {});
   beingRead.mockReset();
   beingRead.mockResolvedValue({ done: 0, asked: 0, through: 0, of: 0 });
 });
@@ -188,6 +190,23 @@ describe("ActivityLine", () => {
       return Promise.resolve(() => {});
     });
     show({ waiting: 1 });
+
+    await waitFor(() => expect(asking).toHaveBeenCalledTimes(1));
+    (announce as null | (() => void))?.();
+
+    await waitFor(() => expect(asking).toHaveBeenCalledTimes(2));
+  });
+
+  it("asks again when something was asked of the queue", async () => {
+    // A stopped change taken back from the line under the list leaves the queue at once, with no
+    // pass to announce it: left to the slow tick, the foot went on counting it after its row had
+    // lost it.
+    let announce: null | (() => void) = null;
+    askedOfTheQueue.mockImplementation((listener) => {
+      announce = () => listener({ accountId: "acc-1" });
+      return Promise.resolve(() => {});
+    });
+    show({ stopped: 1 });
 
     await waitFor(() => expect(asking).toHaveBeenCalledTimes(1));
     (announce as null | (() => void))?.();

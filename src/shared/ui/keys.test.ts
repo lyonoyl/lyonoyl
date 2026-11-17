@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { isPlainKey, mailChord, opensSettings, somebodyIsTyping } from "./keys";
+import {
+  isPlainKey,
+  mailChord,
+  opensSettings,
+  somebodyIsTyping,
+  takesBack,
+} from "./keys";
 
 describe("somebodyIsTyping", () => {
   function element(html: string): HTMLElement {
@@ -118,6 +124,52 @@ describe("opensSettings", () => {
     // Which is why it is answered before that guard rather than beside it: every other shortcut
     // here is a plain letter, and this one is the only one held with a command key.
     expect(isPlainKey(pressingComma({ metaKey: true }))).toBe(false);
+  });
+});
+
+describe("takesBack", () => {
+  const pressing = (
+    key: string,
+    code: string,
+    { meta = false, ctrl = false, shift = false, alt = false } = {},
+  ) => ({ key, code, metaKey: meta, ctrlKey: ctrl, shiftKey: shift, altKey: alt });
+
+  it("is Z held with the key the system uses for a command, Cmd and Ctrl alike", () => {
+    expect(takesBack(pressing("z", "KeyZ", { meta: true }))).toBe(true);
+    expect(takesBack(pressing("z", "KeyZ", { ctrl: true }))).toBe(true);
+  });
+
+  it("is not a Z somebody typed", () => {
+    expect(takesBack(pressing("z", "KeyZ"))).toBe(false);
+  });
+
+  it("is not Z with Shift, which goes the other way, nor with Option or Alt", () => {
+    expect(takesBack(pressing("z", "KeyZ", { meta: true, shift: true }))).toBe(false);
+    expect(takesBack(pressing("Z", "KeyZ", { ctrl: true, shift: true }))).toBe(false);
+    expect(takesBack(pressing("z", "KeyZ", { meta: true, alt: true }))).toBe(false);
+  });
+
+  it("is whichever key says Z on a keyboard that writes Latin letters", () => {
+    // A German keyboard has Z where an American one has Y, and a French one where it has W: the
+    // system undoes with the key that says Z, and on a French keyboard the key in Z's American
+    // place closes the window.
+    expect(takesBack(pressing("z", "KeyY", { meta: true }))).toBe(true);
+    expect(takesBack(pressing("y", "KeyZ", { meta: true }))).toBe(false);
+    expect(takesBack(pressing("z", "KeyW", { meta: true }))).toBe(true);
+    expect(takesBack(pressing("w", "KeyZ", { meta: true }))).toBe(false);
+  });
+
+  it("is the key in Z's place on a keyboard that writes another script", () => {
+    // A Russian keyboard has no Z, and the system reads its keys by the places they have on an
+    // American one.
+    expect(takesBack(pressing("я", "KeyZ", { meta: true }))).toBe(true);
+    expect(takesBack(pressing("ч", "KeyX", { ctrl: true }))).toBe(false);
+  });
+
+  it("is not any other chord the window answers", () => {
+    expect(takesBack(pressing("r", "KeyR", { meta: true }))).toBe(false);
+    expect(takesBack(pressing(",", "Comma", { meta: true }))).toBe(false);
+    expect(mailChord(pressing("z", "KeyZ", { meta: true }))).toBeNull();
   });
 });
 

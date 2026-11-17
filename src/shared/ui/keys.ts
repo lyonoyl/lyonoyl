@@ -78,6 +78,34 @@ export function mailChord(event: {
 }
 
 /**
+ * Whether this keystroke asks for the last message put away back: `Cmd+Z` on macOS and `Ctrl+Z` on
+ * Windows and Linux, the key every application on each of them undoes with. Not with Shift, which
+ * goes the other way, and not with Option or Alt.
+ *
+ * The letter the layout writes on the key, where it writes Latin letters, and the key's place only
+ * where it writes another script. Z changes places with Y on a German keyboard and with W on a
+ * French one, and the system undoes with whichever key says Z there: read by its place, the key
+ * would be the one a French keyboard closes the window with. A Russian keyboard has no Z, and the
+ * system reads its keys by the places they have on an American one, as `opensSettings` does.
+ */
+export function takesBack(event: {
+  key: string;
+  code: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+}): boolean {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) {
+    return false;
+  }
+
+  return /^[a-z]$/i.test(event.key)
+    ? event.key.toLowerCase() === "z"
+    : event.code === "KeyZ";
+}
+
+/**
  * Whether this keystroke is the one that opens the settings.
  *
  * `Cmd+,` on macOS and `Ctrl+,` on Windows and Linux — the same place in every application on

@@ -188,10 +188,12 @@ export function deleteMessage(
 }
 
 /**
- * Takes back what was just asked for, while the server has not heard about it.
+ * Takes back the last filing of a message — the move, or the delete.
  *
- * Answers whether there was anything to take back: something already carried out is undone by
- * asking for the opposite instead.
+ * Answers whether the message is coming back: the filing was still waiting or stopped before the
+ * server heard of it, and is gone, or the server had carried it out, and a way back is asked for.
+ * `false` when nothing can be done: deleted for good, forgotten, no longer where it was asked about,
+ * or stopped after the server was told of it.
  */
 export function undoAction(
   messageId: string,
@@ -572,11 +574,20 @@ export function setNotificationWords(newMail: string): Promise<void> {
 }
 
 /**
- * Hands over the word the application menu's settings item says, in the language this window is
- * showing. Until it has been, the menu has no such item: Rust holds no interface text.
+ * Hands over the words the menu bar's own items say, in the language this window is showing: the
+ * settings item, and the Edit menu's Undo. Until they have been, the menu has no settings item and
+ * keeps the Undo it started with: Rust holds no interface text.
  */
-export function setMenuWords(settings: string): Promise<void> {
-  return invoke("set_menu_words", { settings });
+export function setMenuWords(settings: string, undo: string): Promise<void> {
+  return invoke("set_menu_words", { settings, undo });
+}
+
+/**
+ * Says whether choosing the menu bar's Undo does anything now, so that it is greyed out when it
+ * would not.
+ */
+export function setMenuUndoOffered(offered: boolean): Promise<void> {
+  return invoke("set_menu_undo_offered", { offered });
 }
 
 /**
@@ -585,6 +596,14 @@ export function setMenuWords(settings: string): Promise<void> {
  */
 export function onOpenSettings(handle: () => void): Promise<() => void> {
   return listen("settings:open", () => handle());
+}
+
+/**
+ * Called when the Edit menu's Undo is chosen: with the pointer, or by the key wherever the window
+ * left the key to the menu. Answers with a function that stops listening.
+ */
+export function onUndoAsked(handle: () => void): Promise<() => void> {
+  return listen("undo:asked", () => handle());
 }
 
 /**

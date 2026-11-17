@@ -13,6 +13,7 @@ pub mod html;
 pub mod http;
 pub mod imap;
 pub mod journal;
+pub mod menu_bar;
 pub mod net;
 pub mod notification;
 /// Unix only: Windows sets a process no limit of this kind.

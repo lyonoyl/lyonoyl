@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useI18n, type Translator } from "@/shared/i18n";
 import {
   howThingsAre,
+  onMailAsked,
   onMailChanged,
   whatIsBeingRead,
 } from "@/shared/ipc/client";
@@ -155,12 +156,25 @@ export function ActivityLine({
       })
       .catch(() => {});
 
+    // And when something was asked of the queue, which can change what is counted here with no
+    // pass changing anything: a stopped change taken back from the line under the list leaves the
+    // queue the moment it is taken, and left to the slow tick the foot went on counting it for up
+    // to half a minute after its row had lost it.
+    let stopAsked: (() => void) | null = null;
+    onMailAsked(ask)
+      .then((unlisten) => {
+        if (active) stopAsked = unlisten;
+        else unlisten();
+      })
+      .catch(() => {});
+
     return () => {
       active = false;
       document.removeEventListener("visibilitychange", whenSeen);
       window.clearInterval(ticking);
       if (watching !== null) window.clearInterval(watching);
       stop?.();
+      stopAsked?.();
       if (stop === null) {
         /* The listener may still be on its way; the flag above stops it doing anything. */
       }
