@@ -1558,6 +1558,13 @@ pub fn ring_when_there_is_something_to_say(
 
     let app = app.clone();
     let product = app.config().product_name.clone().unwrap_or_default();
+    // A button pressed on a notice is carried out as the window's own buttons are.
+    let answered: crate::infrastructure::notification::Answered = {
+        let app = app.clone();
+        std::sync::Arc::new(move |message, into| {
+            crate::commands::act::put_away_from_a_notice(&app, message, into);
+        })
+    };
 
     std::thread::spawn(move || loop {
         // A second is short enough that a wave closes when it should and long enough that this is
@@ -1574,7 +1581,7 @@ pub fn ring_when_there_is_something_to_say(
 
         // Nothing is said until the window has handed over the words. Rust writing its own prose
         // is forbidden outright, and English in a Russian interface would be worse than silence.
-        let Some(sentence) = state.words.for_new_mail() else {
+        let Some(words) = state.words.for_notices() else {
             continue;
         };
 
@@ -1586,11 +1593,11 @@ pub fn ring_when_there_is_something_to_say(
         let _ = AnnounceMail::new(
             SqlitePreferencesRepository::new(profile),
             state.attention.clone(),
-            SystemNotifier::new(app.clone()),
+            SystemNotifier::new(app.clone(), std::sync::Arc::clone(&answered)),
             crate::infrastructure::sqlite::arrivals::SqliteArrivals::spanning(indexes),
             product.clone(),
         )
-        .execute(unseen, &sentence);
+        .execute(unseen, &words);
     });
 }
 

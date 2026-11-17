@@ -3,6 +3,8 @@ use std::sync::Mutex;
 
 use super::*;
 use crate::ports::settings_repository::SettingsError;
+use lyonoyl_domain::message::{FolderId, MessageId};
+use lyonoyl_domain::operation::OperationTarget;
 use lyonoyl_domain::preferences::Preferences;
 
 struct Settings {
@@ -79,15 +81,50 @@ impl Arrivals for &Waiting {
     }
 }
 
+/// The message every arrival here is, in the inbox it arrived in.
+fn the_message() -> OperationTarget {
+    OperationTarget::new(
+        MessageId::new(7).expect("an identifier"),
+        FolderId::new(1).expect("a folder"),
+    )
+}
+
+/// A message that arrived in an account with a trash and a junk folder, as most do.
 fn from_somebody(sender: &str, subject: &str, preview: &str) -> Waiting {
     Waiting {
         arrived: Some(Arrived {
             sender: Some(sender.to_owned()),
             subject: Some(subject.to_owned()),
             preview: Some(preview.to_owned()),
+            at: Some(the_message()),
+            has_trash: true,
+            has_junk: true,
         }),
         ..Waiting::default()
     }
+}
+
+/// What the interface handed over, in English.
+fn words() -> NoticeWords {
+    NoticeWords {
+        new_mail: "New mail".to_owned(),
+        into_trash: "Move to trash".to_owned(),
+        into_junk: "Move to junk".to_owned(),
+    }
+}
+
+/// The buttons a notice carried, as where each puts the message and what it says.
+fn buttons(said: &Notice) -> Option<(OperationTarget, Vec<(PutInto, String)>)> {
+    said.offers.as_ref().map(|offers| {
+        (
+            offers.about,
+            offers
+                .each
+                .iter()
+                .map(|offer| (offer.into, offer.said.clone()))
+                .collect(),
+        )
+    })
 }
 
 fn deciding(
@@ -129,7 +166,7 @@ fn announcing(
         waiting,
         "Lyonoyl Mail",
     )
-    .execute(unseen, "New mail")
+    .execute(unseen, &words())
 }
 
 /// What a notice said, where exactly one was shown.
@@ -308,6 +345,7 @@ fn a_message_that_named_nobody_is_headed_by_the_product() {
             sender: None,
             subject: Some("Lunch on Friday?".to_owned()),
             preview: None,
+            ..Arrived::default()
         }),
         ..Waiting::default()
     };
@@ -492,5 +530,166 @@ fn a_system_that_refuses_says_so_rather_than_pretending() {
     assert_eq!(
         deciding(5, false, NewMailNotice::Inbox, true, &shown),
         Err(NotifyError::Refused)
+    );
+}
+
+#[test]
+fn a_notice_naming_a_message_offers_to_put_that_message_away() {
+    // A notice stands for every message of a wave and names the newest. Its buttons act on the one
+    // it names, so the message they carry is that one, and they say what the window's own buttons
+    // say, in the person's language rather than the core's.
+    let shown = Shown::default();
+    let waiting = from_somebody("Zeta Quorin", "Lunch on Friday?", "Are you free at one");
+
+    announcing(
+        3,
+        false,
+        NewMailNotice::Inbox,
+        NoticeShows::default(),
+        true,
+        &shown,
+        &waiting,
+    )
+    .expect("shown")
+    .expect("said");
+
+    assert_eq!(
+        buttons(&the_one(&shown)),
+        Some((
+            the_message(),
+            vec![
+                (PutInto::Trash, "Move to trash".to_owned()),
+                (PutInto::Junk, "Move to junk".to_owned()),
+            ]
+        ))
+    );
+}
+
+#[test]
+fn a_place_the_account_does_not_keep_is_not_offered() {
+    // A button whose press could only stop is not offered: a delete with nowhere to keep the
+    // message stops rather than happening, and a move needs somewhere to go.
+    for (has_trash, has_junk, offered) in [
+        (true, false, vec![PutInto::Trash]),
+        (false, true, vec![PutInto::Junk]),
+        (false, false, vec![]),
+    ] {
+        let shown = Shown::default();
+        let mut waiting = from_somebody("Zeta Quorin", "Lunch on Friday?", "Are you free at one");
+        if let Some(arrived) = waiting.arrived.as_mut() {
+            arrived.has_trash = has_trash;
+            arrived.has_junk = has_junk;
+        }
+
+        announcing(
+            1,
+            false,
+            NewMailNotice::Inbox,
+            NoticeShows::default(),
+            true,
+            &shown,
+            &waiting,
+        )
+        .expect("shown")
+        .expect("said");
+
+        let said = the_one(&shown);
+        let carried: Vec<PutInto> = said
+            .offers
+            .iter()
+            .flat_map(|offers| offers.each.iter().map(|offer| offer.into))
+            .collect();
+        assert_eq!(carried, offered, "trash {has_trash}, junk {has_junk}");
+        // Nothing to offer is no offers at all, never an empty row of buttons.
+        assert_eq!(said.offers.is_some(), !offered.is_empty());
+    }
+}
+
+#[test]
+fn a_notice_that_shows_nothing_of_the_message_offers_nothing_to_do_with_it() {
+    // Somebody throws away what they can see. A notice saying only that mail arrived would put
+    // away a message nobody was shown — every part turned off, a message that gave nothing legible,
+    // or one whose numbers would not read.
+    let nothing = NoticeShows {
+        sender: false,
+        subject: false,
+        preview: false,
+    };
+    let illegible = Waiting {
+        arrived: Some(Arrived {
+            sender: Some("\u{202E}\u{0007}".to_owned()),
+            subject: Some("   ".to_owned()),
+            preview: None,
+            at: Some(the_message()),
+            has_trash: true,
+            has_junk: true,
+        }),
+        ..Waiting::default()
+    };
+    let unnamed = Waiting {
+        arrived: Some(Arrived {
+            at: None,
+            ..from_somebody("Zeta Quorin", "Lunch on Friday?", "Are you free at one")
+                .arrived
+                .expect("an arrival")
+        }),
+        ..Waiting::default()
+    };
+
+    for (shows, waiting, case) in [
+        (
+            nothing,
+            from_somebody("Zeta Quorin", "Lunch on Friday?", "Are you free at one"),
+            "every part off",
+        ),
+        (NoticeShows::default(), illegible, "nothing legible"),
+        (NoticeShows::default(), unnamed, "no identifier"),
+    ] {
+        let shown = Shown::default();
+
+        announcing(
+            1,
+            false,
+            NewMailNotice::Inbox,
+            shows,
+            true,
+            &shown,
+            &waiting,
+        )
+        .expect("shown")
+        .expect("said");
+
+        assert_eq!(the_one(&shown).offers, None, "{case}");
+    }
+}
+
+#[test]
+fn a_notice_showing_only_how_a_message_opens_still_offers_to_put_it_away() {
+    // The opening alone is the message on the screen, which is all a person needs to know what
+    // they are throwing away.
+    let shown = Shown::default();
+    let waiting = from_somebody("Zeta Quorin", "Lunch on Friday?", "Are you free at one");
+
+    announcing(
+        1,
+        false,
+        NewMailNotice::Inbox,
+        NoticeShows {
+            sender: false,
+            subject: false,
+            preview: true,
+        },
+        true,
+        &shown,
+        &waiting,
+    )
+    .expect("shown")
+    .expect("said");
+
+    let said = the_one(&shown);
+    assert_eq!(said.title, "Lyonoyl Mail");
+    assert_eq!(
+        buttons(&said).map(|(about, each)| (about, each.len())),
+        Some((the_message(), 2))
     );
 }

@@ -712,7 +712,8 @@ export function MessageList({
       return;
     }
 
-    const at = positionOf(filed.messageId);
+    // Its copy in the folder it was filed from: the same message in another folder has not moved.
+    const at = positionOf(filed.messageId, filed.folderId);
     if (at === null) {
       // No loaded page holds it, so there is no position to close up over. The row leaves when the
       // server has answered and the list reads itself again, which is the wait this spares. A

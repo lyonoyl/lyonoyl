@@ -301,6 +301,11 @@ pub fn run() {
 
             bootstrap::ring_when_there_is_something_to_say(app.handle(), bell.clone());
 
+            // What a run that did not end cleanly left with the system: nothing in this run can
+            // answer those notices' buttons. The system keeps each application's notices apart, so
+            // the build made for screenshots, under an identifier of its own, touches only its own.
+            infrastructure::notification::clear_what_an_earlier_run_left();
+
             // The menu's own items, once the window has named them: the settings item, which the
             // window opens the way its own keys do, and Undo, which the window answers as it
             // answers the key — while it is the window in front. With the About panel in front, or
@@ -415,6 +420,9 @@ pub fn run() {
             if is_the_end(&event) {
                 keep_what_is_being_written(app);
                 bootstrap::window::flush(app);
+                // After what somebody typed and where the window was, which cost more to lose than a
+                // notice left behind.
+                infrastructure::notification::take_away_what_was_shown();
                 infrastructure::journal::flush();
             }
         });

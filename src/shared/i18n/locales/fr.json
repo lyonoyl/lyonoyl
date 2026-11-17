@@ -278,6 +278,8 @@
   "list.unknownSender": "Expéditeur inconnu",
   "menu.settings": "Réglages…",
   "menu.undo": "Annuler",
+  "notify.intoJunk": "Placer dans les indésirables",
+  "notify.intoTrash": "Placer dans la corbeille",
   "notify.newMail": "Nouveau courrier",
   "onboarding.back": "Retour",
   "onboarding.continueUnsaved": "Continuer sans enregistrer",

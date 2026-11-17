@@ -269,6 +269,8 @@
   "list.unknownSender": "Unknown sender",
   "menu.settings": "Settings…",
   "menu.undo": "Undo",
+  "notify.intoJunk": "Move to junk",
+  "notify.intoTrash": "Move to trash",
   "notify.newMail": "New mail",
   "onboarding.back": "Back",
   "onboarding.continueUnsaved": "Continue without saving",

@@ -1,9 +1,28 @@
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Filed } from "@/features/message-list/FilingNotice";
+import type { PutAwayFromANotice } from "@/shared/ipc/generated/PutAwayFromANotice";
 
 import { useFiling } from "./useFiling";
+
+vi.mock("@/shared/ipc/client", () => ({ onPutAwayFromANotice: vi.fn() }));
+
+const client = await import("@/shared/ipc/client");
+const notices = vi.mocked(client.onPutAwayFromANotice);
+
+/** What the core says of a message put away with a notification's button, once it is listened for. */
+let heard: (put: PutAwayFromANotice) => void = () => {};
+const stopped = vi.fn();
+
+beforeEach(() => {
+  stopped.mockReset();
+  notices.mockReset();
+  notices.mockImplementation(async (handle) => {
+    heard = handle;
+    return stopped;
+  });
+});
 
 const DELETED: Filed = { messageId: "7", folderId: "1", what: "deleted" };
 
@@ -104,5 +123,45 @@ describe("useFiling", () => {
 
     expect(generation).toHaveBeenCalledTimes(1);
     expect(result.current.told).toEqual({ messageId: "7", state: "back" });
+  });
+
+  it("holds a message put away with a notification's button as one filed here, for the key", async () => {
+    const { result } = renderHook(() => useFiling(vi.fn()));
+    await act(async () => {});
+
+    act(() => heard({ messageId: "9", folderId: "1", what: "deleted" }));
+
+    const filed: Filed = { messageId: "9", folderId: "1", what: "deleted" };
+    expect(result.current.filed).toEqual(filed);
+    expect(result.current.notice).toEqual(filed);
+    // With its folder: the window may be showing the same message in another, where it has not moved.
+    expect(result.current.told).toEqual({
+      messageId: "9",
+      state: "gone",
+      folderId: "1",
+    });
+    expect(result.current.canTakeBack).toBe(true);
+
+    const asked = result.current.takeBackAsked;
+    act(() => result.current.takeBackByKey());
+    expect(result.current.takeBackAsked).toBe(asked + 1);
+  });
+
+  it("stops listening once the window has gone, and when it went while the listening was set up", async () => {
+    const gone = renderHook(() => useFiling(vi.fn()));
+    await act(async () => {});
+    gone.unmount();
+    expect(stopped).toHaveBeenCalledTimes(1);
+
+    // The answer arriving after the window went: let go of at once rather than kept for ever.
+    let answer: (stop: () => void) => void = () => {};
+    notices.mockImplementation(
+      () => new Promise<() => void>((resolve) => (answer = resolve)),
+    );
+    const early = renderHook(() => useFiling(vi.fn()));
+    early.unmount();
+    const late = vi.fn();
+    await act(async () => answer(late));
+    expect(late).toHaveBeenCalledTimes(1);
   });
 });

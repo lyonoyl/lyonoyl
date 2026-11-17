@@ -278,6 +278,8 @@
   "list.unknownSender": "Remetente desconhecido",
   "menu.settings": "Configurações…",
   "menu.undo": "Desfazer",
+  "notify.intoJunk": "Mover para o spam",
+  "notify.intoTrash": "Mover para a lixeira",
   "notify.newMail": "Novo e-mail",
   "onboarding.back": "Voltar",
   "onboarding.continueUnsaved": "Continuar sem salvar",

@@ -260,6 +260,8 @@
   "list.unknownSender": "Người gửi không xác định",
   "menu.settings": "Cài đặt…",
   "menu.undo": "Hoàn tác",
+  "notify.intoJunk": "Chuyển vào thư rác",
+  "notify.intoTrash": "Chuyển vào thùng rác",
   "notify.newMail": "Thư mới",
   "onboarding.back": "Quay lại",
   "onboarding.continueUnsaved": "Tiếp tục mà không lưu",

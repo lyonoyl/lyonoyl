@@ -269,6 +269,8 @@
   "list.unknownSender": "अज्ञात प्रेषक",
   "menu.settings": "सेटिंग…",
   "menu.undo": "पहले जैसा करें",
+  "notify.intoJunk": "स्पैम में ले जाएं",
+  "notify.intoTrash": "ट्रैश में ले जाएं",
   "notify.newMail": "नया मेल",
   "onboarding.back": "वापस जाएं",
   "onboarding.continueUnsaved": "बिना सहेजे आगे बढ़ें",

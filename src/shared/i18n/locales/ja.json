@@ -260,6 +260,8 @@
   "list.unknownSender": "差出人不明",
   "menu.settings": "設定…",
   "menu.undo": "取り消す",
+  "notify.intoJunk": "迷惑メールに移動",
+  "notify.intoTrash": "ゴミ箱に移動",
   "notify.newMail": "新着メール",
   "onboarding.back": "戻る",
   "onboarding.continueUnsaved": "保存せずに続ける",

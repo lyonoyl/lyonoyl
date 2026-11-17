@@ -269,6 +269,8 @@
   "list.unknownSender": "অজানা প্রেরক",
   "menu.settings": "সেটিংস…",
   "menu.undo": "পূর্বাবস্থায় ফেরান",
+  "notify.intoJunk": "স্প্যামে সরান",
+  "notify.intoTrash": "ট্র্যাশে সরান",
   "notify.newMail": "নতুন মেল",
   "onboarding.back": "ফিরে যান",
   "onboarding.continueUnsaved": "সংরক্ষণ না করেই চালিয়ে যান",

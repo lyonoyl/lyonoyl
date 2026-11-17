@@ -28,6 +28,7 @@ import { I18nProvider } from "@/shared/i18n";
 import type { AccountNodeDto } from "@/shared/ipc/generated/AccountNodeDto";
 import type { MailboxTreeDto } from "@/shared/ipc/generated/MailboxTreeDto";
 import type { MessageDetailsDto } from "@/shared/ipc/generated/MessageDetailsDto";
+import type { PutAwayFromANotice } from "@/shared/ipc/generated/PutAwayFromANotice";
 import App from "./App";
 
 vi.mock("@/shared/ipc/client", async () => {
@@ -47,6 +48,7 @@ vi.mock("@/shared/ipc/client", async () => {
     onMailChanged: vi.fn(),
     onOpenSettings: vi.fn(),
     onUndoAsked: vi.fn(),
+    onPutAwayFromANotice: vi.fn(),
     setMenuUndoOffered: vi.fn(),
     removeAccount: vi.fn(),
     onMailAsked: vi.fn(),
@@ -105,6 +107,7 @@ const window_ = vi.mocked(client.getViewWindow);
 const mailChanged = vi.mocked(client.onMailChanged);
 const menuOpens = vi.mocked(client.onOpenSettings);
 const menuUndoes = vi.mocked(client.onUndoAsked);
+const fromNotices = vi.mocked(client.onPutAwayFromANotice);
 const menuOffers = vi.mocked(client.setMenuUndoOffered);
 const mailAsked = vi.mocked(client.onMailAsked);
 const keyArrived = vi.mocked(client.onTheKeyArrived);
@@ -264,6 +267,8 @@ beforeEach(() => {
   menuOpens.mockResolvedValue(() => {});
   menuUndoes.mockReset();
   menuUndoes.mockResolvedValue(() => {});
+  fromNotices.mockReset();
+  fromNotices.mockResolvedValue(() => {});
   menuOffers.mockReset();
   menuOffers.mockResolvedValue(undefined);
   mailAsked.mockReset();
@@ -3434,6 +3439,52 @@ describe("reading, as the window does it", () => {
       await waitFor(() => expect(undoing).toHaveBeenCalledWith("m-1", "1"));
       expect(undoing).toHaveBeenCalledTimes(1);
       expect(marking).not.toHaveBeenCalled();
+    });
+
+    it("takes back a message a notification's button put away, as one put away here", async () => {
+      // Pressed with the window behind everything else: by the time somebody comes to the window
+      // and presses the key, the message has gone from the list like any other put away.
+      let heard: (put: PutAwayFromANotice) => void = () => {};
+      fromNotices.mockImplementation(async (handle) => {
+        heard = handle;
+        return () => {};
+      });
+      renderApp();
+      await screen.findByText("About m-1");
+      await waitFor(() => expect(fromNotices).toHaveBeenCalled());
+
+      act(() => heard({ messageId: "m-1", folderId: "1", what: "deleted" }));
+
+      await screen.findByText("Moved to the trash");
+      await waitFor(() => expect(screen.queryByText("About m-1")).toBeNull());
+      expect(deleting).not.toHaveBeenCalled();
+
+      pressUndo(screen.getByRole("listbox"));
+
+      await waitFor(() => expect(undoing).toHaveBeenCalledWith("m-1", "1"));
+      expect(await screen.findByText("About m-1")).toBeTruthy();
+    });
+
+    it("leaves a message open from another folder where it is when a notification's button files its inbox copy", async () => {
+      // One message can sit in two folders, and the button files the copy the notice named.
+      let heard: (put: PutAwayFromANotice) => void = () => {};
+      fromNotices.mockImplementation(async (handle) => {
+        heard = handle;
+        return () => {};
+      });
+      renderApp();
+      fireEvent.click(await screen.findByText("About m-1"));
+      await screen.findByRole("heading", { name: "About m-1" });
+      await waitFor(() => expect(fromNotices).toHaveBeenCalled());
+
+      act(() => heard({ messageId: "m-1", folderId: "2", what: "deleted" }));
+      await settle();
+      // Nothing slides out of the reader: the copy open here has not moved.
+      expect(document.querySelector("[data-leaving]")).toBeNull();
+      await act(() => new Promise((done) => setTimeout(done, 600)));
+
+      expect(screen.getByRole("heading", { name: "About m-1" })).toBeTruthy();
+      expect(screen.queryByRole("heading", { name: "About m-2" })).toBeNull();
     });
 
     it("says where the message went back to, which may be a folder nobody is looking at", async () => {

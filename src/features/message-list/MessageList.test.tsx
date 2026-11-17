@@ -20,6 +20,7 @@ import { useState } from "react";
 import { I18nProvider } from "@/shared/i18n";
 import type { ViewWindowDto } from "@/shared/ipc/generated/ViewWindowDto";
 import { MessageList } from "./MessageList";
+import { LEAVING_MS } from "./MessageRow";
 import { LIST_GUTTER, ROW_HEIGHT } from "./rows";
 import { PAGE_SIZE } from "./useMessageWindows";
 
@@ -1622,7 +1623,11 @@ describe("filing a message away", () => {
     windowFor.mockImplementation(async (request) => page(request.offset, rows));
     const opened = vi.fn();
 
-    let filed: { messageId: string; state: "gone" | "back" } | null = null;
+    let filed: {
+      messageId: string;
+      state: "gone" | "back";
+      folderId?: string;
+    } | null = null;
     let generation = 0;
     const view = render(
       <I18nProvider initial="en">
@@ -1646,8 +1651,8 @@ describe("filing a message away", () => {
         </I18nProvider>,
       );
 
-    const file = (messageId: string) => {
-      filed = { messageId, state: "gone" };
+    const file = (messageId: string, folderId?: string) => {
+      filed = { messageId, state: "gone", folderId };
       draw();
     };
 
@@ -1742,6 +1747,26 @@ describe("filing a message away", () => {
     expect(screen.queryByText("Subject 1")).toBeTruthy();
     await waitFor(() => expect(screen.queryByText("Subject 1")).toBeNull());
     expect(screen.queryByText("Subject 3")).toBeTruthy();
+  });
+
+  it("leaves the copy of a message that sits in another folder where it is", async () => {
+    // A notification's button files the copy in the inbox, whatever folder the window shows, and
+    // the same message can sit in this one as well.
+    const { opened, file } = renderFilable(4);
+    await settled();
+
+    goTo(1);
+    file("2", "2");
+    await act(() => new Promise((done) => setTimeout(done, LEAVING_MS * 2)));
+
+    expect(screen.queryByText("Subject 1")).toBeTruthy();
+    expect(
+      opened.mock.calls[opened.mock.calls.length - 1]?.[0]?.messageId,
+    ).toBe("2");
+
+    // Its copy here, filed, goes as any other does.
+    file("2", "1");
+    await waitFor(() => expect(screen.queryByText("Subject 1")).toBeNull());
   });
 
   it("leaves nothing open when the folder had one message and it has gone", async () => {

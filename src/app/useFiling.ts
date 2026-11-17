@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Filed, PutAway } from "@/features/message-list/FilingNotice";
+import { onPutAwayFromANotice } from "@/shared/ipc/client";
 import type { FolderIdDto } from "@/shared/ipc/generated/FolderIdDto";
 
 /** What the list is told about a message filed somewhere else in the window, as `filed`. */
@@ -38,8 +39,9 @@ export function useFiling(
   const [notice, setNotice] = useState<PutAway | null>(null);
   /**
    * What the key takes back, for as long as the window is open: the last message somebody filed
-   * away or threw out themselves, or the trash emptied after it. Not only while the notice shows,
-   * since the core can put a message back long after the notice has gone.
+   * away or threw out themselves, here or with a notification's button, or the trash emptied after
+   * it. Not only while the notice shows, since the core can put a message back long after the
+   * notice has gone.
    */
   const putAway = useRef<PutAway | null>(null);
   /** Whether that is a message the key would take back now, which greys the menu's Undo or not. */
@@ -98,6 +100,34 @@ export function useFiling(
     [setListGeneration],
   );
 
+  // A message put away with a notification's button is one filed here: the row goes, the line under
+  // the list says what became of it, and the key takes it back as it takes back the rest. Heard
+  // however the window is, since the button is pressed with the window behind everything else.
+  useEffect(() => {
+    let active = true;
+    let stop: (() => void) | null = null;
+
+    onPutAwayFromANotice((put) =>
+      filedAway({
+        messageId: put.messageId,
+        folderId: put.folderId,
+        what: put.what,
+      }),
+    )
+      .then((unlisten) => {
+        if (active) stop = unlisten;
+        else unlisten();
+      })
+      .catch(() => {
+        /* Without the bridge no notification puts anything away, so there is nothing to hear. */
+      });
+
+    return () => {
+      active = false;
+      stop?.();
+    };
+  }, [filedAway]);
+
   /**
    * Forgotten once the notice about it has gone from the screen.
    *
@@ -148,7 +178,11 @@ export function useFiling(
           // the row somebody is reading.
           filed === null || filed.what === "read"
           ? null
-          : { messageId: filed.messageId, state: "gone" };
+          : {
+              messageId: filed.messageId,
+              state: "gone",
+              folderId: filed.folderId,
+            };
 
   return {
     filed,

@@ -8,6 +8,8 @@
 use crate::infrastructure::sqlite::connection::SqlitePool;
 use crate::ports::arrivals::{Arrivals, Arrived};
 use lyonoyl_domain::folder::FolderRole;
+use lyonoyl_domain::message::{FolderId, MessageId};
+use lyonoyl_domain::operation::OperationTarget;
 
 /// Reads it out of every account's file and keeps the newest of the answers.
 ///
@@ -36,16 +38,24 @@ impl Arrivals for SqliteArrivals {
                 continue;
             };
 
+            // Where the account could put the message away is asked in the same statement, so the
+            // places a notice offers are the places this account had when the notice was raised.
             let found = connection.query_row(
                 &format!(
-                    "SELECT m.sender, m.subject, m.preview, p.received_at
+                    "SELECT m.sender, m.subject, m.preview, p.received_at, p.message_id, p.folder_id,
+                            EXISTS (SELECT 1 FROM folders o
+                                    WHERE o.account_id = f.account_id AND o.role = {trash}),
+                            EXISTS (SELECT 1 FROM folders o
+                                    WHERE o.account_id = f.account_id AND o.role = {junk})
                      FROM message_placements p
                      JOIN folders f ON f.id = p.folder_id
                      JOIN messages m ON m.id = p.message_id
-                     WHERE f.role = {} AND (p.flags & 1) = 0
+                     WHERE f.role = {inbox} AND (p.flags & 1) = 0
                      ORDER BY p.received_at DESC, p.uid DESC
                      LIMIT 1",
-                    FolderRole::Inbox.stored()
+                    inbox = FolderRole::Inbox.stored(),
+                    trash = FolderRole::Trash.stored(),
+                    junk = FolderRole::Junk.stored(),
                 ),
                 [],
                 |row| {
@@ -55,6 +65,9 @@ impl Arrivals for SqliteArrivals {
                             sender: row.get::<_, Option<String>>(0)?,
                             subject: row.get::<_, Option<String>>(1)?,
                             preview: row.get::<_, Option<String>>(2)?,
+                            at: target(row.get::<_, i64>(4)?, row.get::<_, i64>(5)?),
+                            has_trash: row.get::<_, bool>(6)?,
+                            has_junk: row.get::<_, bool>(7)?,
                         },
                     ))
                 },
@@ -73,6 +86,18 @@ impl Arrivals for SqliteArrivals {
 
         newest.map(|(_, arrived)| arrived)
     }
+}
+
+/// The message and its inbox as the domain names them, or nothing where either number is not one.
+fn target(message: i64, folder: i64) -> Option<OperationTarget> {
+    let message = u64::try_from(message)
+        .ok()
+        .and_then(|id| MessageId::new(id).ok())?;
+    let folder = u64::try_from(folder)
+        .ok()
+        .and_then(|id| FolderId::new(id).ok())?;
+
+    Some(OperationTarget::new(message, folder))
 }
 
 #[cfg(test)]
@@ -113,6 +138,18 @@ mod tests {
             }
 
             Self { dir, pool }
+        }
+
+        /// A folder kept for one kind of mail, beside the inbox and the archive.
+        fn keeps(&self, id: i64, name: &str, role: FolderRole) {
+            self.pool
+                .get()
+                .expect("connection")
+                .execute(
+                    "INSERT INTO folders (id, account_id, name, role) VALUES (?1, 1, ?2, ?3)",
+                    rusqlite::params![id, name, role.stored()],
+                )
+                .expect("a folder");
         }
 
         /// One message, in the folder named, read or not.
@@ -200,6 +237,65 @@ mod tests {
                 .expect("something arrived");
 
         assert_eq!(found.sender.as_deref(), Some("Sigma Ordrin"));
+    }
+
+    #[test]
+    fn the_message_a_notice_is_about_is_named_with_the_inbox_it_arrived_in() {
+        // What the notice's buttons act on: the newest of the two, in the inbox, and not the one
+        // filed away elsewhere.
+        let account = AnAccount::new("named");
+        account.holds(5, 1, 100, false, "Zeta Quorin", "older");
+        account.holds(6, 1, 200, false, "Kappa Vandel", "newer");
+        account.holds(9, 2, 300, false, "Sigma Ordrin", "filed away");
+
+        let found = SqliteArrivals::spanning(vec![(1, account.pool.clone())])
+            .newest_unseen()
+            .expect("something arrived");
+
+        assert_eq!(
+            found.at,
+            Some(OperationTarget::new(
+                MessageId::new(6).expect("an identifier"),
+                FolderId::new(1).expect("a folder"),
+            ))
+        );
+    }
+
+    #[test]
+    fn where_an_account_can_put_a_message_away_is_said_only_where_it_can() {
+        // An inbox and an archive alone: nowhere to throw anything, and no junk.
+        let plain = AnAccount::new("plain");
+        plain.holds(1, 1, 100, false, "Zeta Quorin", "arrived");
+
+        let found = SqliteArrivals::spanning(vec![(1, plain.pool.clone())])
+            .newest_unseen()
+            .expect("something arrived");
+        assert_eq!((found.has_trash, found.has_junk), (false, false));
+
+        // Each place counted by itself, so neither can stand in for the other.
+        for (role, trash, junk) in [
+            (FolderRole::Trash, true, false),
+            (FolderRole::Junk, false, true),
+        ] {
+            let account = AnAccount::new(&format!("{role:?}"));
+            account.keeps(3, "Somewhere", role);
+            account.holds(1, 1, 100, false, "Zeta Quorin", "arrived");
+
+            let found = SqliteArrivals::spanning(vec![(1, account.pool.clone())])
+                .newest_unseen()
+                .expect("something arrived");
+            assert_eq!((found.has_trash, found.has_junk), (trash, junk), "{role:?}");
+        }
+    }
+
+    #[test]
+    fn numbers_that_are_not_identifiers_name_no_message() {
+        // Zero is no message and no folder, and a negative number is not one either: the notice
+        // still says that mail arrived, and offers nothing to do with it.
+        assert_eq!(target(0, 1), None);
+        assert_eq!(target(1, 0), None);
+        assert_eq!(target(-1, 1), None);
+        assert!(target(1, 1).is_some());
     }
 
     #[test]

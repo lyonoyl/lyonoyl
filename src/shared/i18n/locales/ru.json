@@ -287,6 +287,8 @@
   "list.unknownSender": "Неизвестный отправитель",
   "menu.settings": "Настройки…",
   "menu.undo": "Отменить",
+  "notify.intoJunk": "В спам",
+  "notify.intoTrash": "В корзину",
   "notify.newMail": "Новая почта",
   "onboarding.back": "Назад",
   "onboarding.continueUnsaved": "Продолжить без сохранения",

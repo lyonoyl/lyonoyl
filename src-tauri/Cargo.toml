@@ -122,7 +122,9 @@ rfd = "0.17.2"
 tauri-plugin-single-instance = "2.4.3"
 # Telling the system that mail arrived. The only way to raise a desktop notification on all three
 # systems from one call; the alternative is three platform crates and their differences handled here.
-# It carries two strings this project wrote and can carry nothing else — see ports/notifier.rs.
+# It carries two strings this project wrote and can carry nothing else — see ports/notifier.rs. A
+# built copy on macOS shows through the system's notification centre instead, below, which is what
+# takes buttons; this stays for Windows, Linux, and a run outside a bundle.
 tauri-plugin-notification = { version = "2.4", default-features = false }
 # The languages a person set on their system, in their order, read the same way on all three. The
 # web view reports the first and nothing after it, so a person whose first language has no
@@ -161,6 +163,14 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSImage",
     "NSResponder",
 ] }
+# A notification's buttons, and hearing which one somebody pressed. The plugin above draws text
+# alone on the desktop; the system's notification centre takes buttons as categories of actions
+# and answers through a delegate, an Objective-C class that is `unsafe` to write and forbidden here,
+# so it takes this safe wrapper of it, MIT or Apache-2.0, by the author of the plugin's own desktop
+# library. What it stands on was in the lock already through Tauri, but for itself and
+# `futures-timer`; it compiles two framework crates the application did not compile before, the
+# notification centre's own and CoreLocation's, which the first names for its location triggers.
+mac-usernotifications = { version = "0.3.1", default-features = false }
 
 # The number of files the process may hold open, raised before anything opens one: a launch from
 # Finder starts with 256, which the databases, the connections to servers and the system's own

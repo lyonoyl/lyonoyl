@@ -260,6 +260,8 @@
   "list.unknownSender": "알 수 없는 발신자",
   "menu.settings": "설정…",
   "menu.undo": "실행 취소",
+  "notify.intoJunk": "스팸함으로 이동",
+  "notify.intoTrash": "휴지통으로 이동",
   "notify.newMail": "새 메일",
   "onboarding.back": "뒤로",
   "onboarding.continueUnsaved": "저장하지 않고 계속",

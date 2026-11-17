@@ -41,6 +41,7 @@ import type { LanguageDto } from "./generated/LanguageDto";
 import type { PaneDto } from "./generated/PaneDto";
 import type { PaneWidthsDto } from "./generated/PaneWidthsDto";
 import type { PreferencesDto } from "./generated/PreferencesDto";
+import type { PutAwayFromANotice } from "./generated/PutAwayFromANotice";
 import type { SecretStoreStateDto } from "./generated/SecretStoreStateDto";
 import type { BodyFormDto } from "./generated/BodyFormDto";
 import type { LinkAsked } from "./generated/LinkAsked";
@@ -563,14 +564,31 @@ export function serversHere(
 }
 
 /**
- * Hands over the sentence a notification says, in the language this window is showing.
+ * Hands over what a notification says by itself, in the language this window is showing: the
+ * sentence for when it may say nothing about the message, and its two buttons.
  *
  * Rust holds no interface text — every string lives in one catalogue — but a notification is
- * raised at a moment this window may be asleep. So it is handed over once, and again whenever the
- * language changes.
+ * raised at a moment this window may be asleep. So they are handed over once, and again whenever
+ * the language changes.
  */
-export function setNotificationWords(newMail: string): Promise<void> {
-  return invoke("set_notification_words", { newMail });
+export function setNotificationWords(
+  newMail: string,
+  intoTrash: string,
+  intoJunk: string,
+): Promise<void> {
+  return invoke("set_notification_words", { newMail, intoTrash, intoJunk });
+}
+
+/**
+ * Called when somebody put a message away with a notification's button, which the window then
+ * holds as a message it filed itself. Answers with a function that stops listening.
+ */
+export function onPutAwayFromANotice(
+  handle: (put: PutAwayFromANotice) => void,
+): Promise<() => void> {
+  return listen<PutAwayFromANotice>("notice:put-away", (event) =>
+    handle(event.payload),
+  );
 }
 
 /**

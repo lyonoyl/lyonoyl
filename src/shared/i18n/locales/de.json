@@ -269,6 +269,8 @@
   "list.unknownSender": "Unbekannter Absender",
   "menu.settings": "Einstellungen …",
   "menu.undo": "Widerrufen",
+  "notify.intoJunk": "In den Spam-Ordner verschieben",
+  "notify.intoTrash": "In den Papierkorb verschieben",
   "notify.newMail": "Neue E-Mail",
   "onboarding.back": "Zurück",
   "onboarding.continueUnsaved": "Ohne Speichern fortfahren",
