@@ -175,11 +175,11 @@ So on macOS the store is `security-framework` directly rather than `keyring`. A 
 | Run from | `SecKeychainAddGenericPassword` |
 | --- | --- |
 | `target/debug/`—where the application is | 18 ms |
-| `target/debug/deps/`—where test binaries are | 30 s |
+| `target/debug/deps/` | 30 s |
 
 `deps` held 672,356 files. Identifying an executable by its path means the system looking at the directory holding it, and in one that size it takes half a minute. Nothing about the signature, the certificate, or the item's access list is involved: strip the signature and it is still 30 s there and 18 ms one level up.
 
-**So a keychain measurement taken from `cargo test` is not a measurement of this application.** From where the application actually runs, taking a handle costs 45 µs, finding an item 3.7 ms and writing one 18 ms. The `#[ignore]`d tests that reach the real store are still worth having, and what they say about *time* has to be read knowing where they ran from.
+**So a keychain measurement is a measurement of where the binary ran from.** Test binaries sit in a directory of their own, `target/debug/build/<package>/<hash>/out/`, and nothing has been timed from there. From where the application actually runs, taking a handle costs 45 µs, finding an item 3.7 ms and writing one 18 ms. The `#[ignore]`d tests that reach the real store are still worth having, and what they say about *time* has to be read knowing where they ran from.
 
 **A dialog nobody sees does not stop the mail.** It can be behind another window or on another desktop, and a read that waits for it waits forever: the synchronization round stops, every account with it, and nothing on screen explains why. So a read gives the store twenty seconds and then treats it as unavailable—long enough for someone who sees the dialog to answer, short enough that one they do not see costs a round rather than the day. Storing a secret has no such limit: that happens because a person asked for it, and they are there.
 

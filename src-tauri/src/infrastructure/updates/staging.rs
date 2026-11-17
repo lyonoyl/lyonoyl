@@ -742,7 +742,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn a_build_running_outside_a_bundle_is_not_one_to_replace() {
-        // The test binary is in `target/debug/deps`, which is exactly that case.
+        // The test binary is in `target`, outside any bundle, which is exactly that case.
         assert_eq!(
             the_bundle_this_is_running_from(),
             Err(UpdateError::NotOursToReplace)

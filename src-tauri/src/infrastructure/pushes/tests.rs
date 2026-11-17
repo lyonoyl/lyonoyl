@@ -61,7 +61,7 @@ impl AccountPush for Counting {
         self.read_backs.fetch_add(1, Ordering::SeqCst);
         let let_go = self
             .letting_go
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
                 left.checked_sub(1)
             })
             .is_ok();
