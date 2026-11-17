@@ -15,6 +15,11 @@ pub trait Badge: Send + Sync {
 pub enum BadgeError {
     /// The system would not draw it, or does not draw one at all. Nothing follows: an icon without
     /// a number is what this application looked like before there was one.
+    ///
+    /// Raised by the one call macOS and Linux draw the number with. Windows draws no number, so
+    /// nothing there raises it, and the lint that refuses a variant nobody builds is allowed there
+    /// and only there.
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     #[error("the system did not draw the badge")]
     Refused,
 }

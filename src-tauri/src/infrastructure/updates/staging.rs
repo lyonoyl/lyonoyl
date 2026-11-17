@@ -18,7 +18,9 @@
 //! a manifest, not a path from a setting — `current_exe`, walked up to the bundle it sits in. A
 //! path that came from outside is a path an attacker chooses.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
 
 use super::what_it_keeps;
 use crate::ports::updates::{Offered, Staged, Token, UpdateError};
@@ -750,6 +752,7 @@ mod tests {
     }
 
     /// Somewhere of its own for one test, empty.
+    #[cfg(target_os = "macos")]
     fn a_place(name: &str) -> PathBuf {
         let at =
             std::env::temp_dir().join(format!("lyonoyl-staging-{name}-{}", std::process::id()));
