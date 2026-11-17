@@ -5,7 +5,8 @@ import { setMenuWords, setNotificationWords } from "@/shared/ipc/client";
 
 /**
  * Hands over the words the core shows by itself, in the language this window is showing: what a
- * notification says, and what the menu bar's settings item and its Undo say.
+ * notification says and what its buttons say, and what the menu bar's settings item and its Undo
+ * say.
  *
  * Renders nothing. It exists because both are drawn by the system on the core's behalf — a
  * notification at a moment this window may be asleep, a menu that belongs to the system — and Rust
@@ -21,7 +22,11 @@ export function NativeWords() {
   const { t, language } = useI18n();
 
   useEffect(() => {
-    void setNotificationWords(t("notify.newMail")).catch(() => {
+    void setNotificationWords(
+      t("notify.newMail"),
+      t("notify.intoTrash"),
+      t("notify.intoJunk"),
+    ).catch(() => {
       /* Nothing to say about it here. The core simply stays silent, which is the safe answer. */
     });
     void setMenuWords(t("menu.settings"), t("menu.undo")).catch(() => {

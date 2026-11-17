@@ -4,15 +4,21 @@
 //! same message in two folders is acting on the copy in front of them. No position in a mailbox
 //! crosses here, and none is written down: where the message actually sits is looked up when the
 //! server is finally told.
+//!
+//! The window is one way in and a notification's button is the other: the same instructions, put
+//! in the same queue, by the same few lines.
 
 use tauri::State;
 
 use crate::application::act_on_mail::ActOnMail;
 use crate::application::error::UseCaseError;
+use crate::application::put_away::{PutAway, PutAwayOutcome};
 use crate::application::take_back::{TakeBack, TakenBack};
 use crate::bootstrap::adapters;
 use crate::commands::error::{CommandError, ErrorCode};
+use crate::commands::list::FolderIdDto;
 use crate::commands::now::asked_for;
+use crate::ports::notifier::PutInto;
 use crate::ports::op_log::OperationLog;
 use crate::read_model::mailboxes::MailboxReadModel;
 use crate::AppState;
@@ -335,8 +341,112 @@ pub async fn try_action_again(
     .and_then(|account| account.map(|account_id| asked_for(&app, &state, &account_id)))
 }
 
-/// The account a folder belongs to, or a refusal naming what is missing.
-/// What the account a folder belongs to is called.
+/// What the window hears a message put away from a notification on.
+pub const PUT_AWAY_FROM_A_NOTICE: &str = "notice:put-away";
+
+/// A message somebody put away from a notification, which the window then holds as a message it
+/// filed itself: the row goes from the list, the line under the list says what became of it, and
+/// the key takes it back.
+#[derive(Clone, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/shared/ipc/generated/")]
+pub struct PutAwayFromANotice {
+    pub message_id: String,
+    /// The inbox it was in, which is where the key puts it back.
+    pub folder_id: FolderIdDto,
+    pub what: FiledAs,
+}
+
+/// What became of it, in the window's own words for a message it filed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "../../src/shared/ipc/generated/")]
+pub enum FiledAs {
+    /// In the trash.
+    Deleted,
+    /// In another folder: the junk.
+    Moved,
+}
+
+/// Puts away the message a notification named, where its button said, with the window nowhere in
+/// sight.
+///
+/// What is asked for, and when nothing is, is [`PutAway`]'s to decide. This finds the account, and
+/// tells the window last, once the instruction is written.
+///
+/// Off the thread the system answered on, because SQLite is never touched there. Nothing tells the
+/// person when nothing was put away: they are not looking at the window, and a notification about a
+/// notification is noise. The journal is told, at the level of what is about one message.
+pub fn put_away_from_a_notice(app: &tauri::AppHandle, message: OperationTarget, into: PutInto) {
+    use crate::ports::journal::{Journal, Note};
+    use tauri::{Emitter, Manager};
+
+    let app = app.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(state) = app.try_state::<AppState>() else {
+            return;
+        };
+
+        let not_put_away = |event: &'static str| {
+            let journal = crate::infrastructure::journal::journal();
+            if journal.keeps(Note::Detail) {
+                journal.write_down(Note::Detail, event, &[]);
+            }
+        };
+
+        let (account_id, what) = match put_away(&state, message, into) {
+            Ok((account_id, PutAwayOutcome::Deleted)) => (account_id, FiledAs::Deleted),
+            Ok((account_id, PutAwayOutcome::Moved)) => (account_id, FiledAs::Moved),
+            Ok((_, PutAwayOutcome::NotThere)) => return not_put_away("notice.notThere"),
+            Ok((_, PutAwayOutcome::NowhereToPut)) => return not_put_away("notice.nowhereToPut"),
+            Err(_) => return not_put_away("notice.notPutAway"),
+        };
+
+        asked_for(&app, &state, &account_id);
+        let _ = app.emit(
+            PUT_AWAY_FROM_A_NOTICE,
+            PutAwayFromANotice {
+                message_id: message.message.get().to_string(),
+                folder_id: FolderIdDto(message.folder.get().to_string()),
+                what,
+            },
+        );
+    });
+}
+
+/// What the press came to, and the account it was for.
+///
+/// The account first, from the profile: a press after it was removed is refused here, where asking
+/// for the folder's file first would make that account's file again, empty.
+fn put_away(
+    state: &AppState,
+    message: OperationTarget,
+    into: PutInto,
+) -> Result<(String, PutAwayOutcome), CommandError> {
+    let profile = state.storage.profile()?;
+    let account_id = account_owning(&profile, message.folder)?;
+    let index = state.storage.index_holding_folder(message.folder.get())?;
+
+    let Some(number) = MailboxReadModel::new(profile.clone(), index.clone())
+        .account_number_of_folder(message.folder)?
+    else {
+        return Err(CommandError::new(
+            ErrorCode::InvalidRequest,
+            "That folder is not on this device.",
+        ));
+    };
+
+    PutAway::new(
+        adapters::operation_log(profile),
+        adapters::placements(index),
+    )
+    .execute(&account_id, number, message, into)
+    .map(|outcome| (account_id, outcome))
+    .map_err(CommandError::from)
+}
+
+/// What the account a folder belongs to is called, or a refusal naming what is missing.
 ///
 /// Takes the profile alone: which account owns a folder is in the folder's own number now, and what
 /// that account is called is in the profile. Neither is in the mail, so no file of it is opened —
@@ -426,6 +536,31 @@ mod tests {
         // And a folder that is not a number at all, which a text field can now carry.
         let nonsense = target_of("1", "seven").expect_err("a word is not a folder");
         assert_eq!(nonsense.code, ErrorCode::InvalidRequest);
+    }
+
+    #[test]
+    fn the_window_hears_a_message_put_away_from_a_notice_in_its_own_words() {
+        // The words the window already uses of a message it filed, so what it does with the one it
+        // hears of is what it does with its own.
+        let heard = serde_json::to_value(PutAwayFromANotice {
+            message_id: "9007199254740993".to_owned(),
+            folder_id: FolderIdDto("4294967296".to_owned()),
+            what: FiledAs::Deleted,
+        })
+        .expect("written");
+
+        assert_eq!(
+            heard,
+            serde_json::json!({
+                "messageId": "9007199254740993",
+                "folderId": "4294967296",
+                "what": "deleted",
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(FiledAs::Moved).expect("written"),
+            serde_json::json!("moved")
+        );
     }
 
     #[test]

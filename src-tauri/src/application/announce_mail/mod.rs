@@ -6,7 +6,7 @@
 
 use crate::ports::arrivals::{Arrivals, Arrived};
 use crate::ports::attention::Attention;
-use crate::ports::notifier::{Notice, Notifier, NotifyError};
+use crate::ports::notifier::{Notice, NoticeWords, Notifier, NotifyError, Offer, Offers, PutInto};
 use crate::ports::settings_repository::PreferencesRepository;
 use lyonoyl_domain::notice::{for_a_notice, BETWEEN_PARTS};
 use lyonoyl_domain::preferences::{NewMailNotice, NoticeShows};
@@ -64,14 +64,18 @@ impl<S: PreferencesRepository, A: Attention, N: Notifier, R: Arrivals> AnnounceM
         }
     }
 
-    /// `unseen` is mail that arrived in an inbox and that nobody has seen. `sentence` is the one
-    /// line the interface handed over, already in the person's language.
+    /// `unseen` is mail that arrived in an inbox and that nobody has seen. `words` are what the
+    /// interface handed over, already in the person's language.
     ///
     /// The count decides **whether** to speak and never **what** to say. It is not in the
     /// sentence: a number needs plural rules, plural rules live in the interface, and a count of
     /// somebody's unread mail is a thing to put on a locked screen only if it is worth the risk —
     /// which it is not, because what a person does about it is open the application either way.
-    pub fn execute(&self, unseen: u32, sentence: &str) -> Result<Result<(), Silent>, NotifyError> {
+    pub fn execute(
+        &self,
+        unseen: u32,
+        words: &NoticeWords,
+    ) -> Result<Result<(), Silent>, NotifyError> {
         if unseen == 0 {
             return Ok(Err(Silent::NothingNew));
         }
@@ -101,12 +105,13 @@ impl<S: PreferencesRepository, A: Attention, N: Notifier, R: Arrivals> AnnounceM
             .unwrap_or_default();
 
         self.notifier
-            .show(&self.what_to_say(&arrived, shows, sentence))?;
+            .show(&self.what_to_say(&arrived, shows, words))?;
 
         Ok(Ok(()))
     }
 
-    /// The two lines the system is given, and the whole of how they are chosen.
+    /// The two lines the system is given and the buttons beside them, and the whole of how they
+    /// are chosen.
     ///
     /// The title names who wrote, because that is what a person looks at first and what decides
     /// whether they read the rest. Where it cannot — the part is off, or the message gave no name
@@ -115,14 +120,19 @@ impl<S: PreferencesRepository, A: Attention, N: Notifier, R: Arrivals> AnnounceM
     /// The body is what the message is about and how it opens, in that order, one to a line. Where
     /// neither may be said — both parts off, or a message that gave neither — the sentence the
     /// window handed over stands in its place, so a notice is never shown with an empty body.
-    fn what_to_say(&self, arrived: &Arrived, shows: NoticeShows, sentence: &str) -> Notice {
+    ///
+    /// The buttons only where the notice shows something of the message, because a person throws
+    /// away what they can see: a notice saying only that mail arrived would put away a message
+    /// nobody was shown. And only where the place is there: the trash where the account keeps one,
+    /// since a delete with nowhere to keep the message stops rather than happening, and the junk
+    /// where it keeps junk.
+    fn what_to_say(&self, arrived: &Arrived, shows: NoticeShows, words: &NoticeWords) -> Notice {
         let part = |raw: &Option<String>, on: bool, at_most: usize| -> Option<String> {
             on.then(|| raw.as_deref().and_then(|raw| for_a_notice(raw, at_most)))
                 .flatten()
         };
 
-        let title = part(&arrived.sender, shows.sender, NAME_AT_MOST)
-            .unwrap_or_else(|| self.product.clone());
+        let title = part(&arrived.sender, shows.sender, NAME_AT_MOST);
 
         let body: Vec<String> = [
             part(&arrived.subject, shows.subject, SUBJECT_AT_MOST),
@@ -132,12 +142,36 @@ impl<S: PreferencesRepository, A: Attention, N: Notifier, R: Arrivals> AnnounceM
         .flatten()
         .collect();
 
+        let names_it = title.is_some() || !body.is_empty();
+
+        let title = title.unwrap_or_else(|| self.product.clone());
+
         let body = match body.is_empty() {
-            true => sentence.to_owned(),
+            true => words.new_mail.clone(),
             false => body.join(&BETWEEN_PARTS.to_string()),
         };
 
-        Notice { title, body }
+        let offers = arrived.at.filter(|_| names_it).and_then(|about| {
+            let each: Vec<Offer> = [
+                (arrived.has_trash, PutInto::Trash, &words.into_trash),
+                (arrived.has_junk, PutInto::Junk, &words.into_junk),
+            ]
+            .into_iter()
+            .filter(|(there, ..)| *there)
+            .map(|(_, into, said)| Offer {
+                into,
+                said: said.clone(),
+            })
+            .collect();
+
+            (!each.is_empty()).then_some(Offers { about, each })
+        });
+
+        Notice {
+            title,
+            body,
+            offers,
+        }
     }
 }
 

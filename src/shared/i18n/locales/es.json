@@ -278,6 +278,8 @@
   "list.unknownSender": "Remitente desconocido",
   "menu.settings": "Configuración…",
   "menu.undo": "Deshacer",
+  "notify.intoJunk": "Mover a «Correo no deseado»",
+  "notify.intoTrash": "Mover a la papelera",
   "notify.newMail": "Correo nuevo",
   "onboarding.back": "Atrás",
   "onboarding.continueUnsaved": "Continuar sin guardar",

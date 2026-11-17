@@ -305,6 +305,8 @@
   "list.unknownSender": "مرسل غير معروف",
   "menu.settings": "الإعدادات…",
   "menu.undo": "تراجع",
+  "notify.intoJunk": "نقل إلى البريد العشوائي",
+  "notify.intoTrash": "نقل إلى المهملات",
   "notify.newMail": "بريد جديد",
   "onboarding.back": "رجوع",
   "onboarding.continueUnsaved": "متابعة دون حفظ",

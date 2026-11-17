@@ -260,6 +260,8 @@
   "list.unknownSender": "Pengirim tidak dikenal",
   "menu.settings": "Pengaturan…",
   "menu.undo": "Urung",
+  "notify.intoJunk": "Pindahkan ke spam",
+  "notify.intoTrash": "Pindahkan ke sampah",
   "notify.newMail": "Email baru",
   "onboarding.back": "Kembali",
   "onboarding.continueUnsaved": "Lanjutkan tanpa menyimpan",

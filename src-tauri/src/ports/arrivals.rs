@@ -1,9 +1,12 @@
+use lyonoyl_domain::operation::OperationTarget;
+
 /// The newest piece of mail nobody has seen, for the one thing that has to describe it.
 ///
 /// Its own port and not a corner of the list read model, because what it answers is a different
 /// question: the list is asked what to draw in a window somebody is looking at, and this is asked
 /// what to say to somebody who is not. The one caller is [`AnnounceMail`], and the shape here is
-/// the shape a notification has — three fields, all of them optional, none of them an identifier.
+/// the shape a notification has — three things it may say, the message they are about, and where
+/// its account could put it away.
 ///
 /// [`AnnounceMail`]: crate::application::announce_mail::AnnounceMail
 pub trait Arrivals: Send + Sync {
@@ -18,13 +21,11 @@ pub trait Arrivals: Send + Sync {
 
 /// What arrived, in the words the message itself used.
 ///
-/// Every field is what a stranger wrote, so nothing here reaches a screen without going through
-/// [`lyonoyl_domain::notice::for_a_notice`] first.
+/// Every field of words is what a stranger wrote, so nothing here reaches a screen without going
+/// through [`lyonoyl_domain::notice::for_a_notice`] first.
 ///
-/// No identifier and no address. A notification cannot be pressed to open the message it is about
-/// — nothing in this application listens for that — so a message id here would be a thing carried
-/// out of the core for no reader, and an address would be somebody's correspondent on a lock
-/// screen for no reader either.
+/// No address. An address is somebody's correspondent on a lock screen for no reader. The message
+/// is named by its identifier, which is what a notice's buttons act on and nothing else reads.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Arrived {
     /// Who it is from, as they wrote their own name. Absent where the message gave none.
@@ -34,4 +35,12 @@ pub struct Arrived {
     /// of the body alongside the headers, so mail that has just arrived has one. Absent where that
     /// prefix held nothing a reader could use — a message with no text part at all.
     pub preview: Option<String>,
+    /// The message, in the inbox it arrived in. Absent where the row's numbers would not read as
+    /// one, and a notice then offers nothing to do with it.
+    pub at: Option<OperationTarget>,
+    /// Whether its account has a folder for what is thrown away. Without one, a message thrown away
+    /// has nowhere to be kept, and the delete stops rather than happening.
+    pub has_trash: bool,
+    /// Whether its account has a folder for junk.
+    pub has_junk: bool,
 }

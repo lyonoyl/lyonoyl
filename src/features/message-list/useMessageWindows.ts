@@ -7,6 +7,7 @@ import {
   isCommandError,
 } from "@/shared/ipc/client";
 import type { CommandError } from "@/shared/ipc/generated/CommandError";
+import type { FolderIdDto } from "@/shared/ipc/generated/FolderIdDto";
 import type { ListRowDto } from "@/shared/ipc/generated/ListRowDto";
 import type { ViewScopeDto } from "@/shared/ipc/generated/ViewScopeDto";
 
@@ -100,8 +101,11 @@ export interface MessageWindows {
   showGone: (messageId: string) => void;
   /** Puts one back, for a filing that turned out not to have happened. */
   showBack: (messageId: string) => void;
-  /** Where a message sits now, or `null` if no loaded page holds it. */
-  positionOf: (messageId: string) => number | null;
+  /**
+   * Where a message sits now, or `null` if no loaded page holds it. With a folder, only its copy in
+   * that folder: one message can sit in several, and a filing moves the copy it was asked about.
+   */
+  positionOf: (messageId: string, folderId?: FolderIdDto) => number | null;
 }
 
 export function useMessageWindows(query: ViewQuery): MessageWindows {
@@ -398,10 +402,18 @@ export function useMessageWindows(query: ViewQuery): MessageWindows {
 
   /** Where a message sits among the rows that are shown, counting the ones already taken out. */
   const positionOf = useCallback(
-    (messageId: string) => {
+    (messageId: string, folderId?: FolderIdDto) => {
       // `revision` is a dependency so that callers re-render when a page arrives.
       void revision;
-      return positionWhere((row) => row.messageId === messageId);
+      // A row that names no folder of its own, a conversation's, stands for its messages wherever
+      // they sit.
+      return positionWhere(
+        (row) =>
+          row.messageId === messageId &&
+          (folderId === undefined ||
+            row.folderId === null ||
+            row.folderId === folderId),
+      );
     },
     [revision, positionWhere],
   );

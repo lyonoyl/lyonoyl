@@ -39,7 +39,7 @@ beforeEach(() => {
 });
 
 describe("the words the core shows by itself", () => {
-  it("hands over what the menu's settings item and its Undo say, and what a notification says", async () => {
+  it("hands over what the menu's settings item and its Undo say, and what a notification and its buttons say", async () => {
     render(
       <I18nProvider initial="en">
         <NativeWords />
@@ -50,6 +50,13 @@ describe("the words the core shows by itself", () => {
       expect(menu).toHaveBeenLastCalledWith("Settings…", "Undo"),
     );
     expect(notification).toHaveBeenCalledTimes(1);
+    // Each button takes a key of its own. In English the one that throws a message away says what
+    // the reader's own button for that says.
+    expect(notification).toHaveBeenLastCalledWith(
+      "New mail",
+      "Move to trash",
+      "Move to junk",
+    );
   });
 
   it("hands them over again in the language a person chooses", async () => {
@@ -69,6 +76,11 @@ describe("the words the core shows by itself", () => {
       expect(menu).toHaveBeenLastCalledWith("Настройки…", "Отменить"),
     );
     expect(notification).toHaveBeenCalledTimes(2);
+    expect(notification).toHaveBeenLastCalledWith(
+      "Новая почта",
+      "В корзину",
+      "В спам",
+    );
   });
 
   it("says nothing when the core refuses the word", async () => {

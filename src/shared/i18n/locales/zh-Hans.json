@@ -260,6 +260,8 @@
   "list.unknownSender": "未知发件人",
   "menu.settings": "设置…",
   "menu.undo": "撤销",
+  "notify.intoJunk": "移到垃圾邮件",
+  "notify.intoTrash": "移到废纸篓",
   "notify.newMail": "新邮件",
   "onboarding.back": "上一步",
   "onboarding.continueUnsaved": "不保存并继续",

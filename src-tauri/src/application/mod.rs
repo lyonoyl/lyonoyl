@@ -12,6 +12,7 @@ pub mod keep_at_the_end;
 pub mod keep_draft;
 pub mod mailboxes;
 pub mod open_message;
+pub mod put_away;
 pub mod remove_account;
 pub mod save_attachment;
 pub mod save_message;

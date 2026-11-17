@@ -260,6 +260,8 @@
   "list.unknownSender": "ไม่ทราบผู้ส่ง",
   "menu.settings": "การตั้งค่า…",
   "menu.undo": "เลิกทำ",
+  "notify.intoJunk": "ย้ายไปที่อีเมลขยะ",
+  "notify.intoTrash": "ย้ายไปที่ถังขยะ",
   "notify.newMail": "มีอีเมลใหม่",
   "onboarding.back": "ย้อนกลับ",
   "onboarding.continueUnsaved": "ดำเนินการต่อโดยไม่บันทึก",

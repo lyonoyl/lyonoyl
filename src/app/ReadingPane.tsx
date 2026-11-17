@@ -79,6 +79,9 @@ export function ReadingPane({
     if (filed === null || filed === weighed.current) return;
     weighed.current = filed;
     if (filed.what === "read" || opened?.messageId !== filed.messageId) return;
+    // The same message open from another folder, where it has not moved: a notification's button
+    // files the copy in the inbox whatever the window shows.
+    if (opened.folderId !== null && opened.folderId !== filed.folderId) return;
 
     setLeaving({
       key: key.current,

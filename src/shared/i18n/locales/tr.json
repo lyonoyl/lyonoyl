@@ -269,6 +269,8 @@
   "list.unknownSender": "Bilinmeyen gönderen",
   "menu.settings": "Ayarlar…",
   "menu.undo": "Geri Al",
+  "notify.intoJunk": "Gereksiz klasörüne taşı",
+  "notify.intoTrash": "Çöp kutusuna taşı",
   "notify.newMail": "Yeni posta",
   "onboarding.back": "Geri",
   "onboarding.continueUnsaved": "Kaydetmeden devam et",
