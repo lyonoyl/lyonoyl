@@ -237,6 +237,14 @@ npx shadcn@latest add <component>
 
 It writes into `src/shared/ui/primitives/`, as `components.json` says. If it adds `shadcn` to `package.json` or `@import "shadcn/tailwind.css"` to `src/index.css`, take both out again: a variant the new component uses and `src/index.css` does not hold yet is copied there from that stylesheet. The notice for everything copied is `src-tauri/licences-copied/shadcn-ui.md`, and the license list `scripts/preflight.sh` rebuilds carries it.
 
+## A crate's new version
+
+**Cargo takes a crate version only once it has been public for seven days.** `.cargo/config.toml` sets `registry.global-min-publish-age`, so every resolution—`cargo update`, or a dependency added to a manifest and picked by the next command—passes over a version published within the week and takes the newest one older than that, and Cargo says so as it locks: `as of 7 days ago`. What `Cargo.lock` already holds stays, and a version crates.io records no publication time for is not held back.
+
+**An urgent fix is taken by naming it.** `CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow cargo update -p <crate> --precise <version>` takes that version however new it is; without the variable, Cargo refuses even a version named exactly. The fix's own new dependencies come in with it, each named with its age as Cargo locks them, so the lock's diff is read before it is committed.
+
+**That file is everyone's, and holds nothing else.** A setting of your own—a runner that signs above all, since it names an identity—goes in `.cargo/local.toml`, which git ignores and the shared file reads when it is there, and the shared file's setting wins over anything in it. `scripts/check-layering.sh` refuses the shared file holding anything more, the setting cut below a week or gone, and a file tracked under any other `.cargo/`.
+
 ## Signing, and why it is not only for releases
 
 **The keychain is the reason a development build is signed**, and not distributing anything. An unsigned build is named to the system by the hash of its own binary, so every rebuild is a new application, the keychain stops recognizing it, and it can end up unable to read the key its own databases are encrypted under. Signed, it is named by the bundle and the certificate instead, and that name does not move. [The platform differences](../platforms/differences.md) carry the measurement.

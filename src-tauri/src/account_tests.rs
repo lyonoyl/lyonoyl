@@ -527,8 +527,18 @@ fn deliver(address: &str, subject: &str) -> u32 {
     deliver_saying(address, subject, "Body.")
 }
 
+/// How many times a message is delivered before one that never arrives whole fails the test.
+const DELIVERY_TRIES: usize = 3;
+
 /// The same, with a body somebody chose — for a test about what a message says rather than what it
 /// is called.
+///
+/// What arrived is read back before it is handed over, and only the message the delivery made
+/// counts: an older one under the same subject says nothing about it. The server runs in Docker's
+/// virtual machine, and under a full run that machine can stop for a second or three — the server
+/// logs its clock jumping forward — and a delivery made in such a stall came out with no subject at
+/// all. So a delivery that did not arrive whole is taken away and made again, a few times at most.
+/// What a test asserts never rests on it, and a fixture that is wrong fails every time.
 fn deliver_saying(address: &str, subject: &str, body: &str) -> u32 {
     let message = [
         "From: Someone <someone@example.com>".to_owned(),
@@ -541,7 +551,48 @@ fn deliver_saying(address: &str, subject: &str, body: &str) -> u32 {
         String::new(),
     ]
     .join("\r\n");
+    let listed = || {
+        on_the_server(&[
+            "fetch",
+            "-u",
+            address,
+            "uid hdr.subject",
+            "mailbox",
+            "INBOX",
+            "ALL",
+        ])
+    };
 
+    // The one a delivery made is the one with the highest UID, and higher than any before it: a
+    // mailbox hands them out in order and never reuses them while its generation holds.
+    let mut newest_before = newest(&listed()).map(|(uid, _)| uid);
+    let mut listing = String::new();
+    for _ in 0..DELIVERY_TRIES {
+        save(address, &message);
+        listing = listed();
+        if let Some((uid, kept)) = newest(&listing).filter(|(uid, _)| Some(*uid) > newest_before) {
+            if kept == subject {
+                return uid;
+            }
+            // Arrived, but not whole: taken away, so that the next one is the newest again.
+            on_the_server(&[
+                "expunge",
+                "-u",
+                address,
+                "mailbox",
+                "INBOX",
+                "uid",
+                &uid.to_string(),
+            ]);
+            newest_before = Some(uid);
+        }
+    }
+
+    panic!("the delivered message did not keep its subject, so the fixture is wrong: {listing}");
+}
+
+/// Hands one message to the server, the way a delivery does.
+fn save(address: &str, message: &str) {
     let mut child = std::process::Command::new("docker")
         .args([
             "exec",
@@ -566,31 +617,39 @@ fn deliver_saying(address: &str, subject: &str, body: &str) -> u32 {
         .write_all(message.as_bytes())
         .expect("the message is delivered");
     child.wait().expect("doveadm finishes");
+}
 
-    // The one just delivered is the one with the highest UID: a mailbox hands them out in order
-    // and never reuses them while its generation holds.
-    let listing = on_the_server(&[
-        "fetch",
-        "-u",
-        address,
-        "uid hdr.subject",
-        "mailbox",
-        "INBOX",
-        "ALL",
-    ]);
-    let uid = listing
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("uid:"))
-        .filter_map(|value| value.trim().parse::<u32>().ok())
-        .max()
-        .unwrap_or_else(|| panic!("the mailbox lists no messages: {listing}"));
+/// The newest message a listing names, by its UID, and the subject listed with it.
+fn newest(listing: &str) -> Option<(u32, String)> {
+    let mut listed: Vec<(u32, String)> = Vec::new();
+    for line in listing.lines().map(str::trim) {
+        if let Some(uid) = line
+            .strip_prefix("uid:")
+            .and_then(|value| value.trim().parse().ok())
+        {
+            listed.push((uid, String::new()));
+        } else if let (Some(subject), Some(last)) =
+            (line.strip_prefix("hdr.subject:"), listed.last_mut())
+        {
+            last.1 = subject.trim().to_owned();
+        }
+    }
+    listed.into_iter().max_by_key(|(uid, _)| *uid)
+}
 
-    assert!(
-        listing.contains(subject),
-        "the delivered message did not keep its subject, so the fixture is wrong: {listing}"
+/// What `doveadm fetch` prints, as it prints it: a message's fields a line each, and a line holding a
+/// form feed between messages.
+#[test]
+fn the_newest_message_a_listing_names_is_the_one_with_the_highest_uid() {
+    let listing = "uid: 7\nhdr.subject: older\n\x0c\nuid: 9\nhdr.subject: newest\n\x0c\nuid: 8\nhdr.subject: between\n";
+    assert_eq!(newest(listing), Some((9, "newest".to_owned())));
+
+    // A message that came out with no subject is still the newest, and says so.
+    assert_eq!(
+        newest("uid: 236\nhdr.subject: \n"),
+        Some((236, String::new()))
     );
-
-    uid
+    assert_eq!(newest(""), None);
 }
 
 /// Removes anything an earlier run of this test left behind, so failures do not pile up in the
@@ -1351,6 +1410,30 @@ fn a_mailbox_of_its_own(test: &str) -> String {
     address
 }
 
+/// How many times a test asks for a conversation before a server that never answers fails it.
+const CONVERSATION_TRIES: usize = 3;
+
+/// A conversation with the server, for a test whose question is what happens once one is open.
+///
+/// Opening it is not what such a test asks about. The server runs in Docker's virtual machine, and
+/// under a full run that machine can stop for a second or three, and `reach` then answers `NotNow`,
+/// as it should. So the test asks again, a second apart and a few times at most; a server that
+/// never answers still fails it, and one that refuses fails it at once.
+fn a_conversation(
+    actions: &dyn crate::ports::mail_actions::MailActions,
+) -> Box<dyn crate::ports::mail_actions::Acting + '_> {
+    use crate::ports::mail_actions::MailActionError;
+
+    for _ in 1..CONVERSATION_TRIES {
+        match actions.reach() {
+            Ok(acting) => return acting,
+            Err(MailActionError::NotNow) => std::thread::sleep(std::time::Duration::from_secs(1)),
+            Err(refused) => panic!("a conversation opens: {refused:?}"),
+        }
+    }
+    actions.reach().expect("a conversation opens")
+}
+
 /// Marking a message read on a real server, and seeing the server say so afterwards.
 ///
 /// Everything up to here was proved against a scripted server, which answers whatever the script
@@ -1366,7 +1449,7 @@ fn a_flag_set_through_the_acting_path_is_there_when_the_server_is_asked() {
 
     use crate::infrastructure::imap::actions::ImapMailActions;
     use crate::infrastructure::imap::imap_account;
-    use crate::ports::mail_actions::{MailActions, ServerAction};
+    use crate::ports::mail_actions::ServerAction;
     use lyonoyl_domain::message::{Flags, Uid};
 
     let address = a_mailbox_of_its_own("acting-flags");
@@ -1403,7 +1486,7 @@ fn a_flag_set_through_the_acting_path_is_there_when_the_server_is_asked() {
     );
 
     // One conversation for both, as a round has: the second command goes down the same one.
-    let mut acting = actions.reach().expect("a conversation opens");
+    let mut acting = a_conversation(&actions);
 
     acting
         .carry_out(ServerAction::SetFlags {
@@ -1453,7 +1536,7 @@ fn erasing_a_message_on_a_real_server_takes_that_one_and_leaves_the_other() {
 
     use crate::infrastructure::imap::actions::ImapMailActions;
     use crate::infrastructure::imap::imap_account;
-    use crate::ports::mail_actions::{MailActions, ServerAction};
+    use crate::ports::mail_actions::ServerAction;
     use lyonoyl_domain::message::Uid;
 
     let address = a_mailbox_of_its_own("acting-erase");
@@ -1492,9 +1575,7 @@ fn erasing_a_message_on_a_real_server_takes_that_one_and_leaves_the_other() {
     assert!(subjects().contains("acting-erase-going"));
     assert!(subjects().contains("acting-erase-staying"));
 
-    actions
-        .reach()
-        .expect("a conversation opens")
+    a_conversation(&actions)
         .carry_out(ServerAction::Erase {
             mailbox: "INBOX",
             uid: Uid::new(going).expect("non-zero"),

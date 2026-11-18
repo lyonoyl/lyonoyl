@@ -66,5 +66,10 @@ GEMINI.md
 *.env
 .env.*
 
-# Local Cargo configuration: a signing runner names its identity.
+# Local Cargo configuration: a signing runner names its identity. The shared `.cargo/config.toml`
+# at the root holds the crate-age setting and nothing else, and reads `.cargo/local.toml` beside it
+# for anything of somebody's own; every other `.cargo/` stays out of the tree.
 .cargo/
+!/.cargo/
+/.cargo/*
+!/.cargo/config.toml

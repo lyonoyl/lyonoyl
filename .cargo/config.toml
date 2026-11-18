@@ -1,0 +1,20 @@
+# Cargo's settings for everyone who builds this, and nothing of anybody's own.
+#
+# A setting that is yours alone, a runner that signs above all, since it names an identity, goes in
+# `.cargo/local.toml` beside this file. Git ignores that one, and this file reads it when it is
+# there; whatever it says, the setting below wins over it. `scripts/check-layering.sh` refuses
+# anything in this file but that include and the setting, so nothing personal is committed here.
+include = [{ path = "local.toml", optional = true }]
+
+# A crate version is taken only once it has been public for seven days, so a release somebody
+# hijacked and the registry pulled within the week never reaches `Cargo.lock`. A version the lock
+# already holds stays, and one crates.io records no publication time for is not held back.
+#
+# An urgent fix is taken by naming it:
+#
+#     CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow cargo update -p <crate> --precise <version>
+#
+# That lets the version's own new dependencies in with it, so the lock's diff is read before it is
+# committed.
+[registry]
+global-min-publish-age = "7 days"
