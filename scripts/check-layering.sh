@@ -1000,9 +1000,9 @@ done < <(find src -name '*.ts' -o -name '*.tsx' \
   | grep -v -e '\.test\.' -e '\.spec\.' -e '/generated/' | sort)
 
 # Nothing in this repository identifies anybody (AGENTS.md invariant 21). Most of that rule is about
-# prose and is caught by reading; these three are the ways an identity gets in by machinery, and a
-# machine can refuse them. This covers the shapes whose content is bytes rather than a pattern, and
-# the two config fields that name a signer.
+# prose and is caught by reading; these four are the ways an identity gets in by machinery, and a
+# machine can refuse them. This covers the shapes whose content is bytes rather than a pattern, the
+# two config fields that name a signer, and the Cargo configuration a signing runner would sit in.
 
 # A certificate, a private key or a provisioning profile, tracked. `.gitignore` keeps these out of
 # `git status`; a `git add -f` walks past that, and this does not.
@@ -1034,6 +1034,35 @@ while IFS= read -r hit; do
   violation "a signing identity in the bundle configuration -> $hit"
 done < <(grep -rnE '"(signingIdentity|providerShortName|teamId|appleId|certificateThumbprint|signCommand|publisher)"' \
   "${LYONOYL_BUNDLE_CONFIG:-src-tauri/tauri.conf.json}" 2>/dev/null || true)
+
+# Cargo's configuration. A runner that signs names its identity, and the place a person would write
+# one is a `.cargo/config.toml`. So the shared one at the root holds the include of
+# `.cargo/local.toml`, where anything of somebody's own goes, and the crate-age setting at a week or
+# more, once, and nothing else; and no other file under any `.cargo/` is tracked. `.gitignore`
+# keeps the rest out of `git status`, and a `git add -f` walks past that, as above. The file read is
+# the real one unless the file that proves these checks bite hands over a copy, for the bundle
+# configuration's reason: a runner naming somebody must not sit in the tree for the length of a run.
+CARGO_CONFIG="${LYONOYL_CARGO_CONFIG:-.cargo/config.toml}"
+CRATE_AGE='^global-min-publish-age = "(([7-9]|[1-9][0-9]+) days|[1-9][0-9]* weeks)"$'
+if [ ! -f "$CARGO_CONFIG" ]; then
+  violation "the shared Cargo configuration is missing, and the crate-age setting with it -> $CARGO_CONFIG"
+else
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    violation "the shared Cargo configuration holds something other than the crate-age setting -> $hit"
+  done < <(grep -nvE \
+    -e '^[[:space:]]*(#.*)?$' \
+    -e '^include = \[\{ path = "local\.toml", optional = true \}\]$' \
+    -e '^\[registry\]$' \
+    -e "$CRATE_AGE" \
+    "$CARGO_CONFIG" 2>/dev/null || true)
+  [ "$(grep -cE "$CRATE_AGE" "$CARGO_CONFIG" 2>/dev/null)" = 1 ] \
+    || violation "the shared Cargo configuration does not hold the crate-age setting at a week or more, once -> $CARGO_CONFIG"
+fi
+while IFS= read -r file; do
+  [ -n "$file" ] || continue
+  violation "a Cargo configuration tracked outside the shared file -> $file"
+done < <(git ls-files -- ':(glob)**/.cargo/**' 2>/dev/null | grep -vxF '.cargo/config.toml' || true)
 
 # The shop window, held to section 7. The rules a script can check are checked here.
 while IFS= read -r hit; do

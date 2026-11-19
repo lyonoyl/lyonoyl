@@ -9,7 +9,9 @@
 #[cfg(target_os = "macos")]
 mod dock;
 
-use lyonoyl_domain::preferences::{AppIcon, Preferences};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use lyonoyl_domain::preferences::AppIcon;
+use lyonoyl_domain::preferences::Preferences;
 use tauri::{AppHandle, Manager};
 
 /// Whether this system lets the running application change the picture it shows itself as.
@@ -25,6 +27,7 @@ pub fn wear(app: &AppHandle, preferences: &Preferences) {
 
 /// The picture for one choice, as this build carries it: square on Apple's grid for
 /// the Dock, and to the edges for a window on Windows.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 macro_rules! picture_in {
     ($folder:literal, $icon:expr) => {
         match $icon {

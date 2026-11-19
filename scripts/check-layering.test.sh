@@ -15,9 +15,9 @@
 # The count is not the claim, and a sentence saying "all of them" would be one nobody could check:
 # several probes assert on part of a rule's message and several are built rather than written out,
 # so no tally here would stay true. What is asked of a change is simpler -- a rule added without a
-# probe is a rule nobody has seen refuse anything. The bundle configuration would be one of them, and is not, because
-# the gate reads it through `LYONOYL_BUNDLE_CONFIG` and the probe hands it a copy -- a weakened
-# content policy must not sit in the tree even for the length of a run.
+# probe is a rule nobody has seen refuse anything. The bundle configuration and the shared Cargo configuration would be two of them, and are not, because
+# the gate reads them through `LYONOYL_BUNDLE_CONFIG` and `LYONOYL_CARGO_CONFIG` and the probes hand it copies -- a weakened
+# content policy, or a runner naming somebody, must not sit in the tree even for the length of a run.
 #
 # Each probe is written into a real directory of the tree, the gate is run, and the probe is
 # removed. A trap puts everything back if this is interrupted.
@@ -52,11 +52,12 @@ PROBE_SCENE_DIR="mocks/screenshots/__gate_probe"
 PROBE_SCENE="$PROBE_SCENE_DIR/scene.json"
 PROBE_SCENE_HTML="$PROBE_SCENE_DIR/letter.html"
 PROBE_SCENE_DEEP="$PROBE_SCENE_DIR/deeper/scene.json"
-# Two the gate reads through `git ls-files`, so a probe has to be staged to exist for it. Neither
-# touches a manifest that is really in the tree: the identity is an empty file under a name, and the
-# manifest naming an author is one of its own.
+# Three the gate reads through `git ls-files`, so a probe has to be staged to exist for it. None
+# touches a file that is really in the tree: the identity is an empty file under a name, the
+# manifest naming an author is one of its own, and so is the `.cargo/` beside it.
 PROBE_KEY="__gate_probe.p12"
 PROBE_MANIFEST="__gate_probe_crate/Cargo.toml"
+PROBE_CARGO="__gate_probe_crate/.cargo/config.toml"
 # A copy, and the gate is told to read it. Editing the bundle configuration in place and putting it
 # back afterwards leaves a weakened content policy on disk for as long as a run lasts -- and for
 # good when two runs overlap or one is killed outright. Anybody glancing at their editor in between
@@ -72,6 +73,10 @@ CONFIG="$(mktemp "${TMPDIR:-/tmp}/lyonoyl-bundle-config.XXXXXX")"
 export LYONOYL_BUNDLE_CONFIG="$CONFIG"
 
 cp src-tauri/tauri.conf.json "$CONFIG"
+# The shared Cargo configuration, the same way and for the same reason.
+CARGO_COPY="$(mktemp "${TMPDIR:-/tmp}/lyonoyl-cargo-config.XXXXXX")"
+export LYONOYL_CARGO_CONFIG="$CARGO_COPY"
+cp .cargo/config.toml "$CARGO_COPY"
 # A probe staged for the gate to read through git. Something else touching the index at that moment —
 # an editor refreshing what it shows — makes `git add` fail on the lock, and a probe that never
 # reached the index is a probe the gate cannot see; so the add is tried until git lists the file.
@@ -100,18 +105,18 @@ sweep_probes() {
   rmdir "$PROBE_DIR" 2>/dev/null
   rm -f "$PROBE_SCENE" "$PROBE_SCENE_HTML" "$PROBE_SCENE_DEEP"
   rmdir "$(dirname "$PROBE_SCENE_DEEP")" "$PROBE_SCENE_DIR" 2>/dev/null
-  git rm --cached -q --ignore-unmatch "$PROBE_KEY" "$PROBE_MANIFEST" >/dev/null 2>&1
+  git rm --cached -q --ignore-unmatch "$PROBE_KEY" "$PROBE_MANIFEST" "$PROBE_CARGO" >/dev/null 2>&1
   rm -rf "$PROBE_KEY" "$(dirname "$PROBE_MANIFEST")"
 }
 
 clean() {
   sweep_probes
-  rm -f "$CONFIG"
+  rm -f "$CONFIG" "$CARGO_COPY"
 }
 # Interrupted, and killed outright. The first two are trapped; the third cannot be, so the probes are
 # swept on the way in as well -- one left by a run nobody finished is one the next run removes,
-# rather than one somebody finds in their editor and wonders about. The copy of the bundle
-# configuration is not swept here, because it was made a moment ago and is this run's.
+# rather than one somebody finds in their editor and wonders about. The copies of the two
+# configurations are not swept here, because they were made a moment ago and are this run's.
 sweep_probes
 trap clean EXIT INT TERM
 
@@ -683,6 +688,22 @@ refuses "a manifest naming its authors" "an authors field in a crate manifest"
 git rm --cached -q --ignore-unmatch "$PROBE_MANIFEST" >/dev/null 2>&1
 rm -rf "$(dirname "$PROBE_MANIFEST")"
 
+mkdir -p "$(dirname "$PROBE_CARGO")"
+printf '[target.aarch64-apple-darwin]\nrunner = "whoever"\n' > "$PROBE_CARGO"
+stage "$PROBE_CARGO" -f
+refuses "a Cargo configuration tracked outside the shared file" "a .cargo/ of a crate's own, forced past .gitignore"
+git rm --cached -q --ignore-unmatch "$PROBE_CARGO" >/dev/null 2>&1
+rm -rf "$(dirname "$PROBE_MANIFEST")"
+
+printf '\nThe shared Cargo configuration, holding a runner or losing its setting (invariant 21)\n'
+printf '[target.aarch64-apple-darwin]\nrunner = "whoever"\n' >> "$CARGO_COPY"
+refuses "the shared Cargo configuration holds something other than the crate-age setting" "a runner in the shared file"
+printf '[registry]\nglobal-min-publish-age = "1 days"\n' > "$CARGO_COPY"
+refuses "does not hold the crate-age setting at a week or more" "the crate-age setting cut to a day"
+rm -f "$CARGO_COPY"
+refuses "the shared Cargo configuration is missing" "the shared file gone"
+cp .cargo/config.toml "$CARGO_COPY"
+
 printf '\nA signer named in the bundle configuration (invariant 21)\n'
 for field in signingIdentity teamId appleId certificateThumbprint signCommand publisher; do
   python3 -c "
@@ -1200,6 +1221,9 @@ rm -f "$PROBE_TSX"
 
 clean
 trap - EXIT
+# The copies went with the probes, and what is asked now is the tree's own files: pointed at a copy
+# that is gone, the gate would read no bundle configuration at all and miss the shared Cargo one.
+unset LYONOYL_BUNDLE_CONFIG LYONOYL_CARGO_CONFIG
 
 printf '\nAnd the tree as it is, which must still pass\n'
 if bash scripts/check-layering.sh >/dev/null 2>&1; then
