@@ -59,6 +59,9 @@ pub struct AppState {
     /// application to write down. Shared by the commands that note, keep and throw away a draft and
     /// hand a message to the outbox, and by the run callback below.
     pub being_written: crate::application::keep_at_the_end::BeingWritten,
+    /// The people the account last written from has written to, kept between the keys typed into
+    /// a line of addresses. Never crosses to the window whole: the window is told who is offered.
+    pub correspondents: std::sync::Arc<crate::read_model::correspondents::Correspondents>,
     /// The interface's own words, handed over so a notification can be raised without it.
     pub words: crate::infrastructure::words::InterfaceWords,
     /// Gathers arrivals so a hundred mailboxes finishing at once ring once.
@@ -168,6 +171,7 @@ fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         commands::compose::forget_noted_draft,
         commands::compose::kept_drafts,
         commands::compose::sent_here,
+        commands::compose::suggest_recipients,
         commands::compose::latest_draft,
         commands::compose::reopen_draft,
         commands::compose::discard_draft,
@@ -333,6 +337,7 @@ pub fn run() {
                 geometry: PendingGeometry::default(),
                 attaching: crate::infrastructure::attaching::FilesBeingAttached::default(),
                 being_written: crate::application::keep_at_the_end::BeingWritten::default(),
+                correspondents: std::sync::Arc::default(),
                 words: crate::infrastructure::words::InterfaceWords::default(),
                 bell,
                 attention: crate::infrastructure::attention::Focus::assuming_it_does(),

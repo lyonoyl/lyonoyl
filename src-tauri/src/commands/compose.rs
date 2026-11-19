@@ -776,6 +776,57 @@ pub async fn sent_here(
     .map_err(|_| CommandError::new(ErrorCode::Internal, "A background task failed."))?
 }
 
+/// Somebody the composer offers as an address is typed.
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/shared/ipc/generated/")]
+pub struct SuggestedRecipientDto {
+    /// What goes into the line when they are chosen.
+    pub address: String,
+    /// The name their own mail gives them, to be shown beside the address, never instead of it.
+    pub name: Option<String>,
+}
+
+/// The people this account has written to whose address or name begins with what is being typed,
+/// the most written to first.
+///
+/// Nobody it has not written to is offered, and nothing is asked of a server: what is read is the
+/// mail on this device.
+#[tauri::command]
+pub async fn suggest_recipients(
+    state: State<'_, AppState>,
+    account_id: String,
+    typed: String,
+) -> Result<Vec<SuggestedRecipientDto>, CommandError> {
+    let profile = state.storage.profile()?;
+    let number =
+        crate::read_model::mailboxes::index_id_of(&profile, &account_id)?.ok_or_else(|| {
+            CommandError::new(
+                ErrorCode::InvalidRequest,
+                "That account is not on this device.",
+            )
+        })?;
+    let index = state.storage.index_of_account(number)?;
+    let correspondents = std::sync::Arc::clone(&state.correspondents);
+
+    tauri::async_runtime::spawn_blocking(move || {
+        correspondents
+            .offered(&account_id, &index, &typed)
+            .map(|people| {
+                people
+                    .into_iter()
+                    .map(|person| SuggestedRecipientDto {
+                        address: person.address,
+                        name: person.name,
+                    })
+                    .collect()
+            })
+            .map_err(CommandError::from)
+    })
+    .await
+    .map_err(|_| CommandError::new(ErrorCode::Internal, "A background task failed."))?
+}
+
 /// The last thing this account was writing, if it was writing anything.
 #[tauri::command]
 pub async fn latest_draft(

@@ -473,6 +473,51 @@ fn a_hundred_thousand_messages() {
     println!("unread count: {:.2} ms", unread_time.as_secs_f64() * 1000.0);
 }
 
+/// One measurement: what it is, what it costs cold and warm, and what it is allowed.
+///
+/// Both, because they are different questions and a document with one of them answers the
+/// other by accident. Cold is the first time this question is asked of a file the operating
+/// system has not got in memory — somebody opening the application and searching. Warm is
+/// every time after, which is the rest of a session.
+fn said(what: &str, took: (std::time::Duration, std::time::Duration), budget: &str) {
+    let cold = format!("{:?}", took.0);
+    let warm = format!("{:?}", took.1);
+    println!("  {what:<44} {cold:>12} cold  {warm:>12} warm   budget {budget}");
+}
+
+/// How many times each question is asked before one of the answers is kept.
+///
+/// One cold call is not a measurement of this product: the first read of a page pulls it off
+/// the disk and into the operating system's cache, and the second reads it from memory. Two
+/// runs of this tool minutes apart, same machine and same binary, disagreed by up to
+/// thirty-nine times — which makes every figure in response-budgets.md a figure about whether that
+/// page happened to be resident, and none of them about the build.
+const ASKED: usize = 5;
+
+/// What one question costs: the first time it is asked, and the middle of the five after that.
+fn timed(run: &dyn Fn()) -> (std::time::Duration, std::time::Duration) {
+    // The first ask, kept: it is the one a person makes, and the pages it pulls off the disk
+    // are what makes it different from every ask after it.
+    let started = Instant::now();
+    run();
+    let cold = started.elapsed();
+
+    // Then the middle of five. The middle rather than the best, because the best is the run
+    // where the machine happened to be idle; and rather than the mean, because one pause drags
+    // a mean and moves the middle by nothing. Taking one sample of each was what made two runs
+    // of this tool disagree by thirty-nine times.
+    let mut took: Vec<std::time::Duration> = (0..ASKED)
+        .map(|_| {
+            let started = Instant::now();
+            run();
+            started.elapsed()
+        })
+        .collect();
+    took.sort();
+
+    (cold, took[ASKED / 2])
+}
+
 /// How much of this build is measured rather than believed, at a size somebody chooses.
 ///
 /// The size to design against is fifty to a hundred accounts of a hundred thousand messages
@@ -503,50 +548,6 @@ fn what_this_build_costs() {
     let seeding = seed(&workspace, passes);
     let stored = workspace.count("SELECT count(*) FROM messages");
     let connection = workspace.pool.get().expect("connection");
-
-    /// One measurement: what it is, what it costs cold and warm, and what it is allowed.
-    ///
-    /// Both, because they are different questions and a document with one of them answers the
-    /// other by accident. Cold is the first time this question is asked of a file the operating
-    /// system has not got in memory — somebody opening the application and searching. Warm is
-    /// every time after, which is the rest of a session.
-    fn said(what: &str, took: (std::time::Duration, std::time::Duration), budget: &str) {
-        let cold = format!("{:?}", took.0);
-        let warm = format!("{:?}", took.1);
-        println!("  {what:<44} {cold:>12} cold  {warm:>12} warm   budget {budget}");
-    }
-
-    /// How many times each question is asked before one of the answers is kept.
-    ///
-    /// One cold call is not a measurement of this product: the first read of a page pulls it off
-    /// the disk and into the operating system's cache, and the second reads it from memory. Two
-    /// runs of this tool minutes apart, same machine and same binary, disagreed by up to
-    /// thirty-nine times — which makes every figure in response-budgets.md a figure about whether that
-    /// page happened to be resident, and none of them about the build.
-    const ASKED: usize = 5;
-
-    let timed = |run: &dyn Fn()| {
-        // The first ask, kept: it is the one a person makes, and the pages it pulls off the disk
-        // are what makes it different from every ask after it.
-        let started = Instant::now();
-        run();
-        let cold = started.elapsed();
-
-        // Then the middle of five. The middle rather than the best, because the best is the run
-        // where the machine happened to be idle; and rather than the mean, because one pause drags
-        // a mean and moves the middle by nothing. Taking one sample of each was what made two runs
-        // of this tool disagree by thirty-nine times.
-        let mut took: Vec<std::time::Duration> = (0..ASKED)
-            .map(|_| {
-                let started = Instant::now();
-                run();
-                started.elapsed()
-            })
-            .collect();
-        took.sort();
-
-        (cold, took[ASKED / 2])
-    };
 
     // Through the read model, not a query written beside it. A hand-written one-column read of
     // one table said 0.22 ms for what the list actually does in 222: no join to `messages`, no
@@ -1099,4 +1100,197 @@ fn what_a_list_window_actually_costs() {
         "SELECT count(*) FROM message_placements WHERE folder_id = 1",
     );
     measure("epoch", "SELECT view_epoch FROM folders WHERE id = 1");
+}
+
+/// What offering recipients costs as an address is typed: gathering the people an account has
+/// written to, which reads every message the account holds, and answering a key from what was
+/// gathered, which reads none.
+///
+/// The inbox holds what `LYONOYL_SCALE_MESSAGES` asks for, from 2,500 people who give their names,
+/// and the folder for sent mail a tenth as many, each to one of 2,000 of them and every third
+/// copied to another: somebody who writes one message for every ten they get.
+///
+///     cargo test --release -p lyonoyl --lib what_offering_recipients_costs -- --ignored --nocapture
+#[test]
+#[ignore = "seeds a large mailbox; started explicitly"]
+fn what_offering_recipients_costs() {
+    use crate::read_model::correspondents::Correspondents;
+    use lyonoyl_domain::correspondent::MOST_OFFERED;
+    use lyonoyl_domain::message::{Flags, Rfc822MessageId};
+    use lyonoyl_domain::sync::{
+        ArrivedMessage, FolderDelta, MessageEnvelope, SyncBatch, SyncCursor, SyncScope,
+    };
+
+    const PEOPLE_WRITTEN_TO: u32 = 2_000;
+    const PEOPLE_WRITING: u32 = 2_500;
+
+    let wanted: u32 = std::env::var("LYONOYL_SCALE_MESSAGES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(100_000);
+    let sent_count = wanted / 10;
+
+    let workspace = Workspace::new("recipients");
+    workspace
+        .pool
+        .get()
+        .expect("connection")
+        .execute(
+            "INSERT INTO folders (id, account_id, name, role) VALUES (2, 1, 'Sent', 2)",
+            [],
+        )
+        .expect("a folder for sent mail");
+
+    // Who each sent message went to: one of the people written to, and every third one copied to
+    // the person seven along.
+    let to_of = |uid: u32| uid % PEOPLE_WRITTEN_TO;
+    let cc_of = |uid: u32| {
+        uid.is_multiple_of(3)
+            .then(|| (to_of(uid) + 7) % PEOPLE_WRITTEN_TO)
+    };
+    let address_of = |person: u32| format!("person{person}@fake.invalid");
+
+    let envelope = |uid: u32, sent: bool| -> MessageEnvelope {
+        let writer = uid % PEOPLE_WRITING;
+        MessageEnvelope {
+            rfc822_message_id: Some(
+                Rfc822MessageId::parse(&format!(
+                    "<{}{uid}@fake.invalid>",
+                    if sent { "sent" } else { "got" }
+                ))
+                .expect("well formed"),
+            ),
+            subject: Some(format!("Message {uid}")),
+            sender: Some(if sent {
+                "User".to_owned()
+            } else {
+                format!("Person {writer}")
+            }),
+            sender_address: Some(if sent {
+                "user@fake.invalid".to_owned()
+            } else {
+                address_of(writer)
+            }),
+            to: vec![if sent {
+                address_of(to_of(uid))
+            } else {
+                "user@fake.invalid".to_owned()
+            }],
+            cc: if sent {
+                cc_of(uid).map(address_of).into_iter().collect()
+            } else {
+                Vec::new()
+            },
+            received_at: 1_700_000_000 + i64::from(uid),
+            rfc822_size: Some(2048),
+            preview: Some(format!(
+                "Generated for measuring. This one is number {uid}, and it runs on for a line or \
+                 two the way the opening of a real message would."
+            )),
+            references: Vec::new(),
+            flags: Flags::SEEN,
+        }
+    };
+
+    let fill = |folder: u64, count: u32, sent: bool| {
+        let folder_id = FolderId::new(folder).expect("non-zero");
+        for pass in 0..count.div_ceil(BATCH) {
+            let first = pass * BATCH + 1;
+            let last = (first + BATCH - 1).min(count);
+            let provider = ScriptedProvider::new(vec![Ok(SyncBatch {
+                scope: SyncScope::Mailbox,
+                cursor_before: (pass > 0).then(|| SyncCursor::new(format!("{}", first - 1))),
+                cursor_after: SyncCursor::new(format!("{last}")),
+                per_mailbox: vec![FolderDelta {
+                    folder_id,
+                    uid_validity: generation(7),
+                    covered_from: Uid::new(first).ok(),
+                    stopped_short: false,
+                    arrived: (first..=last)
+                        .map(|uid| ArrivedMessage {
+                            uid: Uid::new(uid).expect("non-zero"),
+                            modseq: None,
+                            envelope: envelope(uid, sent),
+                        })
+                        .collect(),
+                    flag_updates: Vec::new(),
+                    vanished: VanishedReport::Unknown,
+                }],
+            })]);
+            SyncFolder::new(provider, workspace.index())
+                .execute(folder_id)
+                .expect("the pass applies");
+        }
+    };
+    let started = Instant::now();
+    fill(1, wanted, false);
+    fill(2, sent_count, true);
+    let seeding = started.elapsed();
+    let stored = workspace.count("SELECT count(*) FROM messages");
+
+    // A keeper of its own for every ask, so every ask gathers: the first key after mail arrived.
+    let gathering = timed(&|| {
+        Correspondents::default()
+            .offered("acc-1", &workspace.pool, "person1")
+            .expect("readable");
+    });
+
+    // One keeper, filled once: every key after the first.
+    let kept = Correspondents::default();
+    let answered = kept
+        .offered("acc-1", &workspace.pool, "person1")
+        .expect("readable");
+    let a_key = timed(&|| {
+        kept.offered("acc-1", &workspace.pool, "person1")
+            .expect("readable");
+    });
+    // A letter inside every address and every name, which is found in each and begins none.
+    let one_letter = timed(&|| {
+        kept.offered("acc-1", &workspace.pool, "e")
+            .expect("readable");
+    });
+
+    // Beside a fast answer, the right one, found by walking what was sent rather than by asking
+    // the index: how often and how lately each person was written to, the most first.
+    let mut tally: std::collections::HashMap<u32, (u32, u32)> = Default::default();
+    for uid in 1..=sent_count {
+        for person in std::iter::once(to_of(uid)).chain(cc_of(uid)) {
+            let entry = tally.entry(person).or_default();
+            entry.0 += 1;
+            entry.1 = entry.1.max(uid);
+        }
+    }
+    let mut expected: Vec<(u32, (u32, u32))> = tally
+        .into_iter()
+        .filter(|(person, _)| address_of(*person).contains("person1"))
+        .collect();
+    expected.sort_by(|(one, a), (other, b)| {
+        b.0.cmp(&a.0)
+            .then(b.1.cmp(&a.1))
+            .then_with(|| address_of(*one).cmp(&address_of(*other)))
+    });
+    let expected: Vec<(String, Option<String>)> = expected
+        .into_iter()
+        .take(MOST_OFFERED)
+        .map(|(person, _)| (address_of(person), Some(format!("Person {person}"))))
+        .collect();
+    let answered: Vec<(String, Option<String>)> = answered
+        .into_iter()
+        .map(|person| (person.address, person.name))
+        .collect();
+    assert_eq!(answered, expected, "the answer is fast and wrong");
+
+    println!();
+    println!("{stored} messages, {sent_count} of them sent, seeded in {seeding:?}");
+    said(
+        "a key that gathers what was written",
+        gathering,
+        "≤120 ms, as a first search",
+    );
+    said("a key answered from what was kept", a_key, "≤16 ms");
+    said(
+        "one letter answered from what was kept",
+        one_letter,
+        "≤16 ms",
+    );
 }

@@ -46,3 +46,52 @@ export function everyOneAnAddress(written: string): boolean {
 
   return found.length > 0 && found.every(looksLikeAnAddress);
 }
+
+/** The address being typed on a line of addresses: where it lies, and what of it is typed so far. */
+export interface BeingTyped {
+  /** Where it starts: after the comma before the caret, and after the spaces past that comma. */
+  start: number;
+  /** Where it ends: at the next comma, or at the end of the line. */
+  end: number;
+  /** What is written of it before the caret. */
+  typed: string;
+}
+
+/**
+ * The address the caret stands in, on a line where commas part one address from the next.
+ *
+ * The same rule `addressesIn` splits by, so what is offered for and what is sent read one line the
+ * same way.
+ */
+export function beingTyped(written: string, caret: number): BeingTyped {
+  const at = Math.max(0, Math.min(caret, written.length));
+  let start = written.slice(0, at).lastIndexOf(",") + 1;
+  while (start < at && /\s/.test(written[start] ?? "")) start += 1;
+  const comma = written.indexOf(",", at);
+  const end = comma === -1 ? written.length : comma;
+
+  return { start, end, typed: written.slice(start, at) };
+}
+
+/**
+ * The line with a chosen address in place of the one being typed, and where the caret goes.
+ *
+ * All of the address being typed goes, what follows the caret up to the next comma included, and
+ * every other address stays as it was. At the end of the line a comma and a space follow the
+ * chosen one, so the next can be typed straight away.
+ */
+export function withChosen(
+  written: string,
+  caret: number,
+  chosen: string,
+): { written: string; caret: number } {
+  const { start, end } = beingTyped(written, caret);
+  const before = written.slice(0, start);
+  const after = written.slice(end);
+  const parted = after === "" ? ", " : "";
+
+  return {
+    written: before + chosen + parted + after,
+    caret: before.length + chosen.length + parted.length,
+  };
+}

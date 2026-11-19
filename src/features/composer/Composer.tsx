@@ -35,6 +35,7 @@ import { linksIn } from "@/shared/ui/links";
 
 import { addressesIn, everyOneAnAddress } from "./addresses";
 import { ForwardedOriginal } from "./ForwardedOriginal";
+import { RecipientsField } from "./RecipientsField";
 
 /** Where the message is in its life, from the writer's side. */
 type Writing =
@@ -763,16 +764,16 @@ export function Composer({
       )}
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="compose-to">{t("compose.to")}</Label>
-        <Input
+        <Label id="compose-to-label" htmlFor="compose-to">
+          {t("compose.to")}
+        </Label>
+        <RecipientsField
           id="compose-to"
-          dir="ltr"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
+          labelId="compose-to-label"
+          accountId={from}
           disabled={frozen}
           value={to}
-          onChange={(event) => setTo(event.target.value)}
+          onChange={setTo}
         />
       </div>
 
@@ -780,7 +781,9 @@ export function Composer({
         <>
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between gap-2">
-              <Label htmlFor="compose-cc">{t("compose.cc")}</Label>
+              <Label id="compose-cc-label" htmlFor="compose-cc">
+                {t("compose.cc")}
+              </Label>
               {/* A way back out. Two fields that appear on a press and cannot be put away again
                   are two empty fields in every message somebody wrote after pressing it once. */}
               <PointerHint label={t("compose.dropCopies")}>
@@ -803,29 +806,27 @@ export function Composer({
               </Button>
               </PointerHint>
             </div>
-            <Input
+            <RecipientsField
               id="compose-cc"
-              dir="ltr"
+              labelId="compose-cc-label"
+              accountId={from}
               autoFocus={askedForCopies.current}
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
               disabled={frozen}
               value={cc}
-              onChange={(event) => setCc(event.target.value)}
+              onChange={setCc}
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="compose-bcc">{t("compose.bcc")}</Label>
-            <Input
+            <Label id="compose-bcc-label" htmlFor="compose-bcc">
+              {t("compose.bcc")}
+            </Label>
+            <RecipientsField
               id="compose-bcc"
-              dir="ltr"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
+              labelId="compose-bcc-label"
+              accountId={from}
               disabled={frozen}
               value={bcc}
-              onChange={(event) => setBcc(event.target.value)}
+              onChange={setBcc}
             />
             <p className="text-xs text-muted-foreground">
               {t("compose.bccHint")}

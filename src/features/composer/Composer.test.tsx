@@ -33,6 +33,7 @@ vi.mock("@/shared/ipc/client", async () => {
     openOriginalBody: vi.fn(),
     closeMessageBody: vi.fn(),
     onMessageLink: vi.fn(),
+    suggestRecipients: vi.fn(),
   };
 });
 
@@ -49,6 +50,7 @@ const {
   openOriginalBody,
   closeMessageBody,
   onMessageLink,
+  suggestRecipients,
 } = await import("@/shared/ipc/client");
 const sending = vi.mocked(sendMessage);
 const keeping = vi.mocked(keepDraft);
@@ -62,6 +64,7 @@ const forgetting = vi.mocked(forgetNotedDraft);
 const drawing = vi.mocked(openOriginalBody);
 const closingBody = vi.mocked(closeMessageBody);
 const listening = vi.mocked(onMessageLink);
+const offering = vi.mocked(suggestRecipients);
 /** The name a composer goes by in the core: made at random as it opens, for nobody to predict. */
 const A_COMPOSER = expect.stringMatching(/^[0-9a-f]{32}$/);
 
@@ -170,6 +173,8 @@ beforeEach(() => {
   closingBody.mockResolvedValue(undefined);
   listening.mockReset();
   listening.mockResolvedValue(() => {});
+  offering.mockReset();
+  offering.mockResolvedValue([]);
 });
 
 describe("writing a message", () => {
@@ -304,6 +309,42 @@ describe("writing a message", () => {
         (option) => option.getAttribute("dir"),
       ),
     ).toEqual(["auto", "auto"]);
+  });
+
+  it("offers the people written to from the account chosen to send from, in every line of addresses", async () => {
+    offering.mockResolvedValue([
+      { address: "kappa@example.net", name: "Kappa Vandel" },
+    ]);
+    renderComposer([
+      account("acc-2", "zeta@example.com", true),
+      account("acc-3", "work@example.com", true),
+    ]);
+
+    type(/^To$/, "kap");
+    await waitFor(() =>
+      expect(screen.getByRole("listbox", { name: "To" })).toBeTruthy(),
+    );
+    expect(offering).toHaveBeenLastCalledWith("acc-2", "kap");
+    // The list is named by the line's label as well, so the line is the one that takes typing.
+    const to = screen.getByRole("combobox", { name: "To" }) as HTMLInputElement;
+    fireEvent.keyDown(to, { key: "Enter" });
+    expect(to.value).toBe("kappa@example.net, ");
+
+    fireEvent.change(screen.getByLabelText(/^From$/), {
+      target: { value: "acc-3" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add copies" }));
+    type(/^Copy to$/, "kap");
+    await waitFor(() =>
+      expect(screen.getByRole("listbox", { name: "Copy to" })).toBeTruthy(),
+    );
+    expect(offering).toHaveBeenLastCalledWith("acc-3", "kap");
+    type(/^Blind copy to$/, "kap");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("listbox", { name: "Blind copy to" }),
+      ).toBeTruthy(),
+    );
   });
 
   it("says so rather than offering a form nobody can send from", () => {
