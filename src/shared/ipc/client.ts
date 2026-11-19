@@ -459,6 +459,17 @@ export function syncAccount(accountId: string): Promise<SyncReportDto> {
   return invoke<SyncReportDto>("sync_account", { accountId });
 }
 
+/**
+ * Keeps what a mailbox puts at the foot of the messages written from it, and answers with it as
+ * kept: on lines of its own, without blank lines before it or spaces after it. Empty is none.
+ */
+export function setSignature(
+  accountId: string,
+  signature: string,
+): Promise<string> {
+  return invoke<string>("set_signature", { accountId, signature });
+}
+
 /** Folds an account's folders away, or brings them back. Remembered with the account. */
 export function setAccountCollapsed(
   accountId: string,

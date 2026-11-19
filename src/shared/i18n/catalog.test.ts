@@ -146,6 +146,7 @@ const SAME_AS_ENGLISH: Readonly<Record<string, readonly string[]>> = {
   fr: [
     "account.port",
     "compose.body",
+    "compose.signature",
     "list.label",
     "reading.asSource",
     "settings.licences",

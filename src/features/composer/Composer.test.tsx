@@ -34,6 +34,7 @@ vi.mock("@/shared/ipc/client", async () => {
     closeMessageBody: vi.fn(),
     onMessageLink: vi.fn(),
     suggestRecipients: vi.fn(),
+    setSignature: vi.fn(),
   };
 });
 
@@ -51,6 +52,7 @@ const {
   closeMessageBody,
   onMessageLink,
   suggestRecipients,
+  setSignature,
 } = await import("@/shared/ipc/client");
 const sending = vi.mocked(sendMessage);
 const keeping = vi.mocked(keepDraft);
@@ -65,6 +67,7 @@ const drawing = vi.mocked(openOriginalBody);
 const closingBody = vi.mocked(closeMessageBody);
 const listening = vi.mocked(onMessageLink);
 const offering = vi.mocked(suggestRecipients);
+const keepingSignature = vi.mocked(setSignature);
 /** The name a composer goes by in the core: made at random as it opens, for nobody to predict. */
 const A_COMPOSER = expect.stringMatching(/^[0-9a-f]{32}$/);
 
@@ -87,10 +90,11 @@ function renderComposer(accounts: MailAccountSummaryDto[], answer?: Answer) {
   const onWritten = vi.fn();
   const onCancel = vi.fn();
   const onKept = vi.fn();
+  const onSignatureKept = vi.fn();
   const leave: { current: ((then?: () => void) => void) | null } = {
     current: null,
   };
-  const shown = (answer?: Answer) => (
+  const shown = (answer?: Answer, held = accounts) => (
     <I18nProvider initial="en">
       <ScreenPane
         paneRef={{ current: null }}
@@ -98,11 +102,12 @@ function renderComposer(accounts: MailAccountSummaryDto[], answer?: Answer) {
         onClose={() => leave.current?.()}
       >
         <Composer
-          accounts={accounts}
+          accounts={held}
           answer={answer}
           onWritten={onWritten}
           onCancel={onCancel}
           onKept={onKept}
+          onSignatureKept={onSignatureKept}
           leaveRef={leave}
         />
       </ScreenPane>
@@ -114,9 +119,21 @@ function renderComposer(accounts: MailAccountSummaryDto[], answer?: Answer) {
    * alike: the compose button pressed over a draft with no address and no subject, say.
    */
   const handedAnother = (next: Answer) => rerender(shown(next));
+  /** The same window told of the mailboxes again, as it is when a signature is saved elsewhere. */
+  const withAccounts = (next: MailAccountSummaryDto[]) =>
+    rerender(shown(answer, next));
   /** The way out as the screen takes it to open another message in this one's place. */
   const leaveFor = (then: () => void) => act(() => leave.current?.(then));
-  return { onWritten, onCancel, onKept, unmount, handedAnother, leaveFor };
+  return {
+    onWritten,
+    onCancel,
+    onKept,
+    onSignatureKept,
+    unmount,
+    handedAnother,
+    withAccounts,
+    leaveFor,
+  };
 }
 
 function type(label: RegExp, value: string) {
@@ -175,6 +192,8 @@ beforeEach(() => {
   listening.mockResolvedValue(() => {});
   offering.mockReset();
   offering.mockResolvedValue([]);
+  keepingSignature.mockReset();
+  keepingSignature.mockImplementation(async (_account, typed) => typed.trim());
 });
 
 describe("writing a message", () => {
@@ -2691,5 +2710,365 @@ describe("Composer, what the core holds for when the application ends", () => {
     unmount();
 
     expect(forgetting).toHaveBeenCalledWith(named);
+  });
+});
+
+describe("signing a message", () => {
+  function signing(
+    id: string,
+    email: string,
+    signature: string,
+  ): MailAccountSummaryDto {
+    return { ...account(id, email, true), signature };
+  }
+
+  const ZETA = "Zeta Quorin\nzeta@example.com";
+  const SIGMA = "Sigma Ordrin";
+  const body = () => screen.getByLabelText(/^Message$/) as HTMLTextAreaElement;
+
+  it("opens a new message signed under the room to write, with the caret going above the signature", () => {
+    renderComposer([signing("acc-1", "zeta@example.com", ZETA)]);
+
+    expect(body().value).toBe("\n\n-- \nZeta Quorin\nzeta@example.com");
+
+    // Wherever the engine left it as the text arrived, the way in is at the top.
+    body().setSelectionRange(body().value.length, body().value.length);
+    act(() => body().focus());
+
+    expect([body().selectionStart, body().selectionEnd]).toEqual([0, 0]);
+  });
+
+  it("goes without a word and keeps nothing when the signature is all there is", async () => {
+    const { onCancel } = renderComposer([
+      signing("acc-1", "zeta@example.com", ZETA),
+    ]);
+
+    // Past the wait after which what is typed is written down.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    fireEvent.click(screen.getByRole("button", { name: "Close this screen" }));
+
+    await waitFor(() => expect(onCancel).toHaveBeenCalled());
+    expect(keeping).not.toHaveBeenCalled();
+  });
+
+  it("keeps the signature with what is written", async () => {
+    renderComposer([signing("acc-1", "zeta@example.com", ZETA)]);
+
+    type(/^Message$/, `About Tuesday${body().value}`);
+
+    await waitFor(
+      () =>
+        expect(keeping).toHaveBeenCalledWith(
+          "acc-1",
+          null,
+          expect.objectContaining({
+            body: "About Tuesday\n\n-- \nZeta Quorin\nzeta@example.com",
+          }),
+        ),
+      { timeout: 2000 },
+    );
+  });
+
+  it("signs with the mailbox chosen to write from, keeping what was written", () => {
+    renderComposer([
+      signing("acc-1", "zeta@example.com", ZETA),
+      signing("acc-2", "sigma@example.org", SIGMA),
+    ]);
+    type(/^Message$/, `About Tuesday${body().value}`);
+
+    fireEvent.change(screen.getByLabelText(/^From$/), {
+      target: { value: "acc-2" },
+    });
+
+    expect(body().value).toBe("About Tuesday\n\n-- \nSigma Ordrin");
+  });
+
+  it("leaves a signature somebody changed when another mailbox is chosen", () => {
+    renderComposer([
+      signing("acc-1", "zeta@example.com", ZETA),
+      signing("acc-2", "sigma@example.org", SIGMA),
+    ]);
+    type(/^Message$/, "About Tuesday\n\n-- \nZeta");
+
+    fireEvent.change(screen.getByLabelText(/^From$/), {
+      target: { value: "acc-2" },
+    });
+
+    expect(body().value).toBe("About Tuesday\n\n-- \nZeta");
+  });
+
+  it("signs an answer above the message it answers", () => {
+    renderComposer([signing("acc-1", "zeta@example.com", ZETA)], {
+      ...NOTHING_TO_ANSWER,
+      to: "kappa@example.net",
+      subject: "Re: About Tuesday",
+      body: "\n\nKappa Vandel wrote:\n> About Tuesday",
+      fromAccount: "acc-1",
+    });
+
+    expect(body().value).toBe(
+      "\n\n-- \nZeta Quorin\nzeta@example.com\n\nKappa Vandel wrote:\n> About Tuesday",
+    );
+  });
+
+  it("signs nothing again in a draft that comes back", async () => {
+    renderComposer([signing("acc-1", "zeta@example.com", ZETA)], {
+      ...NOTHING_TO_ANSWER,
+      to: "kappa@example.net",
+      body: "About Tuesday\n\n-- \nZeta Quorin\nzeta@example.com",
+      fromAccount: "acc-1",
+      draftId: 7,
+    });
+    await opened();
+
+    expect(body().value).toBe(
+      "About Tuesday\n\n-- \nZeta Quorin\nzeta@example.com",
+    );
+  });
+
+  /** Opens the signature's menu the way a pointer does. */
+  function openSignatures() {
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Signature" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+  }
+
+  it("offers the mailbox's signature or none in this message, and writing it, where the message is written", async () => {
+    renderComposer([signing("acc-1", "zeta@example.com", ZETA)]);
+
+    openSignatures();
+
+    const choices = await screen.findAllByRole("menuitemradio");
+    expect(
+      choices.map((choice) => [
+        choice.textContent,
+        choice.getAttribute("aria-checked"),
+      ]),
+    ).toEqual([
+      ["Zeta Quorin", "true"],
+      ["No signature", "false"],
+    ]);
+    expect(
+      screen.getByRole("menuitem", { name: "Edit signature…" }),
+    ).toBeTruthy();
+  });
+
+  it("takes the signature out of this message alone, and puts it back", async () => {
+    renderComposer([signing("acc-1", "zeta@example.com", ZETA)]);
+    type(/^Message$/, `About Tuesday${body().value}`);
+
+    openSignatures();
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "No signature" }),
+    );
+
+    expect(body().value).toBe("About Tuesday");
+    expect(keepingSignature).not.toHaveBeenCalled();
+
+    openSignatures();
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Zeta Quorin" }),
+    );
+
+    expect(body().value).toBe(
+      "About Tuesday\n\n-- \nZeta Quorin\nzeta@example.com",
+    );
+  });
+
+  it("writes a signature for a mailbox that has none, and signs the message with it", async () => {
+    const { onSignatureKept } = renderComposer([
+      account("acc-1", "zeta@example.com", true),
+    ]);
+    type(/^Message$/, "About Tuesday");
+
+    openSignatures();
+    expect(await screen.findAllByRole("menuitem")).toHaveLength(1);
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Add signature…" }),
+    );
+    const field = await screen.findByRole("textbox", {
+      name: "Signature for zeta@example.com",
+    });
+    fireEvent.change(field, { target: { value: "Zeta Quorin " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(keepingSignature).toHaveBeenCalledWith("acc-1", "Zeta Quorin ");
+    expect(onSignatureKept).toHaveBeenCalledWith("acc-1", "Zeta Quorin");
+    expect(body().value).toBe("About Tuesday\n\n-- \nZeta Quorin");
+  });
+
+  it("changes the signature for the mailbox and in the message at once", async () => {
+    const { onSignatureKept } = renderComposer([
+      signing("acc-1", "zeta@example.com", ZETA),
+    ]);
+    type(/^Message$/, `About Tuesday${body().value}`);
+
+    openSignatures();
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Edit signature…" }),
+    );
+    const field = (await screen.findByRole("textbox", {
+      name: "Signature for zeta@example.com",
+    })) as HTMLTextAreaElement;
+    // The caret at the end of what is there, which a key pressed would otherwise have replaced.
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    expect([field.selectionStart, field.selectionEnd]).toEqual([
+      ZETA.length,
+      ZETA.length,
+    ]);
+    fireEvent.change(field, { target: { value: "Zeta Q." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(onSignatureKept).toHaveBeenCalledWith("acc-1", "Zeta Q.");
+    expect(body().value).toBe("About Tuesday\n\n-- \nZeta Q.");
+  });
+
+  it("says so when the signature could not be saved, and keeps what was typed", async () => {
+    keepingSignature.mockRejectedValueOnce({
+      code: "storageUnavailable",
+      message: "",
+      path: null,
+    });
+    const { onSignatureKept } = renderComposer([
+      signing("acc-1", "zeta@example.com", ZETA),
+    ]);
+    const opened = body().value;
+
+    openSignatures();
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Edit signature…" }),
+    );
+    const field = await screen.findByRole("textbox", {
+      name: "Signature for zeta@example.com",
+    });
+    fireEvent.change(field, { target: { value: "Zeta Q." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "The signature could not be saved",
+    );
+    expect((field as HTMLTextAreaElement).value).toBe("Zeta Q.");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(onSignatureKept).not.toHaveBeenCalled();
+    expect(body().value).toBe(opened);
+  });
+
+  it("leaves the signature and the message as they were when the panel is left unsaved", async () => {
+    renderComposer([signing("acc-1", "zeta@example.com", ZETA)]);
+    const opened = body().value;
+
+    openSignatures();
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Edit signature…" }),
+    );
+    const field = await screen.findByRole("textbox", {
+      name: "Signature for zeta@example.com",
+    });
+    fireEvent.change(field, { target: { value: "Zeta Q." } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(keepingSignature).not.toHaveBeenCalled();
+    expect(body().value).toBe(opened);
+  });
+
+  it("asks the core nothing when the signature is saved as it was", async () => {
+    renderComposer([signing("acc-1", "zeta@example.com", ZETA)]);
+
+    openSignatures();
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Edit signature…" }),
+    );
+    await screen.findByRole("textbox", {
+      name: "Signature for zeta@example.com",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(keepingSignature).not.toHaveBeenCalled();
+  });
+
+  it("keeps a message nobody wrote in unwritten when its signature changes in the settings meanwhile", async () => {
+    const { onCancel, withAccounts } = renderComposer([
+      signing("acc-1", "zeta@example.com", ZETA),
+    ]);
+
+    withAccounts([signing("acc-1", "zeta@example.com", "Zeta Q.")]);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    fireEvent.click(screen.getByRole("button", { name: "Close this screen" }));
+
+    await waitFor(() => expect(onCancel).toHaveBeenCalled());
+    expect(keeping).not.toHaveBeenCalled();
+  });
+
+  it("swaps the signature the message carries when the mailbox changes, though the settings changed it meanwhile", () => {
+    const { withAccounts } = renderComposer([
+      signing("acc-1", "zeta@example.com", ZETA),
+      signing("acc-2", "sigma@example.org", SIGMA),
+    ]);
+    withAccounts([
+      signing("acc-1", "zeta@example.com", "Zeta Q."),
+      signing("acc-2", "sigma@example.org", SIGMA),
+    ]);
+
+    fireEvent.change(screen.getByLabelText(/^From$/), {
+      target: { value: "acc-2" },
+    });
+
+    expect(body().value).toBe("\n\n-- \nSigma Ordrin");
+  });
+
+  it("offers no choice for a signature changed by hand, and still offers to write it", async () => {
+    renderComposer([signing("acc-1", "zeta@example.com", ZETA)]);
+    type(/^Message$/, "About Tuesday\n\n-- \nZeta");
+
+    openSignatures();
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Edit signature…" }),
+    ).toBeTruthy();
+    expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
+  });
+
+  it("leaves a message sent without a signature unsigned when the signature is saved from it", async () => {
+    const { onSignatureKept } = renderComposer([
+      signing("acc-1", "zeta@example.com", ZETA),
+    ]);
+    type(/^Message$/, `About Tuesday${body().value}`);
+    openSignatures();
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "No signature" }),
+    );
+
+    openSignatures();
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Edit signature…" }),
+    );
+    const field = await screen.findByRole("textbox", {
+      name: "Signature for zeta@example.com",
+    });
+    fireEvent.change(field, { target: { value: "Zeta Q." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(onSignatureKept).toHaveBeenCalledWith("acc-1", "Zeta Q."),
+    );
+    expect(body().value).toBe("About Tuesday");
+  });
+
+  it("offers no signature to choose in a draft that comes back", async () => {
+    renderComposer([signing("acc-1", "zeta@example.com", ZETA)], {
+      ...NOTHING_TO_ANSWER,
+      to: "kappa@example.net",
+      body: "About Tuesday",
+      fromAccount: "acc-1",
+      draftId: 7,
+    });
+    await opened();
+
+    expect(screen.queryByRole("button", { name: "Signature" })).toBeNull();
   });
 });

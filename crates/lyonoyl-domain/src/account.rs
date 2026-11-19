@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::error::DomainError;
+use crate::signature::Signature;
 
 /// How the connection to a mail server is protected.
 ///
@@ -98,6 +99,7 @@ pub struct MailAccountSummary {
     email: String,
     display_name: String,
     provider: String,
+    signature: Signature,
 }
 
 impl MailAccountSummary {
@@ -134,7 +136,13 @@ impl MailAccountSummary {
             email: trimmed.to_owned(),
             display_name,
             provider,
+            signature: Signature::default(),
         })
+    }
+
+    /// The same account, with what its mailbox puts at the foot of the messages written from it.
+    pub fn with_signature(self, signature: Signature) -> Self {
+        Self { signature, ..self }
     }
 
     pub fn id(&self) -> &str {
@@ -151,6 +159,10 @@ impl MailAccountSummary {
 
     pub fn provider(&self) -> &str {
         &self.provider
+    }
+
+    pub fn signature(&self) -> &Signature {
+        &self.signature
     }
 }
 

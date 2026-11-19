@@ -170,6 +170,7 @@ function renderSettings(
   const opened = vi.fn();
   const rearranged = vi.fn();
   const closed = vi.fn();
+  const signed = vi.fn();
   render(
     <I18nProvider initial="en">
       {/* In the pane it ships in: the way out of this screen is the pane's cross, and what that
@@ -184,12 +185,13 @@ function renderSettings(
           onChanged={changed}
           accounts={accounts}
           onOpenAccount={opened}
+          onSignatureKept={signed}
           onArrangementChanged={rearranged}
         />
       </ScreenPane>
     </I18nProvider>,
   );
-  return { changed, opened, rearranged, closed };
+  return { changed, opened, rearranged, closed, signed };
 }
 
 /** Opens a dropdown list the way a pointer does, and hands back the list it opened. */
@@ -959,6 +961,7 @@ describe("SettingsScreen, arranging mailboxes into groups", () => {
             onChanged={vi.fn()}
             accounts={[]}
             onOpenAccount={vi.fn()}
+            onSignatureKept={vi.fn()}
             arrangedElsewhere={madeInTheSidebar}
           />
         </ScreenPane>

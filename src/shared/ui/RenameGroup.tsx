@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "@/shared/i18n";
 import { GroupNameField } from "@/shared/ui/GroupNameField";
 import { GroupNotSaved } from "@/shared/ui/GroupNotSaved";
-import { GroupPanel } from "@/shared/ui/GroupPanel";
+import { Panel } from "@/shared/ui/Panel";
 import { useOneAnswer } from "@/shared/ui/useOneAnswer";
 import { Button } from "@/shared/ui/primitives/button";
 
@@ -28,7 +28,7 @@ export function RenameGroup({
   const ready = typed.trim() !== "" && !busy;
 
   return (
-    <GroupPanel
+    <Panel
       title={t("group.renameTitle")}
       onCancel={onClose}
       onSubmit={() => {
@@ -54,6 +54,6 @@ export function RenameGroup({
           {t("group.renameCancel")}
         </Button>
       </div>
-    </GroupPanel>
+    </Panel>
   );
 }

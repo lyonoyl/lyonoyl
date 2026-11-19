@@ -2,9 +2,11 @@ use rusqlite::{OptionalExtension, TransactionBehavior};
 
 use crate::infrastructure::sqlite::connection::SqlitePool;
 use crate::ports::account_repository::{AccountRepository, AccountRepositoryError};
+use crate::ports::signatures::Signatures;
 use lyonoyl_domain::account::{
     Encryption, MailAccount, MailAccountSummary, ServerSettings, Submission,
 };
+use lyonoyl_domain::signature::Signature;
 
 /// SQLite-backed implementation of [`AccountRepository`].
 ///
@@ -76,7 +78,7 @@ impl AccountRepository for SqliteAccountRepository {
 
         let mut statement = connection
             .prepare(
-                "SELECT id, email, display_name, provider
+                "SELECT id, email, display_name, provider, signature
                  FROM mail_accounts
                  ORDER BY created_at ASC, id ASC",
             )
@@ -91,16 +93,20 @@ impl AccountRepository for SqliteAccountRepository {
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
                 ))
             })
             .map_err(|_| AccountRepositoryError::Unavailable)?;
 
         let mut accounts = Vec::new();
         for row in rows {
-            let (id, email, display_name, provider) =
+            let (id, email, display_name, provider, signature) =
                 row.map_err(|_| AccountRepositoryError::Unavailable)?;
             let account = MailAccountSummary::new(id, email, display_name, provider)
-                .map_err(|_| AccountRepositoryError::Corrupted)?;
+                .map_err(|_| AccountRepositoryError::Corrupted)?
+                // A signature this build would not keep, written by another version that allowed
+                // a longer one, is read as none rather than costing the whole list of mailboxes.
+                .with_signature(Signature::new(&signature).unwrap_or_default());
             accounts.push(account);
         }
         Ok(accounts)
@@ -228,6 +234,24 @@ impl AccountRepository for SqliteAccountRepository {
             .map_err(|_| AccountRepositoryError::Unavailable)?
             .execute("DELETE FROM mail_accounts WHERE id = ?1", [account_id])
             .map(|_| ())
+            .map_err(|_| AccountRepositoryError::Unavailable)
+    }
+}
+
+impl Signatures for SqliteAccountRepository {
+    fn set_signature(
+        &self,
+        account_id: &str,
+        signature: &Signature,
+    ) -> Result<bool, AccountRepositoryError> {
+        self.pool
+            .get()
+            .map_err(|_| AccountRepositoryError::Unavailable)?
+            .execute(
+                "UPDATE mail_accounts SET signature = ?2 WHERE id = ?1",
+                (account_id, signature.as_str()),
+            )
+            .map(|changed| changed > 0)
             .map_err(|_| AccountRepositoryError::Unavailable)
     }
 }
@@ -782,5 +806,121 @@ mod tests {
                 .submission(),
             None
         );
+    }
+
+    fn signature_of(repository: &SqliteAccountRepository, account_id: &str) -> String {
+        repository
+            .list()
+            .expect("listing succeeds")
+            .into_iter()
+            .find(|account| account.id() == account_id)
+            .expect("the account is here")
+            .signature()
+            .as_str()
+            .to_owned()
+    }
+
+    fn signature(typed: &str) -> Signature {
+        Signature::new(typed).expect("a signature")
+    }
+
+    #[test]
+    fn a_signature_is_kept_for_its_mailbox_and_read_back_with_it() {
+        let db = TempDatabase::new("signature-kept");
+        let repository = SqliteAccountRepository::new(db.pool.clone());
+        repository
+            .save(&account("acc-1", "user@example.com"))
+            .expect("saved");
+        repository
+            .save(&account("acc-2", "other@example.com"))
+            .expect("saved");
+
+        let here = repository
+            .set_signature("acc-2", &signature("Kappa Vandel\nkappa@example.net"))
+            .expect("stored");
+
+        assert!(here);
+        assert_eq!(
+            signature_of(&repository, "acc-2"),
+            "Kappa Vandel\nkappa@example.net"
+        );
+        assert_eq!(signature_of(&repository, "acc-1"), "");
+    }
+
+    #[test]
+    fn an_empty_signature_takes_the_one_kept_away() {
+        let db = TempDatabase::new("signature-taken-away");
+        let repository = SqliteAccountRepository::new(db.pool.clone());
+        repository
+            .save(&account("acc-1", "user@example.com"))
+            .expect("saved");
+        repository
+            .set_signature("acc-1", &signature("Kappa Vandel"))
+            .expect("stored");
+
+        repository
+            .set_signature("acc-1", &Signature::default())
+            .expect("stored");
+
+        assert_eq!(signature_of(&repository, "acc-1"), "");
+    }
+
+    #[test]
+    fn saving_an_account_again_keeps_its_signature() {
+        // The account form writes the servers again, and the signature is not on it.
+        let db = TempDatabase::new("signature-survives-a-save");
+        let repository = SqliteAccountRepository::new(db.pool.clone());
+        repository
+            .save(&account("acc-1", "user@example.com"))
+            .expect("saved");
+        repository
+            .set_signature("acc-1", &signature("Kappa Vandel"))
+            .expect("stored");
+
+        repository
+            .save(&account("acc-1", "user@example.com"))
+            .expect("saved again");
+
+        assert_eq!(signature_of(&repository, "acc-1"), "Kappa Vandel");
+    }
+
+    #[test]
+    fn a_signature_for_a_mailbox_that_is_not_here_is_kept_for_nobody() {
+        let db = TempDatabase::new("signature-for-nobody");
+        let repository = SqliteAccountRepository::new(db.pool.clone());
+        repository
+            .save(&account("acc-1", "user@example.com"))
+            .expect("saved");
+
+        let here = repository
+            .set_signature("acc-9", &signature("Kappa Vandel"))
+            .expect("asked");
+
+        assert!(!here);
+        assert_eq!(signature_of(&repository, "acc-1"), "");
+        assert_eq!(repository.list().expect("listing succeeds").len(), 1);
+    }
+
+    #[test]
+    fn a_signature_longer_than_this_build_keeps_is_read_as_none_and_the_mailbox_still_is() {
+        let db = TempDatabase::new("signature-too-long");
+        let repository = SqliteAccountRepository::new(db.pool.clone());
+        repository
+            .save(&account("acc-1", "user@example.com"))
+            .expect("saved");
+        db.pool
+            .get()
+            .expect("connection")
+            .execute(
+                "UPDATE mail_accounts SET signature = ?1 WHERE id = 'acc-1'",
+                ["k".repeat(lyonoyl_domain::signature::LONGEST_SIGNATURE + 1)],
+            )
+            .expect("written as another version would");
+
+        let listed = repository.list().expect("listing succeeds");
+
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].email(), "user@example.com");
+        assert!(listed[0].signature().is_empty());
     }
 }

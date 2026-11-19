@@ -42,6 +42,7 @@ import { StorageRecovery, startTheWindowAgain } from "@/app/StorageRecovery";
 import { Keys } from "@/app/Keys";
 import { MenuUndo } from "@/app/MenuUndo";
 import { EmptyWorkspace } from "@/app/EmptyWorkspace";
+import { signedAs, withAccount } from "@/entities/account";
 import { useReadChanges } from "@/features/mailbox-tree/useReadChanges";
 import { WhatChanged } from "@/features/updates/WhatChanged";
 import type { WhatChangedDto } from "@/shared/ipc/generated/WhatChangedDto";
@@ -490,6 +491,14 @@ function App() {
     writingNow.current = writing;
   }, [writing]);
 
+  /** A mailbox's signature as the core kept it, into the mailboxes the composer signs from. */
+  const keepSignature = (id: string, signature: string) =>
+    setState((now) =>
+      now.status === "ready"
+        ? { ...now, workspace: signedAs(now.workspace, id, signature) }
+        : now,
+    );
+
   /**
    * Opens the composer on `answer`, for the compose button and its key.
    *
@@ -865,6 +874,7 @@ function App() {
               key={openingKey(writing)}
               accounts={state.workspace.accounts}
               answer={writing}
+              onSignatureKept={keepSignature}
               onCancel={() => {
                 setWriting(null);
                 // Leaving may have left a draft behind, or taken one away. Either way the count
@@ -921,6 +931,7 @@ function App() {
                 setInSettings(false);
                 connectAccount(accountId);
               }}
+              onSignatureKept={keepSignature}
               // The sidebar is drawn beside this screen rather than under it, so an arrangement
               // changed here has to reach it — otherwise a group made in the settings appears only
               // after a restart.
@@ -977,19 +988,7 @@ function App() {
                 // the sidebar twice.
                 setState((current) =>
                   current.status === "ready"
-                    ? {
-                        status: "ready",
-                        workspace: {
-                          ...current.workspace,
-                          accounts: current.workspace.accounts.some(
-                            (one) => one.id === account.id,
-                          )
-                            ? current.workspace.accounts.map((one) =>
-                                one.id === account.id ? account : one,
-                              )
-                            : [...current.workspace.accounts, account],
-                        },
-                      }
+                    ? { ...current, workspace: withAccount(current.workspace, account) }
                     : current,
                 );
                 setListGeneration((generation) => generation + 1);

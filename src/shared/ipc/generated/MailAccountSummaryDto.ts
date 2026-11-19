@@ -5,4 +5,8 @@ export type MailAccountSummaryDto = { id: string, email: string, displayName: st
  * Whether a message can be written from it. An account is worth having for reading alone, and
  * one nobody has given a sending server says so rather than swallowing what was written.
  */
-canSend: boolean, };
+canSend: boolean, 
+/**
+ * What the mailbox puts at the foot of the messages written from it, when it has anything.
+ */
+signature?: string, };

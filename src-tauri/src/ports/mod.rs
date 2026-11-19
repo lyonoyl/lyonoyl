@@ -28,4 +28,5 @@ pub mod placement;
 pub mod progress;
 pub mod provider_directory;
 pub mod settings_repository;
+pub mod signatures;
 pub mod updates;
