@@ -8,6 +8,7 @@ pub mod account;
 pub mod account_group;
 pub mod as_asked;
 pub mod attachment;
+pub mod correspondent;
 pub mod error;
 pub mod folder;
 pub mod mailbox_name;

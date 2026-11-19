@@ -476,12 +476,13 @@ fn sorting_from(stored: &str) -> Result<Sorting, AccountGroupError> {
 }
 
 /// Takes the case and the accents off a name, so that a sort by name reads letters rather than the
-/// numbers they are stored as: "école" stands among the names in e, not after every one in z.
+/// numbers they are stored as: "école" stands among the names in e, not after every one in z. The
+/// composer meets what is typed with the people it offers the same way, so "ecole" finds "École".
 ///
 /// Only the marks any alphabet lays over or under a letter are taken off. A vowel sign in
 /// Devanagari or a point in Arabic is part of the letter it sits on, and taking it off would make
 /// two different names one.
-fn folded(name: &str) -> String {
+pub(crate) fn folded(name: &str) -> String {
     icu_normalizer::DecomposingNormalizerBorrowed::new_nfd()
         .normalize(name)
         .chars()

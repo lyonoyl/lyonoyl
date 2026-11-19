@@ -103,6 +103,18 @@ It prints what each interaction cost with the budget beside it, and **fails on n
 
 Cost follows the match set and not the column: finding a phrase one message contains is the cheapest question in this table, because one message is what it has to produce. The text in the index costs the other two nothing measurable.
 
+### Offering recipients
+
+What the composer offers as an address is typed comes from the people an account has written to, gathered from its index and kept until a newer message arrives: gathering reads every message the account holds, for the names its people give themselves, and a key reads only what is kept. The gathering starts as a line of addresses takes the focus, so in a new message it is under way before the first key. 100,000 messages in the inbox from 2,500 people who give their names, and 10,000 in the folder for sent mail, each to one of 2,000 of them:
+
+| | Cold | Warm | Budget |
+| --- | --- | --- | --- |
+| Gathering, as a line takes the focus or at the first key after a newer message | 234 ms | **94 ms** | ≤120 ms, as a first search |
+| A key answered from what is kept | 0.16 ms | **0.11 ms** | ≤16 ms |
+| One letter inside all 2,000 addresses and names, beginning none | 0.17 ms | **0.15 ms** | ≤16 ms |
+
+At 400,000 messages with 40,000 sent, gathering takes 393 ms warm, and a key still 0.11 ms: what gathering costs follows the messages it reads. Without what is kept, every key would gather.
+
 ### A window that spans accounts
 
 The view a person with more than one account opens on: every list that spans folders shows conversations rather than messages, and a folder and a search show messages. It cannot know which account holds the row at a given position, so it asks every one of them for everything above the window and merges—and what it asks for is the key it orders by, the row it shows, and the key it fetches by. The subject, the sender, and the preview are read afterwards, for the hundred rows that won, what the list asks for at a time.
@@ -158,7 +170,7 @@ Reading a page costs the same whether it holds mail or noise, so the cost tracks
 
 Half of it at 100,000 messages is decryption, and what is left is the ordering. An index of words answers in the order it stores them and the list shows mail by date, so a hundred thousand matches are found, then sorted, so that a hundred can be shown. Asking how long the list is costs nothing like that: the word index is contentless and its rows are the messages, so counting the matches in the index is the same number as counting them through the table and takes 41 ms rather than 261. That equality could drift silently, so it is asserted through a deletion and an edit rather than assumed.
 
-**Which figures a reader can check for themselves.** The list, search, and sidebar tables above come from `what_this_build_costs`, `list_windows_at_every_depth` answers the same questions at every depth, and `what_many_accounts_cost` answers them over one account, ten, and a hundred: all three are `#[ignore]`d tests started by hand, all three print what they measured, and all three warm before they time. `what_a_deep_window_costs` answers `OFFSET` against a cursor. The one-per-pass column is the journal's: kept at `detail`, it writes every pass and round, and `scripts/where-the-time-went.sh` prints them. The loopback round trips, the one-per-unit column, and the comparisons taken with code changed for them—the clear column, the join, the subqueries, the table of names—were recorded once and have no instrument in the tree.
+**Which figures a reader can check for themselves.** The list, search, and sidebar tables above come from `what_this_build_costs`, `list_windows_at_every_depth` answers the same questions at every depth, `what_many_accounts_cost` answers them over one account, ten, and a hundred, and `what_offering_recipients_costs` answers the table of recipients and asserts its answer against a walk of what was sent: all four are `#[ignore]`d tests started by hand, all four print what they measured, and all four warm before they time. `what_a_deep_window_costs` answers `OFFSET` against a cursor. The one-per-pass column is the journal's: kept at `detail`, it writes every pass and round, and `scripts/where-the-time-went.sh` prints them. The loopback round trips, the one-per-unit column, and the comparisons taken with code changed for them—the clear column, the join, the subqueries, the table of names—were recorded once and have no instrument in the tree.
 
 **Every figure in the tables above comes from the read model rather than from a query written beside it**, with one exception named where it is: the unread count for one folder is timed on a statement the tool holds its own copy of. A query with one column, one table, no join, and no folding answers three orders of magnitude faster than the one the product runs, and a tool measuring it measures nothing about the product. The tool calls the read model, and asserts that the deepest window holds the rows a walk reaches—so a fast wrong answer cannot pass for a fast right one.
 

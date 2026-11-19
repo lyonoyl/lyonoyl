@@ -50,6 +50,7 @@ import type { ForwardDto } from "./generated/ForwardDto";
 import type { DraftDto } from "./generated/DraftDto";
 import type { KeptDraftDto } from "./generated/KeptDraftDto";
 import type { SentHereDto } from "./generated/SentHereDto";
+import type { SuggestedRecipientDto } from "./generated/SuggestedRecipientDto";
 import type { OutgoingDto } from "./generated/OutgoingDto";
 import type { SavedMessageDto } from "@/shared/ipc/generated/SavedMessageDto";
 import type { MessageBodyDto } from "./generated/MessageBodyDto";
@@ -952,6 +953,20 @@ export function keptDrafts(accountId: string): Promise<KeptDraftDto[]> {
  */
 export function sentHere(accountId: string): Promise<SentHereDto[]> {
   return invoke("sent_here", { accountId });
+}
+
+/**
+ * The people this account has written to whose address or name begins with what is being typed
+ * into a line of addresses, the most written to first.
+ *
+ * Who, how many and in what order are the core's to decide, from the mail on this device; nothing
+ * is asked of a server. Nothing typed is answered with nobody.
+ */
+export function suggestRecipients(
+  accountId: string,
+  typed: string,
+): Promise<SuggestedRecipientDto[]> {
+  return invoke("suggest_recipients", { accountId, typed });
 }
 
 /** The last thing this account was writing, if it was writing anything. */
