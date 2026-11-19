@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "@/shared/i18n";
 import { GroupNameField } from "@/shared/ui/GroupNameField";
 import { GroupNotSaved } from "@/shared/ui/GroupNotSaved";
-import { GroupPanel } from "@/shared/ui/GroupPanel";
+import { Panel } from "@/shared/ui/Panel";
 import { useOneAnswer } from "@/shared/ui/useOneAnswer";
 import { Button } from "@/shared/ui/primitives/button";
 
@@ -36,7 +36,7 @@ export function RemoveGroup({
   const ready = sameName(typed, name) && !busy;
 
   return (
-    <GroupPanel
+    <Panel
       // The name is not in the title: it stands below, on its own, where it is typed from.
       title={t("group.removeTitle")}
       onCancel={onClose}
@@ -75,7 +75,7 @@ export function RemoveGroup({
           {t("group.removeCancel")}
         </Button>
       </div>
-    </GroupPanel>
+    </Panel>
   );
 }
 

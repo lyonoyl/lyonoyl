@@ -1076,7 +1076,7 @@ fn records_the_schema_version_in_user_version() {
     // seen, so a migration quietly dropped from the list would leave older installations
     // reading a schema this build no longer writes. Adding one: bump this by one.
     assert_eq!(
-        version, 30,
+        version, 31,
         "the applied migration count is tracked in user_version"
     );
 }
@@ -3420,4 +3420,30 @@ fn going_back_before_sorting_keeps_the_groups() {
         .query_row("SELECT count(*) FROM account_groups", [], |row| row.get(0))
         .expect("the table is still there");
     assert_eq!(kept, 1);
+}
+
+#[test]
+fn mailboxes_kept_before_signatures_existed_have_none() {
+    let mut connection = Connection::open_in_memory().expect("in-memory database opens");
+    profile_migrations()
+        .to_version(&mut connection, 30)
+        .expect("the previous schema applies");
+    connection
+        .execute(
+            "INSERT INTO mail_accounts (id, email, display_name, provider)
+                 VALUES ('acc-1', 'user@example.com', '', 'imap')",
+            [],
+        )
+        .expect("a row written by the previous version");
+
+    migrate_profile(&mut connection, ":memory:").expect("upgrade applies");
+
+    let signature: String = connection
+        .query_row(
+            "SELECT signature FROM mail_accounts WHERE id = 'acc-1'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the column exists");
+    assert_eq!(signature, "");
 }

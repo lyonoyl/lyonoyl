@@ -789,6 +789,10 @@ fn profile_migrations() -> Migrations<'static> {
                  CHECK (sorting IN ('manual', 'date_added', 'name'));",
         )
         .down("ALTER TABLE account_groups DROP COLUMN sorting;"),
+        // 031: what each mailbox puts at the foot of the messages written from it. Empty is none,
+        // which is what every mailbox had before.
+        M::up("ALTER TABLE mail_accounts ADD COLUMN signature TEXT NOT NULL DEFAULT '';")
+            .down("ALTER TABLE mail_accounts DROP COLUMN signature;"),
     ])
 }
 

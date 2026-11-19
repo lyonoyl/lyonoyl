@@ -20,6 +20,7 @@ pub mod outgoing;
 pub mod preferences;
 pub mod provider;
 pub mod search;
+pub mod signature;
 pub mod sync;
 pub mod thread;
 pub mod version;

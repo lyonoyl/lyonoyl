@@ -1,13 +1,13 @@
 import type { MailAccountSummaryDto } from "@/shared/ipc/generated/MailAccountSummaryDto";
 import { anchorFor } from "./sections";
+import { MailboxRow } from "./MailboxRow";
 import { inRoundNumbers } from "@/shared/ui/bytes";
 import { AppIcons } from "@/shared/ui/AppIcons";
 import { isDark, useSystemIsDark } from "@/shared/ui/darkness";
 import { Checkbox } from "@/shared/ui/Checkbox";
 import { Chooser } from "@/shared/ui/Chooser";
-import { inOrderOfNames } from "@/entities/group";
 import { Button } from "@/shared/ui/primitives/button";
-import { Check, Pencil } from "lucide-react";
+import { Check } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
 
 import {
@@ -166,6 +166,7 @@ export function SettingsScreen({
   onChanged,
   accounts,
   onOpenAccount,
+  onSignatureKept,
   onArrangementChanged,
   arrangedElsewhere,
 }: {
@@ -176,6 +177,8 @@ export function SettingsScreen({
   accounts: MailAccountSummaryDto[];
   /** Opens one account: how it is reached, and taking it off this device. */
   onOpenAccount: (accountId: string) => void;
+  /** Told a mailbox's signature as the core kept it, so the composer signs with it from now on. */
+  onSignatureKept: (accountId: string, signature: string) => void;
   /** Called whenever the sidebar's arrangement changed, so it is drawn again. */
   onArrangementChanged?: () => void;
   /** Changes when the groups changed in the sidebar, which is when they are read here again. */
@@ -383,67 +386,21 @@ export function SettingsScreen({
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {accounts.map((account) => {
-              const name = account.displayName.trim() || account.email;
-              return (
-                <li
-                  key={account.id}
-                  className="flex items-center justify-between gap-4"
-                >
-                  <span
-                    dir="auto"
-                    className="min-w-0 truncate text-sm"
-                    title={account.email}
-                  >
-                    {name}
-                  </span>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {/* In the row of the mailbox it is about. Offered only once a group exists: a
-                        list whose one entry is "No group" is a control that cannot do anything.
-                        The same width in every row, so the rows line up. */}
-                    {groups.length > 0 && (
-                      <Chooser
-                        label={t("settings.groupOf", { account: name })}
-                        size="sm"
-                        className="w-40"
-                        value={
-                          groups.find((group) =>
-                            group.accounts.includes(account.id),
-                          )?.id ?? null
-                        }
-                        options={[
-                          { value: null, label: t("settings.noGroup") },
-                          // By name: a list to find a group in, unlike the sidebar's own order.
-                          ...inOrderOfNames(groups, language).map((group) => ({
-                            value: group.id,
-                            label: group.name,
-                            dir: "auto" as const,
-                          })),
-                        ]}
-                        onChoose={(group) =>
-                          void change(
-                            placeAccountInGroup(account.id, group),
-                            "mailboxes",
-                          )
-                        }
-                      />
-                    )}
-                    {/* Which mailbox, in the name and in the hint. A column of pencils all
-                        called "Edit" is a list a reader cannot choose in. */}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t("settings.editAccount", { account: name })}
-                      title={t("settings.editAccount", { account: name })}
-                      onClick={() => onOpenAccount(account.id)}
-                    >
-                      <Pencil />
-                    </Button>
-                  </div>
-                </li>
-              );
-            })}
+            {accounts.map((account) => (
+              <MailboxRow
+                key={account.id}
+                account={account}
+                groups={groups}
+                onChooseGroup={(group) =>
+                  void change(
+                    placeAccountInGroup(account.id, group),
+                    "mailboxes",
+                  )
+                }
+                onOpen={() => onOpenAccount(account.id)}
+                onSignatureKept={onSignatureKept}
+              />
+            ))}
           </ul>
         )}
       </Section>

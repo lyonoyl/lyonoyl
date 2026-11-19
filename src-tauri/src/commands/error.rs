@@ -215,6 +215,9 @@ impl From<UseCaseError> for CommandError {
             UseCaseError::GroupNameTooLong => {
                 Self::new(ErrorCode::InvalidRequest, "That group name is too long.")
             }
+            UseCaseError::SignatureTooLong => {
+                Self::new(ErrorCode::InvalidRequest, "That signature is too long.")
+            }
             UseCaseError::NoPlaceToSave => Self::new(
                 ErrorCode::NoPlaceToSave,
                 "There is no way to ask where the file should go.",

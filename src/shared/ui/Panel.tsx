@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
  * if it is still there to take it. Keys stay inside: Escape leaves, and nothing typed reaches a
  * row or a list underneath that would move on a letter or an arrow.
  */
-export function GroupPanel({
+export function Panel({
   title,
   onCancel,
   onSubmit,
@@ -24,13 +24,17 @@ export function GroupPanel({
   const form = useRef<HTMLFormElement>(null);
 
   // Before the window is drawn again, in both directions: given back a frame later, the focus
-  // sat on nothing for that frame, and a key pressed in it went nowhere. What the field already
-  // holds is selected, so a name being changed is typed over rather than added to.
+  // sat on nothing for that frame, and a key pressed in it went nowhere. What a line already holds
+  // is selected, so a name being changed is typed over rather than added to; text of several lines
+  // is not, since a key pressed would take all of it, and the caret waits at its end.
   useLayoutEffect(() => {
     const before = document.activeElement;
-    const field = form.current?.querySelector("input");
+    const field = form.current?.querySelector<
+      HTMLInputElement | HTMLTextAreaElement
+    >("input, textarea");
     field?.focus();
-    field?.select();
+    if (field instanceof HTMLInputElement) field.select();
+    else field?.setSelectionRange(field.value.length, field.value.length);
     return () => {
       if (before instanceof HTMLElement && before.isConnected) before.focus();
     };

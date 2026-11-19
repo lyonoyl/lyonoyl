@@ -17,6 +17,7 @@ pub mod remove_account;
 pub mod save_attachment;
 pub mod save_message;
 pub mod send_message;
+pub mod set_signature;
 pub mod settings;
 pub mod sync;
 pub mod take_back;

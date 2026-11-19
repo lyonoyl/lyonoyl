@@ -92,6 +92,10 @@ pub enum UseCaseError {
     GroupNameRequired,
     #[error("that group name is too long")]
     GroupNameTooLong,
+    /// More than a mailbox's signature may hold. The window stops the typing there first, so this
+    /// is a caller that skipped the window.
+    #[error("that signature is too long")]
+    SignatureTooLong,
     /// Named a group this device does not hold — usually one removed in another window.
     #[error("that group is not on this device")]
     UnknownGroup,

@@ -19,6 +19,10 @@ pub struct MailAccountSummaryDto {
     /// Whether a message can be written from it. An account is worth having for reading alone, and
     /// one nobody has given a sending server says so rather than swallowing what was written.
     pub can_send: bool,
+    /// What the mailbox puts at the foot of the messages written from it, when it has anything.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub signature: Option<String>,
 }
 
 impl MailAccountSummaryDto {
@@ -29,6 +33,8 @@ impl MailAccountSummaryDto {
             display_name: account.display_name().to_owned(),
             provider: account.provider().to_owned(),
             can_send,
+            signature: (!account.signature().is_empty())
+                .then(|| account.signature().as_str().to_owned()),
         }
     }
 }

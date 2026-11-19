@@ -140,6 +140,7 @@ fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         commands::list::get_conversation,
         commands::mailboxes::get_mailbox_tree,
         commands::mailboxes::set_account_collapsed,
+        commands::signatures::set_signature,
         commands::sync::sync_account,
         commands::message::get_message,
         commands::message::save_message,

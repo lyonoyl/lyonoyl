@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type FocusEvent,
   type ReactNode,
 } from "react";
 
@@ -36,6 +37,8 @@ import { linksIn } from "@/shared/ui/links";
 import { addressesIn, everyOneAnAddress } from "./addresses";
 import { ForwardedOriginal } from "./ForwardedOriginal";
 import { RecipientsField } from "./RecipientsField";
+import { signed, standing, withSignatureOf } from "./signature";
+import { SignatureMenu } from "./SignatureMenu";
 
 /** Where the message is in its life, from the writer's side. */
 type Writing =
@@ -63,6 +66,7 @@ export function Composer({
   onWritten,
   onCancel,
   onKept,
+  onSignatureKept,
   leaveRef,
 }: {
   accounts: MailAccountSummaryDto[];
@@ -85,6 +89,8 @@ export function Composer({
    * Keeping it again replaces it, and says nothing.
    */
   onKept?: () => void;
+  /** Told a mailbox's signature as the core kept it, written or changed here. */
+  onSignatureKept?: (accountId: string, signature: string) => void;
   /**
    * Where the pane's cross finds the way out of this screen.
    *
@@ -189,8 +195,37 @@ export function Composer({
   const [bcc, setBcc] = useState(answer.bcc ?? "");
   const [subject, setSubject] = useState(answer.subject);
   // What an answer starts with: the message being answered, quoted, under a line saying whose it
-  // is. Empty for a new message and for one this device does not hold.
-  const [body, setBody] = useState(answer.body);
+  // is. Empty for a new message and for one this device does not hold. Signed under the room to
+  // write in, unless it is a draft coming back, which already holds whatever was signed.
+  const [signs] = useState(answer.draftId === undefined);
+  const signatureOf = (account: string) =>
+    signs
+      ? (accounts.find((one) => one.id === account)?.signature ?? "")
+      : "";
+  /**
+   * The signature this message was signed with, held rather than read from the mailbox again: one
+   * changed in the settings while the message stays open is not the one in its text.
+   */
+  const [signedWith, setSignedWith] = useState(() => signatureOf(from));
+  const [body, setBody] = useState(() => signed(answer.body, signedWith));
+  const writingFrom = sending.find((account) => account.id === from);
+  /**
+   * What has been written in the body, which is what it holds unless that is still what it opened
+   * with: a signature nobody touched is not a message somebody started, so it neither keeps a draft
+   * nor asks anything on the way out.
+   */
+  const typedBody =
+    body === signed(answer.body, signedWith) ? answer.body : body;
+
+  /**
+   * Signs the message with another signature where its own stands as it was put, or under what is
+   * written when it has none. One somebody changed or wrote under is left as theirs.
+   */
+  function signWith(next: string) {
+    if (standing(body, answer.body, signedWith) === "changed") return;
+    setBody(withSignatureOf(body, answer.body, signedWith, next));
+    setSignedWith(next);
+  }
   /**
    * The conversation this message belongs to, held here like everything else about it.
    *
@@ -331,7 +366,7 @@ export function Composer({
     cc === "" &&
     bcc === "" &&
     subject === "" &&
-    body === "" &&
+    typedBody === "" &&
     attached.length === 0 &&
     original === null;
   /** What is on screen, as a keep and a note both write it down. */
@@ -496,7 +531,7 @@ export function Composer({
     cc.trim() !== "" ||
     bcc.trim() !== "" ||
     subject.trim() !== "" ||
-    body.trim() !== "" ||
+    typedBody.trim() !== "" ||
     attached.length > 0 ||
     original !== null;
 
@@ -751,7 +786,11 @@ export function Composer({
             id="compose-from"
             disabled={frozen}
             value={from}
-            onChange={(event) => setFrom(event.target.value)}
+            onChange={(event) => {
+              const next = event.target.value;
+              signWith(signatureOf(next));
+              setFrom(next);
+            }}
             className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
           >
             {sending.map((account) => (
@@ -908,6 +947,21 @@ export function Composer({
           {t("compose.attach")}
         </Button>
 
+        {/* Where the message is written, beside what else goes into it: a signature found only in
+            the settings is one nobody writing a message knows they can have. Not in a draft coming
+            back, whose signature is somewhere in its text already. */}
+        {signs && writingFrom !== undefined && (
+          <SignatureMenu
+            account={writingFrom.id}
+            name={writingFrom.displayName.trim() || writingFrom.email}
+            signature={signatureOf(writingFrom.id)}
+            standing={standing(body, answer.body, signedWith)}
+            onSign={signWith}
+            onKept={(id, kept) => onSignatureKept?.(id, kept)}
+            disabled={frozen}
+          />
+        )}
+
         {attached.map((file) => (
           <Button
             key={file.token}
@@ -959,6 +1013,14 @@ export function Composer({
           disabled={frozen}
           value={body}
           onChange={setBody}
+          // Into what a fresh message opened with, the caret goes above everything there: to the
+          // room left to write in, over the signature and the quotation. A click still puts it
+          // where it lands, since the click places it after the focus has arrived, and a draft
+          // coming back is left to the engine.
+          onFocus={(event) => {
+            if (signs && body !== "" && typedBody === answer.body)
+              event.currentTarget.setSelectionRange(0, 0);
+          }}
         />
         {original !== null && <ForwardedOriginal token={original} />}
       </div>
@@ -994,12 +1056,14 @@ function MarkedText({
   disabled,
   value,
   onChange,
+  onFocus,
 }: {
   id: string;
   dir: "auto" | undefined;
   disabled: boolean;
   value: string;
   onChange: (value: string) => void;
+  onFocus?: (event: FocusEvent<HTMLTextAreaElement>) => void;
 }) {
   const field = useRef<HTMLTextAreaElement>(null);
   const copy = useRef<HTMLDivElement>(null);
@@ -1067,6 +1131,7 @@ function MarkedText({
         disabled={disabled}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onFocus={onFocus}
         onScroll={follow}
         // No frame round the whole of the message while it is written: the caret says where the
         // typing goes.
