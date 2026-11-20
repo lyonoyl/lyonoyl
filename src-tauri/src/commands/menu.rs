@@ -1,14 +1,17 @@
-//! The words of the two items of the menu bar that are the application's own rather than the ones
-//! it starts with: the one that opens the settings, and the Edit menu's Undo.
+//! The words of the menu bar: every menu and every item in it, the settings item and the Edit
+//! menu's own Undo among them.
 //!
-//! The window hands its words over when it starts and whenever the language changes: the core
-//! writes no words for a person, so until the window has spoken the settings item is not there at
-//! all, and Undo is the one the menu started with. Windows and Linux have no menu bar, and the
-//! window's own keys do both there.
+//! The window hands its words over when it starts and whenever the language changes, and the menu
+//! bar is made again in them: the core writes no words for a person, so until the window has spoken
+//! the menu bar is the one the framework starts with, in its own English, with no settings item at
+//! all. Windows and Linux have no menu bar, and the window's own keys do there what its items do.
 
+use serde::Deserialize;
 use tauri::AppHandle;
+use ts_rs::TS;
 
 use crate::commands::error::{CommandError, ErrorCode};
+use crate::infrastructure::menu_bar::MenuWords;
 
 pub use crate::infrastructure::menu_bar::{SETTINGS, UNDO};
 
@@ -23,20 +26,45 @@ pub const UNDO_ASKED: &str = "undo:asked";
 /// translation gone wrong, or not a translation.
 const AT_MOST: usize = 40;
 
-/// Hands over the words the menu's settings item and its Undo say.
+/// Every word of the menu bar, as the window's catalogue says it.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/shared/ipc/generated/")]
+pub struct MenuWordsDto {
+    pub settings: String,
+    pub about: String,
+    pub services: String,
+    pub hide: String,
+    pub hide_others: String,
+    pub quit: String,
+    pub file: String,
+    /// Close Window in the File menu.
+    pub file_close: String,
+    pub edit: String,
+    pub undo: String,
+    pub redo: String,
+    pub cut: String,
+    pub copy: String,
+    pub paste: String,
+    pub select_all: String,
+    pub view: String,
+    pub window: String,
+    pub minimize: String,
+    pub zoom: String,
+    /// Close Window in the Window menu.
+    pub window_close: String,
+    pub help: String,
+}
+
+/// Hands over the words of the menu bar, which is made again in them.
 ///
-/// Both are changed in one turn of the event loop, where the menu lives. Changed from here, each
-/// look and each change is a trip of its own, and two calls at once — the window starting twice
-/// over, or a language chosen while the first words are still on their way — each find the
-/// system's Undo before either has replaced it, and the Edit menu ends with two.
+/// Made in one turn of the event loop, where the menu lives. Changed from here, each look and each
+/// change would be a trip of its own, and two calls at once — the window starting twice over, or a
+/// language chosen while the first words are still on their way — would each change a menu the
+/// other was changing.
 #[tauri::command]
-pub async fn set_menu_words(
-    app: AppHandle,
-    settings: String,
-    undo: String,
-) -> Result<(), CommandError> {
-    let settings = a_label(&settings)?.to_owned();
-    let undo = a_label(&undo)?.to_owned();
+pub async fn set_menu_words(app: AppHandle, words: MenuWordsDto) -> Result<(), CommandError> {
+    let words = checked(words)?;
 
     #[cfg(target_os = "macos")]
     {
@@ -45,10 +73,7 @@ pub async fn set_menu_words(
         let (answer, changed) = tokio::sync::oneshot::channel();
         let menu = app.clone();
         app.run_on_main_thread(move || {
-            let _ = answer.send(
-                menu_bar::settings_item(&menu, &settings)
-                    .and_then(|()| menu_bar::own_undo(&menu, &undo)),
-            );
+            let _ = answer.send(menu_bar::name_the_menu_bar(&menu, &words));
         })
         .map_err(|_| unchanged())?;
         changed
@@ -57,9 +82,38 @@ pub async fn set_menu_words(
             .map_err(|_| unchanged())?;
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, settings, undo);
+    let _ = (app, words);
 
     Ok(())
+}
+
+/// Every word checked, and the menu bar's words only if each of them is one: a menu half in one
+/// language and half refused is not one to make.
+fn checked(words: MenuWordsDto) -> Result<MenuWords, CommandError> {
+    let word = |said: &str| a_label(said).map(str::to_owned);
+    Ok(MenuWords {
+        settings: word(&words.settings)?,
+        about: word(&words.about)?,
+        services: word(&words.services)?,
+        hide: word(&words.hide)?,
+        hide_others: word(&words.hide_others)?,
+        quit: word(&words.quit)?,
+        file: word(&words.file)?,
+        file_close: word(&words.file_close)?,
+        edit: word(&words.edit)?,
+        undo: word(&words.undo)?,
+        redo: word(&words.redo)?,
+        cut: word(&words.cut)?,
+        copy: word(&words.copy)?,
+        paste: word(&words.paste)?,
+        select_all: word(&words.select_all)?,
+        view: word(&words.view)?,
+        window: word(&words.window)?,
+        minimize: word(&words.minimize)?,
+        zoom: word(&words.zoom)?,
+        window_close: word(&words.window_close)?,
+        help: word(&words.help)?,
+    })
 }
 
 /// Says whether choosing the menu's Undo does anything now, so that it is greyed out when it would
@@ -110,6 +164,92 @@ fn a_label(words: &str) -> Result<&str, CommandError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every word of a menu bar, each saying which it is.
+    fn every_word() -> MenuWordsDto {
+        MenuWordsDto {
+            settings: "Settings…".into(),
+            about: "About Lyonoyl Mail".into(),
+            services: "Services".into(),
+            hide: "Hide Lyonoyl Mail".into(),
+            hide_others: "Hide Others".into(),
+            quit: "Quit Lyonoyl Mail".into(),
+            file: "File".into(),
+            file_close: "Close Window (File)".into(),
+            edit: "Edit".into(),
+            undo: "Undo".into(),
+            redo: "Redo".into(),
+            cut: "Cut".into(),
+            copy: "Copy".into(),
+            paste: "Paste".into(),
+            select_all: "Select All".into(),
+            view: "View".into(),
+            window: "Window".into(),
+            minimize: "Minimize".into(),
+            zoom: "Zoom".into(),
+            window_close: "Close Window (Window)".into(),
+            help: "Help".into(),
+        }
+    }
+
+    #[test]
+    fn every_word_reaches_its_own_place_in_the_menu_bar() {
+        let words = checked(MenuWordsDto {
+            settings: "  Settings…  ".into(),
+            ..every_word()
+        })
+        .expect("every word is one");
+
+        assert_eq!(
+            words,
+            MenuWords {
+                settings: "Settings…".into(),
+                about: "About Lyonoyl Mail".into(),
+                services: "Services".into(),
+                hide: "Hide Lyonoyl Mail".into(),
+                hide_others: "Hide Others".into(),
+                quit: "Quit Lyonoyl Mail".into(),
+                file: "File".into(),
+                file_close: "Close Window (File)".into(),
+                edit: "Edit".into(),
+                undo: "Undo".into(),
+                redo: "Redo".into(),
+                cut: "Cut".into(),
+                copy: "Copy".into(),
+                paste: "Paste".into(),
+                select_all: "Select All".into(),
+                view: "View".into(),
+                window: "Window".into(),
+                minimize: "Minimize".into(),
+                zoom: "Zoom".into(),
+                window_close: "Close Window (Window)".into(),
+                help: "Help".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn one_word_refused_refuses_the_whole_menu_bar() {
+        for refused in [
+            MenuWordsDto {
+                help: String::new(),
+                ..every_word()
+            },
+            MenuWordsDto {
+                quit: "Quit\nLyonoyl Mail".into(),
+                ..every_word()
+            },
+            MenuWordsDto {
+                zoom: "z".repeat(AT_MOST + 1),
+                ..every_word()
+            },
+        ] {
+            assert_eq!(
+                checked(refused).expect_err("refused").code,
+                ErrorCode::InvalidRequest
+            );
+        }
+    }
 
     #[test]
     fn a_word_in_any_script_is_carried_as_it_was_written() {

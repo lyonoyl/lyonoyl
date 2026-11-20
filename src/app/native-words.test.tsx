@@ -38,17 +38,40 @@ beforeEach(() => {
   notification.mockResolvedValue(undefined);
 });
 
+/** Every word of the menu bar in English, each in its own place. The product's name never breaks. */
+const ENGLISH_MENU = {
+  settings: "Settings…",
+  about: "About Lyonoyl\u00a0Mail",
+  services: "Services",
+  hide: "Hide Lyonoyl\u00a0Mail",
+  hideOthers: "Hide Others",
+  quit: "Quit Lyonoyl\u00a0Mail",
+  file: "File",
+  fileClose: "Close Window",
+  edit: "Edit",
+  undo: "Undo",
+  redo: "Redo",
+  cut: "Cut",
+  copy: "Copy",
+  paste: "Paste",
+  selectAll: "Select All",
+  view: "View",
+  window: "Window",
+  minimize: "Minimize",
+  zoom: "Zoom",
+  windowClose: "Close Window",
+  help: "Help",
+};
+
 describe("the words the core shows by itself", () => {
-  it("hands over what the menu's settings item and its Undo say, and what a notification and its buttons say", async () => {
+  it("hands over every word of the menu bar, and what a notification and its buttons say", async () => {
     render(
       <I18nProvider initial="en">
         <NativeWords />
       </I18nProvider>,
     );
 
-    await waitFor(() =>
-      expect(menu).toHaveBeenLastCalledWith("Settings…", "Undo"),
-    );
+    await waitFor(() => expect(menu).toHaveBeenLastCalledWith(ENGLISH_MENU));
     expect(notification).toHaveBeenCalledTimes(1);
     // Each button takes a key of its own. In English the one that throws a message away says what
     // the reader's own button for that says.
@@ -66,14 +89,37 @@ describe("the words the core shows by itself", () => {
         <NativeWords />
       </I18nProvider>,
     );
-    await waitFor(() =>
-      expect(menu).toHaveBeenLastCalledWith("Settings…", "Undo"),
-    );
+    await waitFor(() => expect(menu).toHaveBeenLastCalledWith(ENGLISH_MENU));
 
     act(() => choose("ru"));
 
+    // Every word again, the menu bar made whole in the language chosen: the words macOS writes in
+    // Russian, and the product's name unbroken.
     await waitFor(() =>
-      expect(menu).toHaveBeenLastCalledWith("Настройки…", "Отменить"),
+      expect(menu).toHaveBeenLastCalledWith({
+        settings: "Настройки…",
+        about: "О приложении «Lyonoyl\u00a0Mail»",
+        services: "Службы",
+        hide: "Скрыть Lyonoyl\u00a0Mail",
+        hideOthers: "Скрыть остальные",
+        quit: "Завершить Lyonoyl\u00a0Mail",
+        file: "Файл",
+        fileClose: "Закрыть окно",
+        edit: "Правка",
+        undo: "Отменить",
+        redo: "Повторить",
+        cut: "Вырезать",
+        copy: "Скопировать",
+        paste: "Вставить",
+        selectAll: "Выбрать все",
+        view: "Вид",
+        window: "Окно",
+        // A one-letter preposition kept with its word, as macOS writes it.
+        minimize: "Убрать в\u00a0Dock",
+        zoom: "Изменить масштаб",
+        windowClose: "Закрыть окно",
+        help: "Справка",
+      }),
     );
     expect(notification).toHaveBeenCalledTimes(2);
     expect(notification).toHaveBeenLastCalledWith(
@@ -84,7 +130,7 @@ describe("the words the core shows by itself", () => {
   });
 
   it("says nothing when the core refuses the word", async () => {
-    // The menu goes without the item and the keys still open the settings: nothing to show.
+    // The menu bar stays as it was and the keys still open the settings: nothing to show.
     menu.mockRejectedValue(new Error("refused"));
     render(
       <I18nProvider initial="en">

@@ -31,6 +31,7 @@ import type { FoundSettingsDto } from "@/shared/ipc/generated/FoundSettingsDto";
 import type { ConnectionReportDto } from "./generated/ConnectionReportDto";
 import type { EncryptionDto } from "./generated/EncryptionDto";
 import type { MailAccountSummaryDto } from "./generated/MailAccountSummaryDto";
+import type { MenuWordsDto } from "./generated/MenuWordsDto";
 import type { MailAsked } from "./generated/MailAsked";
 import type { MailChanged } from "./generated/MailChanged";
 import type { DarkSchemeDto } from "@/shared/ipc/generated/DarkSchemeDto";
@@ -604,12 +605,11 @@ export function onPutAwayFromANotice(
 }
 
 /**
- * Hands over the words the menu bar's own items say, in the language this window is showing: the
- * settings item, and the Edit menu's Undo. Until they have been, the menu has no settings item and
- * keeps the Undo it started with: Rust holds no interface text.
+ * Hands over every word of the menu bar, which the core makes again in them: when the window starts
+ * and whenever the language changes.
  */
-export function setMenuWords(settings: string, undo: string): Promise<void> {
-  return invoke("set_menu_words", { settings, undo });
+export function setMenuWords(words: MenuWordsDto): Promise<void> {
+  return invoke("set_menu_words", { words });
 }
 
 /**
