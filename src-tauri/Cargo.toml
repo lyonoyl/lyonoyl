@@ -42,8 +42,6 @@ rusqlite = { version = "0.40", features = [
     "hooks",
     "limits",
 ] }
-r2d2 = "0.8"
-r2d2_sqlite = "0.35"
 thiserror = "2"
 ts-rs = "12"
 secrecy = "0.10"
@@ -82,8 +80,8 @@ keyring = "4"
 # the same file needs, so nothing new is taken on for the encryption itself.
 argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
 ring = "0.17"
-# Already in the tree through r2d2_sqlite and tauri-utils; named here for the v4 feature, which is
-# what mints opaque account identifiers.
+# Already in the tree through tauri-utils; named here for the v4 feature, which is what mints
+# opaque account identifiers.
 uuid = { version = "1", features = ["v4"] }
 # The message parser. Envelopes arrive MIME-encoded and addresses arrive as raw bytes; decoding
 # either by hand is writing a parser for hostile input. Used for bodies from 0.5 as well.

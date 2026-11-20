@@ -23,9 +23,7 @@ impl SqliteOutbox {
         Self { pool }
     }
 
-    fn open(
-        &self,
-    ) -> Result<r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>, OutboxError> {
+    fn open(&self) -> Result<crate::infrastructure::sqlite::pool::Pooled, OutboxError> {
         self.pool.get().map_err(|_| OutboxError::Unavailable)
     }
 }

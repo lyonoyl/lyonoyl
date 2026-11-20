@@ -1,16 +1,15 @@
 use std::path::Path;
 
-use r2d2::Pool;
-use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::config::DbConfig;
 
 use crate::infrastructure::secure_storage::database_key::DatabaseKey;
 use crate::infrastructure::sqlite::migrations::{
     written_ahead_of_the_index, written_ahead_of_the_profile,
 };
+use crate::infrastructure::sqlite::pool::{Limits, Pool};
 use thiserror::Error;
 
-pub type SqlitePool = Pool<SqliteConnectionManager>;
+pub type SqlitePool = Pool;
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -82,7 +81,7 @@ fn written_in_the_clear(path: &Path) -> bool {
         && &head == b"SQLite format 3\0"
 }
 
-/// PRAGMAs are applied through `with_init`, so they run on **every** pooled connection.
+/// PRAGMAs are applied as each connection is opened, so they run on **every** pooled connection.
 ///
 /// These are per-connection settings; applying them once at open time would leave foreign keys
 /// and the busy timeout disabled on every other connection in the pool.
@@ -138,10 +137,12 @@ fn open_holding(
     }
 
     let key = key.clone();
-    let manager = SqliteConnectionManager::file(&path).with_init(move |connection| {
+    let opening = path.clone();
+    let open = move || {
+        let connection = rusqlite::Connection::open(&opening)?;
         // First, and on its own: every statement after it is answered from the encrypted file, and
         // one placed before it would be answered from a file this build cannot read.
-        key.unlock(connection)?;
+        key.unlock(&connection)?;
 
         connection.execute_batch(&format!(
             // `temp_store` and `secure_delete` are here because of what these files hold. A
@@ -156,32 +157,38 @@ fn open_holding(
              PRAGMA temp_store = MEMORY;
              PRAGMA secure_delete = ON;
              PRAGMA busy_timeout = 5000;"
-        ))
-    });
+        ))?;
+        Ok(connection)
+    };
 
     // Readable by this person and nobody else. Mandatory, and not implemented until the mail itself
     // moved into these files: the sealing keeps the messages unreadable, and this keeps everything
     // beside them — who wrote, when, what the subject was — off the terminal of anybody else with
     // an account on the machine. Windows has no mode bits and inherits the directory's ACL instead,
     // which is why this is where it is rather than everywhere.
-    let pool = Pool::builder()
-        .max_size(connections)
-        // One ready, the rest made when somebody asks. Without this the pool opens `max_size`
-        // connections before `build` returns, and the window waits all of them: ten files at a
-        // dozen connections each is a hundred and seventy opens before anything is on screen,
-        // measured at eleven seconds against fifty milliseconds with this line.
-        .min_idle(Some(1))
-        // Waiting is not the same as hanging. The default is thirty seconds, and a window asking
-        // a question while every account is being read waits all of them before it hears anything
-        // — which is a frozen interface, not a slow one. Five is long enough for a pass to give a
-        // connection back and short enough that a person notices a wrong answer rather than a
-        // dead window.
-        .connection_timeout(std::time::Duration::from_secs(5))
-        .build(manager)
-        .map_err(|error| StorageError::Open {
-            path: display,
-            reason: error.to_string(),
-        })?;
+    // One ready, the rest made when somebody asks: a pool that opened its whole ceiling before
+    // answering kept the window waiting for all of them, ten files at a dozen connections each a
+    // hundred and seventy opens before anything was on screen, measured at eleven seconds against
+    // fifty milliseconds with one.
+    let pool = Pool::new(
+        Limits {
+            ceiling: connections as usize,
+            // Waiting is not the same as hanging. A window asking a question while every account
+            // is being read would otherwise wait all of them before it hears anything — which is
+            // a frozen interface, not a slow one. Five seconds is long enough for a pass to give a
+            // connection back and short enough that a person notices a wrong answer rather than a
+            // dead window.
+            wait: std::time::Duration::from_secs(5),
+            // A round reads every few minutes and gives its connections back between; ten minutes
+            // unused outlasts the gap between rounds, so what a round opened is there for the next.
+            unused_for: std::time::Duration::from_secs(10 * 60),
+        },
+        open,
+    )
+    .map_err(|error| StorageError::Open {
+        path: display,
+        reason: error.to_string(),
+    })?;
 
     // After the pool, because the pool is what creates the file. Before it there was nothing to
     // open on a first run, the failure went into a discarded result, and the database spent that
@@ -541,14 +548,10 @@ mod opening_a_workspace {
 
     #[test]
     fn a_file_opens_with_one_connection_rather_than_every_one_it_may_ever_need() {
-        // What `min_idle` is for, and it is a clock-free way to say it. Left unset, r2d2 opens
-        // `max_size` connections before `build` returns, and the window waits all of them.
-        //
         // A ceiling rather than a cost: the pool may still grow to its size, it simply does not do
-        // it while somebody is waiting to see their mail. The assertion is an upper bound rather
-        // than an exact count because `min_idle` is kept by a thread of r2d2's own — opening the
-        // file checks a connection out and a replacement may or may not have been made by the time
-        // this reads the state. What must never be true is the whole dozen.
+        // it while somebody is waiting to see their mail. Opening the file checks the first
+        // connection out and gives it back, and nothing opens another until two are asked for at
+        // once.
         let dir = std::env::temp_dir().join(format!(
             "lyonoyl-pool-{}-{:?}",
             std::process::id(),
@@ -559,10 +562,10 @@ mod opening_a_workspace {
         let index = open_index(dir.join("index.sqlite3"), &DatabaseKey::for_a_test())
             .expect("the file opens");
 
-        assert!(
-            index.state().connections < 12,
-            "every connection the pool may ever hold was opened before anybody asked for one: {}",
-            index.state().connections
+        assert_eq!(
+            index.open_connections(),
+            1,
+            "the pool opened more connections than the one the file was opened with"
         );
 
         drop(index);

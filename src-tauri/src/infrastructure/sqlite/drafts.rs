@@ -46,9 +46,7 @@ impl SqliteDrafts {
         }
     }
 
-    fn open(
-        &self,
-    ) -> Result<r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>, DraftError> {
+    fn open(&self) -> Result<crate::infrastructure::sqlite::pool::Pooled, DraftError> {
         self.pool.get().map_err(|_| DraftError::Unavailable)
     }
 }
