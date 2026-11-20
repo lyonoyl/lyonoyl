@@ -5,8 +5,7 @@ import { setMenuWords, setNotificationWords } from "@/shared/ipc/client";
 
 /**
  * Hands over the words the core shows by itself, in the language this window is showing: what a
- * notification says and what its buttons say, and what the menu bar's settings item and its Undo
- * say.
+ * notification says and what its buttons say, and every word of the menu bar.
  *
  * Renders nothing. It exists because both are drawn by the system on the core's behalf — a
  * notification at a moment this window may be asleep, a menu that belongs to the system — and Rust
@@ -29,9 +28,31 @@ export function NativeWords() {
     ).catch(() => {
       /* Nothing to say about it here. The core simply stays silent, which is the safe answer. */
     });
-    void setMenuWords(t("menu.settings"), t("menu.undo")).catch(() => {
-      /* The menu goes without the settings item and keeps the Undo it started with; the window's
-         own keys still open the settings and take back what was put away. */
+    void setMenuWords({
+      settings: t("menu.settings"),
+      about: t("menu.about"),
+      services: t("menu.services"),
+      hide: t("menu.hide"),
+      hideOthers: t("menu.hideOthers"),
+      quit: t("menu.quit"),
+      file: t("menu.file"),
+      fileClose: t("menu.fileClose"),
+      edit: t("menu.edit"),
+      undo: t("menu.undo"),
+      redo: t("menu.redo"),
+      cut: t("menu.cut"),
+      copy: t("menu.copy"),
+      paste: t("menu.paste"),
+      selectAll: t("menu.selectAll"),
+      view: t("menu.view"),
+      window: t("menu.window"),
+      minimize: t("menu.minimize"),
+      zoom: t("menu.zoom"),
+      windowClose: t("menu.windowClose"),
+      help: t("menu.help"),
+    }).catch(() => {
+      /* The menu bar stays as it was, in the framework's English or the last words it was given;
+         the window's own keys still open the settings and take back what was put away. */
     });
   }, [t, language]);
 

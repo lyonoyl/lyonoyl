@@ -1,9 +1,11 @@
-//! The two items of the menu bar that are the application's own rather than the ones it starts
-//! with: the one that opens the settings, and the Edit menu's Undo.
+//! The menu bar, in the words the window hands over: every menu and every item in it, the settings
+//! item and the Edit menu's own Undo among them.
 //!
-//! On macOS the menu bar is the one the framework builds, with the items every application has, and
-//! these two are put in it with the words the window hands over. Windows and Linux have no menu
-//! bar, and nothing here does anything there.
+//! On macOS the menu bar starts as the one the framework builds, in its own English, and is made
+//! again in the window's words the moment the window names them, and again at every language the
+//! person chooses. What the system titles itself stays the system's: the full-screen item, which
+//! AppKit retitles as it is shown, and what it adds on its own. Windows and Linux have no menu bar,
+//! and nothing here does anything there.
 //!
 //! Every function here runs on the event loop's thread, where the menu lives: called from there, the
 //! framework changes the menu at once rather than queueing each change behind whatever else is
@@ -25,74 +27,140 @@ pub const UNDO: &str = "undo";
 #[cfg(target_os = "macos")]
 static OFFERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
-/// The title the framework gives the Undo the menu starts with, which is the one thing that tells it
-/// apart from the rest of the Edit menu (`Menu::default` in Tauri, whose items are muda's). The
-/// system's Undo put up while a panel is up carries the window's word, and is found by what it is
-/// known by instead.
-#[cfg(target_os = "macos")]
-const SYSTEM_UNDO: &str = "Undo";
-
-/// Names the settings item, putting it in the application's menu the first time: after the item
-/// that says what the application is, with a rule after it, where every application on this system
-/// keeps its settings — and with the key every one of them opens them with.
-#[cfg(target_os = "macos")]
-pub fn settings_item<R: Runtime>(app: &AppHandle<R>, label: &str) -> tauri::Result<()> {
-    use tauri::menu::{MenuItemBuilder, MenuItemKind, PredefinedMenuItem};
-
-    let Some(menu) = app.menu() else {
-        return Ok(());
-    };
-    let Some(MenuItemKind::Submenu(application)) = menu.items()?.into_iter().next() else {
-        return Ok(());
-    };
-
-    for item in application.items()? {
-        if let MenuItemKind::MenuItem(item) = item {
-            if item.id() == SETTINGS {
-                return item.set_text(label);
-            }
-        }
-    }
-
-    let item = MenuItemBuilder::with_id(SETTINGS, label)
-        .accelerator("CmdOrCtrl+,")
-        .build(app)?;
-    application.insert(&item, 2)?;
-    application.insert(&PredefinedMenuItem::separator(app)?, 3)
+/// The words of the menu bar, every one as the window hands it over.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuWords {
+    pub settings: String,
+    pub about: String,
+    pub services: String,
+    pub hide: String,
+    pub hide_others: String,
+    pub quit: String,
+    pub file: String,
+    pub file_close: String,
+    pub edit: String,
+    pub undo: String,
+    pub redo: String,
+    pub cut: String,
+    pub copy: String,
+    pub paste: String,
+    pub select_all: String,
+    pub view: String,
+    pub window: String,
+    pub minimize: String,
+    pub zoom: String,
+    pub window_close: String,
+    pub help: String,
 }
 
-/// Names the application's own Undo, putting it where the system's was the first time.
+/// Makes the menu bar again in these words: the menus and items the framework starts with, in the
+/// same places, with the settings item after the one saying what the application is, where every
+/// application on this system keeps its settings, and the application's own Undo where the
+/// system's would be.
 ///
-/// The system's sends its undo to the window's text and nowhere else: chosen with nobody typing,
-/// it undid what was last typed into a field that had lost the focus, the search box behind the
-/// list, and brought back no message. This one asks the window, which gives a field its own undo
-/// and takes back the last message put away where nobody types. The same key, so the key reaches it
-/// wherever the window leaves the key to the menu—in a field, with a screen in front, and behind a
-/// panel—while the window has it offered ([`offer_undo`]).
+/// Made whole rather than renamed item by item: the framework's items are known by nothing but
+/// their words, which are the very thing being changed. The Window and Help menus keep the names the
+/// framework gives them, by which it hands them to the system as the menus it fills on its own.
 #[cfg(target_os = "macos")]
-pub fn own_undo<R: Runtime>(app: &AppHandle<R>, label: &str) -> tauri::Result<()> {
-    use tauri::menu::MenuItemKind;
-
-    let Some(menu) = app.menu() else {
-        return Ok(());
+pub fn name_the_menu_bar<R: Runtime>(app: &AppHandle<R>, words: &MenuWords) -> tauri::Result<()> {
+    use tauri::menu::{
+        AboutMetadata, Menu, MenuItemBuilder, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID,
+        WINDOW_SUBMENU_ID,
     };
 
-    for submenu in menu.items()? {
-        let MenuItemKind::Submenu(submenu) = submenu else {
-            continue;
-        };
+    let package = app.package_info();
+    let config = app.config();
+    let about = AboutMetadata {
+        name: Some(package.name.clone()),
+        version: Some(package.version.to_string()),
+        copyright: config.bundle.copyright.clone(),
+        authors: config
+            .bundle
+            .publisher
+            .clone()
+            .map(|publisher| vec![publisher]),
+        ..Default::default()
+    };
 
-        for (at, item) in submenu.items()?.into_iter().enumerate() {
-            match item {
-                MenuItemKind::MenuItem(own) if own.id() == UNDO => return own.set_text(label),
-                MenuItemKind::Predefined(system) if system.text()? == SYSTEM_UNDO => {
-                    return in_place_of(app, &submenu, at, &system, label);
-                }
-                _ => {}
-            }
-        }
-    }
+    let settings = MenuItemBuilder::with_id(SETTINGS, &words.settings)
+        .accelerator("CmdOrCtrl+,")
+        .build(app)?;
+    // The application's own: the system's sends its undo to the window's text and nowhere else.
+    // Chosen with nobody typing, it undid what was last typed into a field that had lost the focus,
+    // the search box behind the list, and brought back no message. This one asks the window, which
+    // gives a field its own undo and takes back the last message put away where nobody types; the
+    // same key, so the key reaches it wherever the window leaves the key to the menu.
+    let undo = MenuItemBuilder::with_id(UNDO, &words.undo)
+        .accelerator("CmdOrCtrl+Z")
+        .enabled(OFFERED.load(std::sync::atomic::Ordering::Relaxed))
+        .build(app)?;
 
+    let application = Submenu::with_items(
+        app,
+        package.name.clone(),
+        true,
+        &[
+            &PredefinedMenuItem::about(app, Some(&words.about), Some(about))?,
+            &PredefinedMenuItem::separator(app)?,
+            &settings,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::services(app, Some(&words.services))?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::hide(app, Some(&words.hide))?,
+            &PredefinedMenuItem::hide_others(app, Some(&words.hide_others))?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::quit(app, Some(&words.quit))?,
+        ],
+    )?;
+    let file = Submenu::with_items(
+        app,
+        &words.file,
+        true,
+        &[&PredefinedMenuItem::close_window(
+            app,
+            Some(&words.file_close),
+        )?],
+    )?;
+    let edit = Submenu::with_items(
+        app,
+        &words.edit,
+        true,
+        &[
+            &undo,
+            &PredefinedMenuItem::redo(app, Some(&words.redo))?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, Some(&words.cut))?,
+            &PredefinedMenuItem::copy(app, Some(&words.copy))?,
+            &PredefinedMenuItem::paste(app, Some(&words.paste))?,
+            &PredefinedMenuItem::select_all(app, Some(&words.select_all))?,
+        ],
+    )?;
+    // Its one item is titled by the system, which calls it Enter or Exit Full Screen as it shows
+    // the menu, over any word given it.
+    let view = Submenu::with_items(
+        app,
+        &words.view,
+        true,
+        &[&PredefinedMenuItem::fullscreen(app, None)?],
+    )?;
+    let window = Submenu::with_id_and_items(
+        app,
+        WINDOW_SUBMENU_ID,
+        &words.window,
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, Some(&words.minimize))?,
+            &PredefinedMenuItem::maximize(app, Some(&words.zoom))?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::close_window(app, Some(&words.window_close))?,
+        ],
+    )?;
+    let help = Submenu::with_id_and_items(app, HELP_SUBMENU_ID, &words.help, true, &[])?;
+
+    app.set_menu(Menu::with_items(
+        app,
+        &[&application, &file, &edit, &view, &window, &help],
+    )?)?;
     Ok(())
 }
 

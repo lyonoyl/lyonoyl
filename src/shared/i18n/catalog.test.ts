@@ -115,7 +115,8 @@ const KEYBOARD_LABELS = new Set([
 
 /**
  * Keys a language writes exactly as English does, because the word is the same in it. Each entry
- * is a decision an arbiter made about that language, not a gap: a key that is merely untranslated
+ * is a decision an arbiter made about that language, or for a standard item of the menu bar the
+ * word macOS itself writes there in that language, not a gap: a key that is merely untranslated
  * fails the test below. Keyed by the tag as the registry has it — lowercase, `pt-br`.
  */
 const SAME_AS_ENGLISH: Readonly<Record<string, readonly string[]>> = {
@@ -148,6 +149,7 @@ const SAME_AS_ENGLISH: Readonly<Record<string, readonly string[]>> = {
     "compose.body",
     "compose.signature",
     "list.label",
+    "menu.services",
     "reading.asSource",
     "settings.licences",
     "settings.notifications",
@@ -156,6 +158,9 @@ const SAME_AS_ENGLISH: Readonly<Record<string, readonly string[]>> = {
   ],
   id: [
     "account.port",
+    "menu.edit",
+    "menu.file",
+    "menu.zoom",
     "keys.nameEnter",
     "keys.nameDelete",
     "keys.nameEscape",
@@ -170,6 +175,7 @@ const SAME_AS_ENGLISH: Readonly<Record<string, readonly string[]>> = {
   ],
   "pt-br": [
     "compose.forwardedCc",
+    "menu.zoom",
     "keys.nameEnter",
     "keys.nameDelete",
     "keys.nameEscape",
@@ -240,6 +246,7 @@ const LATIN_EVERYWHERE = new Set([
   "SSL",
   "OAuth",
   "macOS",
+  "Dock",
   "Windows",
   "Linux",
   "Gmail",
