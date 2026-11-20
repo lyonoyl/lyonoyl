@@ -17,7 +17,6 @@ import tailwindcss from "@tailwindcss/vite";
  */
 const NONCE = randomBytes(16).toString("base64");
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
@@ -49,7 +48,7 @@ export default defineConfig(async () => ({
 
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
 
