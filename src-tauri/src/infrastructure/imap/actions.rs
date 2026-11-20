@@ -19,7 +19,7 @@
 //! told never happened.
 
 use async_imap::error::Error as ImapError;
-use async_imap::imap_proto::{MailboxDatum, Response, ResponseCode, Status};
+use async_imap::imap_proto::{MailboxDatum, Outcome, Response, ResponseCode, Status};
 use async_imap::types::{Capabilities, Capability};
 use tokio::runtime::Handle;
 
@@ -307,8 +307,7 @@ where
             Response::Done {
                 tag,
                 status,
-                code,
-                information,
+                outcome: Outcome { code, information },
             } if tag == &asked => {
                 return match status {
                     Status::Ok => Ok(Some(found)),
@@ -396,8 +395,7 @@ where
             Response::Done {
                 tag,
                 status,
-                code,
-                information,
+                outcome: Outcome { code, information },
             } if tag == &asked => {
                 return match status {
                     Status::Ok if sent => Ok(()),

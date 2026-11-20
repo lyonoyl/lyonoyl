@@ -33,9 +33,9 @@ const KEPT = {
  * Build tools whose own output ships, which `--omit=dev` leaves out.
  *
  * `covers` says what of each is in the bundle. `sections` picks the parts of a notice that covers
- * more than ships: vite's carries the licence of every dependency it bundles for itself, and two
- * pieces of it reach the window — its own module preload polyfill, and a CommonJS helper from the
- * rollup plugins it bundles.
+ * more than ships: vite's carries the licence of every dependency it bundles for itself, and only
+ * its own module preload polyfill reaches the window. The helpers the bundle runs on are rolldown's,
+ * written after esbuild's, and its notice for them is the file it keeps beside its own.
  */
 const BUILT_INTO = [
   {
@@ -44,8 +44,12 @@ const BUILT_INTO = [
   },
   {
     name: "vite",
-    covers: "its module preload polyfill and a CommonJS helper, in the window's script",
-    sections: ["Vite core license", "@rollup/plugin-commonjs"],
+    covers: "its module preload polyfill, in the window's script",
+    sections: ["Vite core license"],
+  },
+  {
+    name: "rolldown",
+    covers: "the helpers the window's script runs on, which it bundles into it",
   },
 ];
 
@@ -95,6 +99,7 @@ function noticesIn(where) {
       NOTICES.includes(upper) ||
       upper.startsWith("LICENSE") ||
       upper.startsWith("LICENCE") ||
+      upper.startsWith("THIRD-PARTY-LICEN") ||
       upper === "COPYING" ||
       upper === "NOTICE"
     ) {

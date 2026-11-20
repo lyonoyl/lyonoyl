@@ -16,8 +16,10 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::RangeInclusive;
 
-use async_imap::imap_proto::types::{AttributeValue, MessageSection, SectionPath};
-use async_imap::imap_proto::{MailboxDatum, Response, Status};
+use async_imap::imap_proto::{
+    AttributeValue, MailboxDatum, MailboxListData, MessageSection, Outcome, Response, SectionPath,
+    Status,
+};
 use async_imap::types::{Flag, NameAttribute};
 
 use super::protocol_failed;
@@ -198,11 +200,11 @@ where
                 status: Status::Bye,
                 ..
             } => return Err(MailProviderError::Offline),
-            Response::MailboxData(MailboxDatum::List {
+            Response::MailboxData(MailboxDatum::List(MailboxListData {
                 name_attributes,
                 name,
                 ..
-            }) => {
+            })) => {
                 // Charged for everything kept of it, before any of it is copied: its name, and each
                 // thing the server says about the mailbox. A server may say one of those as often
                 // as a line holds, and each is kept — charged for its name alone, a listing of a
@@ -328,8 +330,7 @@ where
             Response::Done {
                 tag,
                 status,
-                information,
-                ..
+                outcome: Outcome { information, .. },
             } if tag == &asked => {
                 return match (status, if_refused) {
                     (Status::Ok, _) => Ok(answer),

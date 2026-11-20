@@ -12,6 +12,7 @@
 // packages; and the files a package hands over whole, such as fonts.
 
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { build } from "vite";
 
 /** The package a path inside `node_modules` belongs to, the innermost one when they nest. */
@@ -22,20 +23,43 @@ function packageOf(path) {
   return inner[0].startsWith("@") ? `${inner[0]}/${inner[1]}` : inner[0];
 }
 
+/** An `@import` in a stylesheet, of a package or of a file beside it. */
+const IMPORTED = /@import\s+(?:url\()?["']([^"']+)["']/g;
+
+/**
+ * The packages a stylesheet of the window's own pulls in, through its files as well.
+ *
+ * Each is inlined where it is imported, so the bundler lists none of them as a module; they are
+ * read off the `@import`s instead, by the package each names.
+ */
+function stylesheetsImported(file, seen = new Set()) {
+  if (seen.has(file)) return [];
+  seen.add(file);
+
+  return [...readFileSync(file, "utf8").matchAll(IMPORTED)].flatMap(([, named]) => {
+    if (/^[a-z]+:/i.test(named)) return [];
+    if (/^[./]/.test(named)) return stylesheetsImported(join(dirname(file), named), seen);
+    const parts = named.split("/");
+    return [named.startsWith("@") ? `${parts[0]}/${parts[1]}` : parts[0]];
+  });
+}
+
 /**
  * The package a module of the script came from, or null for this project's own source.
  *
  * A module whose id opens with a zero byte is one a plugin made up. Those that wrap a real file
- * name it, and belong to that file's package; vite's own are its module preload polyfill, its
- * preload helper and the CommonJS helpers of the rollup plugin it bundles, all under vite's notice.
- * Anything else is a module nobody here can say the owner of, which is refused rather than guessed.
+ * name it, and belong to that file's package; vite's own are its module preload polyfill and its
+ * preload helper, under vite's notice, and the bundler's own are the helpers the script runs on,
+ * under rolldown's. Anything else is a module nobody here can say the owner of, which is refused
+ * rather than guessed.
  */
 function moduleOwner(id) {
   if (!id.startsWith("\0")) return packageOf(id);
   const made = id.slice(1);
   const wrapped = packageOf(made);
   if (wrapped !== null) return wrapped;
-  if (made.startsWith("vite/") || made === "commonjsHelpers.js") return "vite";
+  if (made.startsWith("vite/")) return "vite";
+  if (made.startsWith("rolldown/")) return "rolldown";
   return undefined;
 }
 
@@ -68,8 +92,12 @@ await build({
             }
           }
         }
-        for (const watched of this.getWatchFiles()) {
-          if (watched.endsWith(".css")) ships(packageOf(watched), "styles in the window's stylesheet");
+        for (const id of this.getModuleIds()) {
+          const file = id.replace(/\?.*$/, "");
+          if (!file.endsWith(".css")) continue;
+          const owner = packageOf(file);
+          const owners = owner === null ? stylesheetsImported(file) : [owner];
+          for (const one of owners) ships(one, "styles in the window's stylesheet");
         }
       },
     },
