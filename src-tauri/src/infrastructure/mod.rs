@@ -29,5 +29,6 @@ pub mod schedule;
 pub mod secure_storage;
 pub mod smtp;
 pub mod sqlite;
+pub mod title_bar;
 pub mod updates;
 pub mod words;

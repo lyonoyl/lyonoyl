@@ -19,5 +19,6 @@ pub mod secrets;
 pub mod settings;
 pub mod signatures;
 pub mod sync;
+pub mod title_bar;
 pub mod updates;
 pub mod workspace;

@@ -621,6 +621,22 @@ export function setMenuUndoOffered(offered: boolean): Promise<void> {
 }
 
 /**
+ * Says the strip at the top of the window was pressed, where the window has no title bar of its
+ * own: the window follows the pointer until the button comes up.
+ */
+export function pressTitleBar(): Promise<void> {
+  return invoke("press_title_bar");
+}
+
+/**
+ * Says the strip at the top of the window was double-clicked: the window does what a double click
+ * on a title bar does, as System Settings has it.
+ */
+export function doubleClickTitleBar(): Promise<void> {
+  return invoke("double_click_title_bar");
+}
+
+/**
  * Called when the application menu's settings item is chosen. Answers with a function that stops
  * listening.
  */
