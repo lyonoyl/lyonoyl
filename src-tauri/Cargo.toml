@@ -44,7 +44,6 @@ rusqlite = { version = "0.40", features = [
 ] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.35"
-rusqlite_migration = "2.6"
 thiserror = "2"
 ts-rs = "12"
 secrecy = "0.10"

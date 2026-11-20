@@ -1,16 +1,18 @@
+mod runner;
+
 use rusqlite::Connection;
 use rusqlite::Transaction;
-use rusqlite_migration::{HookError, HookResult, Migrations, SchemaVersion, M};
 
+use self::runner::{Migration, MigrationError, Migrations};
 use crate::infrastructure::sqlite::connection::StorageError;
 
 /// Migrations for the authoritative profile database.
 ///
 /// This database holds the only copy of data that cannot be re-synced. Every migration carries a
 /// `down`, so a downgrade is an explicit operation.
-fn profile_migrations() -> Migrations<'static> {
+fn profile_migrations() -> Migrations {
     Migrations::new(vec![
-        M::up(
+        Migration::up(
             "CREATE TABLE mail_accounts (
              id           TEXT PRIMARY KEY NOT NULL,
              email        TEXT NOT NULL,
@@ -23,7 +25,7 @@ fn profile_migrations() -> Migrations<'static> {
         // 002: the settings store, split by lifecycle. `preferences` belongs to the person; it is
         // key-value so a build cannot erase settings it does not know. `device_window_state` belongs
         // to this machine and is safe to lose.
-        M::up(
+        Migration::up(
             "CREATE TABLE preferences (
              key   TEXT PRIMARY KEY NOT NULL,
              value TEXT NOT NULL
@@ -41,7 +43,7 @@ fn profile_migrations() -> Migrations<'static> {
         .down("DROP TABLE device_window_state; DROP TABLE preferences;"),
         // 003: the window state becomes a mode. Full screen hides the menu bar and the dock,
         // maximized fills the area between them, and the two cannot share one flag.
-        M::up(
+        Migration::up(
             "CREATE TABLE device_window_state_v3 (
              window TEXT PRIMARY KEY NOT NULL,
              x      INTEGER NOT NULL,
@@ -76,7 +78,7 @@ fn profile_migrations() -> Migrations<'static> {
         // 004: what an account needs to reach its mail. The password is not among these columns
         // and cannot be: it lives in the store this device keeps its secrets in, under a name
         // derived from the id.
-        M::up(
+        Migration::up(
             "ALTER TABLE mail_accounts ADD COLUMN imap_host TEXT NOT NULL DEFAULT '';
              ALTER TABLE mail_accounts ADD COLUMN imap_port INTEGER NOT NULL DEFAULT 993;
              ALTER TABLE mail_accounts ADD COLUMN imap_encryption INTEGER NOT NULL DEFAULT 0;
@@ -96,7 +98,7 @@ fn profile_migrations() -> Migrations<'static> {
         // profile owns the mapping, and it is handed out by a counter rather than by `max() + 1`:
         // removing the newest account and adding another would otherwise hand the new one the
         // number the old one left behind, together with its mail.
-        M::up(
+        Migration::up(
             "ALTER TABLE mail_accounts ADD COLUMN index_id INTEGER NOT NULL DEFAULT 0;
              ALTER TABLE mail_accounts ADD COLUMN sidebar_collapsed INTEGER NOT NULL DEFAULT 0;
 
@@ -120,7 +122,7 @@ fn profile_migrations() -> Migrations<'static> {
         ),
         // 006: how wide the user dragged each pane. Machine-local like the window geometry, and
         // safe to lose: without a row the pane opens at its default width.
-        M::up(
+        Migration::up(
             "CREATE TABLE device_pane_width (
                  pane  TEXT PRIMARY KEY NOT NULL,
                  width INTEGER NOT NULL
@@ -150,7 +152,7 @@ fn profile_migrations() -> Migrations<'static> {
         // folding itself is a decision, so it is made in the domain; this makes a second
         // outstanding operation on the same target *impossible*, so two of them cannot appear
         // through a race between two writers and be applied twice.
-        M::up(
+        Migration::up(
             "CREATE TABLE op_log (
                  id            INTEGER PRIMARY KEY,
                  account_id    INTEGER NOT NULL,
@@ -196,7 +198,7 @@ fn profile_migrations() -> Migrations<'static> {
         // Kept beside the operation log rather than in the index, because it survives the index
         // being thrown away and rebuilt: "when did this last work" is not something to lose to a
         // resync.
-        M::up(
+        Migration::up(
             "CREATE TABLE account_activity (
                  account_id      TEXT PRIMARY KEY NOT NULL
                                  REFERENCES mail_accounts(id) ON DELETE CASCADE,
@@ -218,7 +220,7 @@ fn profile_migrations() -> Migrations<'static> {
         // Instructions already written are carried over and their account looked up. One whose
         // account is not here refers to an account this device does not have, which the key below
         // would refuse anyway.
-        M::up(
+        Migration::up(
             "CREATE TABLE op_log_v9 (
                  id            INTEGER PRIMARY KEY,
                  account_id    TEXT    NOT NULL
@@ -320,7 +322,7 @@ fn profile_migrations() -> Migrations<'static> {
         // server on an attempt whose answer never arrived can be recognised rather than sent
         // twice. Recipients are rows rather than a list in a column: an address is a thing the
         // schema can refuse, and one folded into a string is a thing it cannot.
-        M::up(
+        Migration::up(
             "CREATE TABLE outbox (
                  id            INTEGER PRIMARY KEY,
                  account_id    TEXT    NOT NULL
@@ -363,7 +365,7 @@ fn profile_migrations() -> Migrations<'static> {
         // guessed from the reading settings — `imap.example.com` on port 587 is a guess that fails
         // slowly, and a message sitting in the outbox with no explanation is worse than one that
         // says nobody has told this account where to send.
-        M::up(
+        Migration::up(
             "ALTER TABLE mail_accounts ADD COLUMN submission_host TEXT;
              ALTER TABLE mail_accounts ADD COLUMN submission_port INTEGER;
              ALTER TABLE mail_accounts ADD COLUMN submission_encryption INTEGER;
@@ -385,7 +387,7 @@ fn profile_migrations() -> Migrations<'static> {
         // `Message-ID` cannot contain a newline — RFC 5322 makes it a dot-atom inside angle
         // brackets — so the separator cannot occur inside a name, and the order that matters is the
         // order they are written in.
-        M::up(
+        Migration::up(
             "ALTER TABLE outbox ADD COLUMN answering TEXT;
              ALTER TABLE outbox ADD COLUMN chain TEXT;",
         )
@@ -402,7 +404,7 @@ fn profile_migrations() -> Migrations<'static> {
         // — which it did not. With it, the two cases are told apart: an instruction that was never
         // sent and whose message is gone is a message somebody else moved, and one that was sent
         // and whose message is gone is one the server carried out.
-        M::up("ALTER TABLE op_log ADD COLUMN sent_at INTEGER;")
+        Migration::up("ALTER TABLE op_log ADD COLUMN sent_at INTEGER;")
             .down("ALTER TABLE op_log DROP COLUMN sent_at;"),
         // When a sent message was put in the folder the account keeps sent mail in, for the
         // servers that do not do it themselves.
@@ -412,7 +414,7 @@ fn profile_migrations() -> Migrations<'static> {
         // half that may be tried again; sending is not. A filed copy takes the row with it, so a row
         // with this column set is one a build that kept filed messages wrote, and the next delivery
         // round deletes it.
-        M::up("ALTER TABLE outbox ADD COLUMN filed_at INTEGER;")
+        Migration::up("ALTER TABLE outbox ADD COLUMN filed_at INTEGER;")
             .down("ALTER TABLE outbox DROP COLUMN filed_at;"),
         // A message being written, kept exactly as it was typed.
         //
@@ -425,7 +427,7 @@ fn profile_migrations() -> Migrations<'static> {
         //
         // Recipients are one line each rather than a table of their own: a draft is read whole and
         // written whole, and there is nothing to ask about them until it stops being a draft.
-        M::up(
+        Migration::up(
             "CREATE TABLE drafts (
                  id         INTEGER PRIMARY KEY,
                  account_id TEXT    NOT NULL
@@ -446,7 +448,7 @@ fn profile_migrations() -> Migrations<'static> {
         // closed the window would have lost it silently, which is the one thing a draft exists to
         // prevent. Its own migration rather than a change to the one above: a database that has
         // already run that one will never run it again.
-        M::up("ALTER TABLE drafts ADD COLUMN blind TEXT NOT NULL DEFAULT '';")
+        Migration::up("ALTER TABLE drafts ADD COLUMN blind TEXT NOT NULL DEFAULT '';")
             .down("ALTER TABLE drafts DROP COLUMN blind;"),
         // 017: the queue is read by message, so it is indexed by message.
         //
@@ -458,7 +460,7 @@ fn profile_migrations() -> Migrations<'static> {
         //
         // Measured at fifty thousand waiting instructions: a scan of the queue at 4.35 ms against
         // 0.06 ms once this exists, on a query that runs for every frame of a scroll.
-        M::up(
+        Migration::up(
             "CREATE INDEX idx_op_log_by_message
                  ON op_log (message_id, folder_id)
                  WHERE state IN ('pending', 'needs_reresolve', 'conflicted');",
@@ -477,7 +479,7 @@ fn profile_migrations() -> Migrations<'static> {
         // accounts in it. They return to the top of the sidebar, which is where they were before
         // anybody made a group. Removing an *account* takes its membership with it, because the
         // row carrying the membership is the account's own.
-        M::up(
+        Migration::up(
             "CREATE TABLE account_groups (
              id        TEXT PRIMARY KEY NOT NULL,
              name      TEXT NOT NULL,
@@ -508,7 +510,7 @@ fn profile_migrations() -> Migrations<'static> {
         // `ON DELETE CASCADE`, so a message taken back takes its files with it: a row pointing at
         // an outbox entry that is gone is a file nothing will ever send and nothing will ever
         // clear.
-        M::up(
+        Migration::up(
             "CREATE TABLE outbox_files (
              id           INTEGER PRIMARY KEY,
              outbox_id    INTEGER NOT NULL REFERENCES outbox(id) ON DELETE CASCADE,
@@ -539,7 +541,7 @@ fn profile_migrations() -> Migrations<'static> {
         //
         // What waits behind something else about the same message is found by the message, so
         // handing out the queue asks one index per row rather than reading the queue per row.
-        M::up(
+        Migration::up(
             "ALTER TABLE op_log ADD COLUMN owes_a_read INTEGER NOT NULL DEFAULT 0;
 
              DROP INDEX idx_op_log_outstanding;
@@ -593,7 +595,7 @@ fn profile_migrations() -> Migrations<'static> {
         // index agreeing -- which on a server that does not name what left a folder puts every
         // archived message back in the inbox. Empty for what was carried out before this column
         // existed, which is measured from when it was asked for.
-        M::up("ALTER TABLE op_log ADD COLUMN done_at INTEGER;")
+        Migration::up("ALTER TABLE op_log ADD COLUMN done_at INTEGER;")
             .down("ALTER TABLE op_log DROP COLUMN done_at;"),
         // 022: how many instructions a person has asked for, counted as each is written down.
         //
@@ -604,7 +606,7 @@ fn profile_migrations() -> Migrations<'static> {
         // and the number beside a folder moves twice for one message. A row of its own rather than
         // the largest id in the queue: an instruction that cancels another removes a row and
         // writes none, and the id it removed is handed out again.
-        M::up(
+        Migration::up(
             "CREATE TABLE asked_counter (
                  id   INTEGER PRIMARY KEY CHECK (id = 1),
                  last INTEGER NOT NULL
@@ -620,7 +622,7 @@ fn profile_migrations() -> Migrations<'static> {
         // when the message was written instead, one that waited an hour for a network is looked
         // for the instant it goes, finds nothing, and is filed twice. Empty for a message a
         // server took before a build said when, which is counted from when it was written.
-        M::up("ALTER TABLE outbox ADD COLUMN accepted_at INTEGER;")
+        Migration::up("ALTER TABLE outbox ADD COLUMN accepted_at INTEGER;")
             .down("ALTER TABLE outbox DROP COLUMN accepted_at;"),
         // 024: the files a draft carries, and whether it is a message that came back.
         //
@@ -638,7 +640,7 @@ fn profile_migrations() -> Migrations<'static> {
         // will not go without them. It is what the foot of the window counts, for exactly as long
         // as the draft exists, and it goes with the draft when the draft is sent or thrown away.
         // A draft written before this column existed is not one, whatever the outbox still holds.
-        M::up(
+        Migration::up(
             "CREATE TABLE draft_files (
                  id           INTEGER PRIMARY KEY,
                  draft_id     INTEGER NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
@@ -664,7 +666,7 @@ fn profile_migrations() -> Migrations<'static> {
         // not, files included, and goes before anything else in the next delivery round, whatever
         // state it was left in; given back again before then, it writes no second draft. Empty for
         // every other row, a held one among them, which stays: what it carried may be nowhere else.
-        M::up("ALTER TABLE outbox ADD COLUMN came_back_as INTEGER;")
+        Migration::up("ALTER TABLE outbox ADD COLUMN came_back_as INTEGER;")
             .down("ALTER TABLE outbox DROP COLUMN came_back_as;"),
         // 026: how many times a server has refused a sent message's copy for now, and when it is
         // asked about again.
@@ -674,7 +676,7 @@ fn profile_migrations() -> Migrations<'static> {
         // Without the count, a copy its server will never take is uploaded on every round for
         // ever, and its row stays with everybody it went to and every file it carried. Nought for
         // every row written before, each of which is asked about at once.
-        M::up(
+        Migration::up(
             "ALTER TABLE outbox ADD COLUMN filing_refused INTEGER NOT NULL DEFAULT 0;
              ALTER TABLE outbox ADD COLUMN file_after INTEGER NOT NULL DEFAULT 0;",
         )
@@ -685,7 +687,7 @@ fn profile_migrations() -> Migrations<'static> {
         // 027: which panes were left folded. Machine-local like their widths, and safe to lose. A
         // row is a pane folded and no row is a pane open, so a first start, a profile written
         // before this and a row lost all open it.
-        M::up(
+        Migration::up(
             "CREATE TABLE device_pane_folded (
                  pane TEXT PRIMARY KEY NOT NULL
              ) STRICT;",
@@ -698,7 +700,7 @@ fn profile_migrations() -> Migrations<'static> {
         // a group. Every profile keeps the sidebar it had: its groups first, in their order, then
         // the accounts in none, in theirs. Nothing is undone going back, because each count still
         // orders what it ordered before.
-        M::up(
+        Migration::up(
             "CREATE TEMP TABLE placed AS
                  SELECT 0 AS kind, id,
                         row_number() OVER (ORDER BY position, name, id) - 1 AS place
@@ -733,7 +735,7 @@ fn profile_migrations() -> Migrations<'static> {
         // a draft or a message on its way and what it passes on survive the same crash or neither
         // is worth keeping. `ON DELETE CASCADE` down both pairs, so a draft thrown away or a
         // message let go of takes what it passed on with it.
-        M::up(
+        Migration::up(
             "CREATE TABLE draft_originals (
                  draft_id  INTEGER PRIMARY KEY REFERENCES drafts(id) ON DELETE CASCADE,
                  opening   TEXT    NOT NULL,
@@ -783,7 +785,7 @@ fn profile_migrations() -> Migrations<'static> {
         // 030: how the mailboxes in a group are sorted. By hand is the order a person dragged them
         // into, and what every group had before; by the date each was added, or by name, is worked
         // out each time the group is read, so a mailbox joining it takes its place by the same rule.
-        M::up(
+        Migration::up(
             "ALTER TABLE account_groups
                  ADD COLUMN sorting TEXT NOT NULL DEFAULT 'manual'
                  CHECK (sorting IN ('manual', 'date_added', 'name'));",
@@ -791,7 +793,7 @@ fn profile_migrations() -> Migrations<'static> {
         .down("ALTER TABLE account_groups DROP COLUMN sorting;"),
         // 031: what each mailbox puts at the foot of the messages written from it. Empty is none,
         // which is what every mailbox had before.
-        M::up("ALTER TABLE mail_accounts ADD COLUMN signature TEXT NOT NULL DEFAULT '';")
+        Migration::up("ALTER TABLE mail_accounts ADD COLUMN signature TEXT NOT NULL DEFAULT '';")
             .down("ALTER TABLE mail_accounts DROP COLUMN signature;"),
     ])
 }
@@ -878,9 +880,9 @@ const WHILE_THE_MAP_COUNTED_COPIES: usize = 15;
 #[cfg(test)]
 const BEFORE_THE_REBUILD: usize = 20;
 
-fn index_migrations() -> Migrations<'static> {
+fn index_migrations() -> Migrations {
     Migrations::new(vec![
-        M::up(
+        Migration::up(
             "CREATE TABLE folders (
              id                      INTEGER PRIMARY KEY,
              account_id              INTEGER NOT NULL,
@@ -960,7 +962,7 @@ fn index_migrations() -> Migrations<'static> {
         // means visiting every placement of the folder and sorting the result, which grows with the
         // mailbox. The date is copied into the placement, where an index can serve the window
         // directly. It never changes after a message is stored, so the two cannot drift.
-        M::up(
+        Migration::up(
             "ALTER TABLE message_placements ADD COLUMN received_at INTEGER NOT NULL DEFAULT 0;
 
              UPDATE message_placements
@@ -972,12 +974,12 @@ fn index_migrations() -> Migrations<'static> {
         .down("DROP INDEX idx_placements_folder_date;"),
         // 003: a counter of set changes for one folder. The list uses it to tell "the set moved
         // under me" from "my window is stale", and re-anchors instead of reloading.
-        M::up("ALTER TABLE folders ADD COLUMN view_epoch INTEGER NOT NULL DEFAULT 0;")
+        Migration::up("ALTER TABLE folders ADD COLUMN view_epoch INTEGER NOT NULL DEFAULT 0;")
             .down("ALTER TABLE folders DROP COLUMN view_epoch;"),
         // 004: the list needs a deterministic order, and two messages can share a second. Adding
         // the tie-break to the ORDER BY alone made SQLite abandon the index and sort the whole
         // folder in a temporary b-tree; carrying it in the index keeps the window an index scan.
-        M::up(
+        Migration::up(
             "DROP INDEX idx_placements_folder_date;
 
              CREATE INDEX idx_placements_folder_date
@@ -993,7 +995,7 @@ fn index_migrations() -> Migrations<'static> {
         // device. The wider two read `messages` rather than `message_placements`, so a message
         // filed in several folders is one row and not several, and they need their own order:
         // without the tie-break in the index SQLite sorts the whole set in a temporary b-tree.
-        M::up(
+        Migration::up(
             "DROP INDEX idx_messages_account_received;
 
              CREATE INDEX idx_messages_account_date
@@ -1015,7 +1017,7 @@ fn index_migrations() -> Migrations<'static> {
         // read as plain text is a line of tags under a subject. Those lines are removed rather than
         // repaired: what belongs there is read from the message, and a message is where it will be
         // read from again.
-        M::up(
+        Migration::up(
             "UPDATE messages
              SET preview = NULL
              WHERE preview LIKE '%</%'
@@ -1035,7 +1037,7 @@ fn index_migrations() -> Migrations<'static> {
         // `I=E2=80=99ll` under a subject is not something anyone wrote. Only the escapes are
         // matched, never a lone `=`: a person writes `a = b`, and losing that line would cost more
         // than leaving it.
-        M::up(
+        Migration::up(
             "UPDATE messages
              SET preview = NULL
              WHERE preview LIKE '%=E2=%'
@@ -1055,7 +1057,7 @@ fn index_migrations() -> Migrations<'static> {
         // What it buys is what a local-first client is for: a message read once is readable again
         // with no server, at once, and showing it as plain text or with its pictures is a redraw
         // rather than another conversation with a provider several hundred milliseconds away.
-        M::up(
+        Migration::up(
             "CREATE TABLE message_bodies (
                  message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
                  raw        BLOB    NOT NULL,
@@ -1069,7 +1071,7 @@ fn index_migrations() -> Migrations<'static> {
         // has to carry — RFC 5322 §3.6.4 — and without it a reply is filed as a new conversation by
         // every client that receives it. One column with a newline between names: a `Message-ID`
         // cannot contain one, so the separator cannot occur inside a name.
-        M::up("ALTER TABLE messages ADD COLUMN references_chain TEXT;")
+        Migration::up("ALTER TABLE messages ADD COLUMN references_chain TEXT;")
             .down("ALTER TABLE messages DROP COLUMN references_chain;"),
         // Who the message is from, as an answer has to address it.
         //
@@ -1077,13 +1079,13 @@ fn index_migrations() -> Migrations<'static> {
         // list should show and the one thing a reply must not be addressed to. Kept apart rather
         // than parsed back out later: what a `From` header meant is decided once, where the
         // message is read.
-        M::up("ALTER TABLE messages ADD COLUMN sender_address TEXT;")
+        Migration::up("ALTER TABLE messages ADD COLUMN sender_address TEXT;")
             .down("ALTER TABLE messages DROP COLUMN sender_address;"),
         // Who else the message was addressed to. What an answer to everybody is built from, and
         // the last thing a pass parsed and threw away. A newline between addresses, which cannot
         // occur inside one; two columns rather than one, because `To` and `Cc` say different
         // things about the people in them.
-        M::up(
+        Migration::up(
             "ALTER TABLE messages ADD COLUMN recipients_to TEXT;
              ALTER TABLE messages ADD COLUMN recipients_cc TEXT;",
         )
@@ -1104,7 +1106,7 @@ fn index_migrations() -> Migrations<'static> {
         //
         // `body_state` goes back with them, or the list would say a message is held here when the
         // row is gone.
-        M::up(
+        Migration::up(
             "DELETE FROM message_bodies;
              UPDATE messages SET body_state = 0 WHERE body_state <> 0;",
         )
@@ -1123,7 +1125,7 @@ fn index_migrations() -> Migrations<'static> {
         // nothing. What it costs instead: a provider that keeps flags per message writes to each
         // copy rather than to one row — a message has one to three copies, and the write happens
         // once where the read happened on every row of every window.
-        M::up(
+        Migration::up(
             "ALTER TABLE message_placements ADD COLUMN flags INTEGER NOT NULL DEFAULT 0;
 
              UPDATE message_placements
@@ -1148,7 +1150,7 @@ fn index_migrations() -> Migrations<'static> {
         //
         // What it recorded is not lost — which of the two places a provider owns is decided when
         // flags are written, which is where it belongs.
-        M::up("ALTER TABLE message_placements DROP COLUMN flags_override;")
+        Migration::up("ALTER TABLE message_placements DROP COLUMN flags_override;")
             .down("ALTER TABLE message_placements ADD COLUMN flags_override INTEGER;"),
         // How many messages a folder holds on each day, so a position in the list can be found
         // without walking to it.
@@ -1162,7 +1164,7 @@ fn index_migrations() -> Migrations<'static> {
         // Kept by the database rather than by every writer. A count that some code path forgets to
         // update is a list that quietly points at the wrong place, and the writers this build has
         // are not the only ones there can be.
-        M::up(
+        Migration::up(
             "CREATE TABLE folder_days (
                  folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
                  day       INTEGER NOT NULL,
@@ -1233,7 +1235,7 @@ fn index_migrations() -> Migrations<'static> {
         //
         // `CHECK (messages >= 0)` because a count below zero is a trigger that is wrong, and a
         // write that fails is findable where a list quietly pointing at the wrong row is not.
-        M::up(
+        Migration::up(
             "DROP TRIGGER folder_days_after_update;
              DROP TRIGGER folder_days_after_delete;
              DROP TRIGGER folder_days_after_insert;
@@ -1401,7 +1403,7 @@ fn index_migrations() -> Migrations<'static> {
         // No reference to `messages`: the conversation is called after its oldest message, and it
         // outlives that message being removed from every folder. What does happen when the last
         // message of a conversation goes is that its names are forgotten.
-        M::up(
+        Migration::up(
             "CREATE TABLE thread_names (
                  account_id INTEGER NOT NULL,
                  name       TEXT    NOT NULL,
@@ -1440,7 +1442,7 @@ fn index_migrations() -> Migrations<'static> {
         // only, so `unicode61` keeps yo and ie apart, as it keeps short i (U+0439) and i (U+0438)
         // apart, which are two letters, not one letter and an accent. Everything else about case and
         // folding is `unicode61`'s job and is left to it.
-        M::up(
+        Migration::up(
             "CREATE VIRTUAL TABLE message_search USING fts5(
                  subject,
                  people,
@@ -1512,7 +1514,7 @@ fn index_migrations() -> Migrations<'static> {
         //
         // NULL means the message is in no inbox, so one column answers both questions and one
         // partial index serves both. Role 1 is the inbox.
-        M::up(
+        Migration::up(
             "ALTER TABLE messages ADD COLUMN arrived_at INTEGER;
 
              UPDATE messages SET arrived_at = (
@@ -1602,7 +1604,7 @@ fn index_migrations() -> Migrations<'static> {
         //
         // The fallback was already ordered; the inbox arm was not, and is now. One account has one
         // inbox, so this settles a choice that had no second case rather than changing one.
-        M::up(
+        Migration::up(
             "ALTER TABLE messages ADD COLUMN inbox_folder_id INTEGER;
              ALTER TABLE messages ADD COLUMN inbox_unread INTEGER;
 
@@ -1741,7 +1743,7 @@ fn index_migrations() -> Migrations<'static> {
         // router, a cache and `op_log` then names a different message in each of them. The
         // sequence `AUTOINCREMENT` keeps survives a delete, and a table cannot be given it by
         // being altered — it has to be built again and everything on it put back.
-        M::up_with_hook("", tables_that_hand_out_numbers_get_a_sequence)
+        Migration::up_with_hook("", tables_that_hand_out_numbers_get_a_sequence)
             .down_with_hook("", tables_that_hand_out_numbers_lose_their_sequence),
         // 022: the conversations this file holds, kept by the database rather than counted.
         //
@@ -1761,7 +1763,7 @@ fn index_migrations() -> Migrations<'static> {
         // the time goes — and the count is exact rather than nearly right.
         //
         // `messages` is the size of the conversation, which the row showing it needs anyway.
-        M::up(
+        Migration::up(
             "CREATE TABLE conversations (
                  thread_id      INTEGER PRIMARY KEY,
                  -- Zero for the instant between a message leaving and the row going with it.
@@ -1869,7 +1871,7 @@ fn index_migrations() -> Migrations<'static> {
         //
         // The table is rebuilt rather than altered: FTS5 has no `ADD COLUMN`. Rebuilt from
         // `messages`, which holds everything it indexes, so nothing is lost by dropping it.
-        M::up(
+        Migration::up(
             "DROP TRIGGER message_search_after_update;
              DROP TRIGGER message_search_after_delete;
              DROP TRIGGER message_search_after_insert;
@@ -1947,7 +1949,7 @@ fn index_migrations() -> Migrations<'static> {
         // Kept as its own column rather than indexed straight from Rust: the index is contentless
         // and cannot be read back, so a row rebuilt for any other reason — a subject filled in
         // late — would silently drop the text if this were not written down somewhere.
-        M::up(
+        Migration::up(
             "ALTER TABLE messages ADD COLUMN body_text TEXT;
 
              DROP TRIGGER message_search_after_update;
@@ -2064,7 +2066,7 @@ fn index_migrations() -> Migrations<'static> {
         // whole conversation and sorted it. The suite could not see it: every message a fixture
         // makes carries its own Message-ID and no references, so every conversation in every test
         // holds exactly one message.
-        M::up(
+        Migration::up(
             // Every row already written carries the zero, so they are all built again from what
             // the messages say. Cheap at any size this runs at: one grouped pass over an index.
             "DELETE FROM conversations;
@@ -2111,7 +2113,7 @@ fn index_migrations() -> Migrations<'static> {
         // how much older it became, so what is left is looked at. Only the second reads the
         // conversation, and only a copy being removed or a folder ceasing to be the inbox reaches
         // it.
-        M::up(
+        Migration::up(
             "DROP TRIGGER conversations_after_arrived;
 
              CREATE TRIGGER conversations_after_arrived
@@ -2185,7 +2187,7 @@ fn index_migrations() -> Migrations<'static> {
         // has its body here and its words in no index. Marking that one read would leave it out of
         // every search for ever. Left unmarked it is read once more — over the network, which is
         // the price of the words — and then marked whatever comes of it.
-        M::up(
+        Migration::up(
             "ALTER TABLE messages ADD COLUMN read_whole_at INTEGER;
 
              UPDATE messages SET read_whole_at = (
@@ -2200,7 +2202,7 @@ fn index_migrations() -> Migrations<'static> {
         // the folder past where that window ended has lost its last copy elsewhere and has not
         // been seen arriving here; forgotten while the folder fails, it comes back as a stranger,
         // read again from the server. Every folder starts as one that did not stop short.
-        M::up("ALTER TABLE folders ADD COLUMN stopped_short INTEGER NOT NULL DEFAULT 0;")
+        Migration::up("ALTER TABLE folders ADD COLUMN stopped_short INTEGER NOT NULL DEFAULT 0;")
             .down("ALTER TABLE folders DROP COLUMN stopped_short;"),
         // 029: whether a reading of a folder stands refused for a moment, one column for the new
         // mail and one for the range further back.
@@ -2212,7 +2214,7 @@ fn index_migrations() -> Migrations<'static> {
         // then it is a refusal like any other. Two, because the two readings of a pass are refused
         // apart: one column taken back by the reading of new mail would stall the reading further
         // back for ever. Every folder starts as one nothing was refused for.
-        M::up(
+        Migration::up(
             "ALTER TABLE folders ADD COLUMN new_mail_refused_for_now INTEGER NOT NULL DEFAULT 0;
              ALTER TABLE folders ADD COLUMN further_back_refused_for_now
                  INTEGER NOT NULL DEFAULT 0;",
@@ -2235,7 +2237,7 @@ fn index_migrations() -> Migrations<'static> {
         // the row's number, which this file never hands out again, so a pointer kept after the
         // row cannot be taken for another message's; and it goes with the message it points at,
         // so a row whose message is gone goes by itself, and finds no copy.
-        M::up(
+        Migration::up(
             "CREATE TABLE handed_over (
                  message_id INTEGER PRIMARY KEY,
                  handed_to  INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE
@@ -2248,7 +2250,7 @@ fn index_migrations() -> Migrations<'static> {
         // folded subject, a folder's last clean read and last error, the keywords a message
         // carried, and the index for unread kept over a message's own flags. Each copy keeps its
         // own flags, so every message stood in that index and no question was asked of it.
-        M::up(
+        Migration::up(
             "DROP INDEX idx_messages_unread;
              DROP TABLE message_keywords;
              ALTER TABLE messages DROP COLUMN bodystructure;
@@ -2284,9 +2286,9 @@ fn index_migrations() -> Migrations<'static> {
 /// `foreign_key_check` afterwards is the other half: with the enforcement off, a migration that
 /// really did break a reference would otherwise be committed and only fail much later, somewhere
 /// that cannot say what did it.
-fn migrating<M>(connection: &mut Connection, path: &str, run: M) -> Result<(), StorageError>
+fn migrating<Run>(connection: &mut Connection, path: &str, run: Run) -> Result<(), StorageError>
 where
-    M: FnOnce(&mut Connection) -> Result<(), rusqlite_migration::Error>,
+    Run: FnOnce(&mut Connection) -> Result<(), MigrationError>,
 {
     let failed = |reason: String| StorageError::Migrate {
         path: path.to_owned(),
@@ -2366,7 +2368,7 @@ fn columns_of(transaction: &Transaction, table: &str) -> Result<String, rusqlite
 ///
 /// Copying with the numbers unchanged leaves the search index correct, and sets the sequence to the
 /// largest number already used, so nothing is renumbered here.
-fn rebuilt_carrying(transaction: &Transaction, sequence: bool) -> HookResult {
+fn rebuilt_carrying(transaction: &Transaction, sequence: bool) -> rusqlite::Result<()> {
     let triggers = definitions(transaction, "trigger", None)?;
     for (name, _) in &triggers {
         transaction.execute_batch(&format!("DROP TRIGGER {name};"))?;
@@ -2404,11 +2406,9 @@ fn rebuilt_carrying(transaction: &Transaction, sequence: bool) -> HookResult {
         // rather than assumed: a rebuild that quietly kept the old shape would look like a
         // migration that worked.
         if building.contains("AUTOINCREMENT") != sequence {
-            return Err(HookError::RusqliteError(
-                rusqlite::Error::InvalidParameterName(format!(
-                    "the declaration of {table} is not shaped as this rebuild expects"
-                )),
-            ));
+            return Err(rusqlite::Error::InvalidParameterName(format!(
+                "the declaration of {table} is not shaped as this rebuild expects"
+            )));
         }
 
         let held = columns_of(transaction, table)?;
@@ -2431,11 +2431,13 @@ fn rebuilt_carrying(transaction: &Transaction, sequence: bool) -> HookResult {
     Ok(())
 }
 
-fn tables_that_hand_out_numbers_get_a_sequence(transaction: &Transaction) -> HookResult {
+fn tables_that_hand_out_numbers_get_a_sequence(transaction: &Transaction) -> rusqlite::Result<()> {
     rebuilt_carrying(transaction, true)
 }
 
-fn tables_that_hand_out_numbers_lose_their_sequence(transaction: &Transaction) -> HookResult {
+fn tables_that_hand_out_numbers_lose_their_sequence(
+    transaction: &Transaction,
+) -> rusqlite::Result<()> {
     rebuilt_carrying(transaction, false)
 }
 
@@ -2465,9 +2467,9 @@ pub fn written_ahead_of_the_index(connection: &Connection) -> Option<usize> {
     ahead_of(connection, &index_migrations())
 }
 
-fn ahead_of(connection: &Connection, migrations: &Migrations<'_>) -> Option<usize> {
-    match migrations.current_version(connection) {
-        Ok(SchemaVersion::Outside(version)) => Some(version.get()),
+fn ahead_of(connection: &Connection, migrations: &Migrations) -> Option<usize> {
+    match Migrations::version_of(connection) {
+        Ok(found) if found > migrations.latest() => Some(found),
         _ => None,
     }
 }
@@ -2480,7 +2482,7 @@ fn ahead_of(connection: &Connection, migrations: &Migrations<'_>) -> Option<usiz
 fn refusing_a_newer_build(
     connection: &Connection,
     path: &str,
-    migrations: &Migrations<'_>,
+    migrations: &Migrations,
 ) -> Result<(), StorageError> {
     match ahead_of(connection, migrations) {
         Some(found) => Err(StorageError::FromANewerBuild {
