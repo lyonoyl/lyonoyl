@@ -745,8 +745,7 @@
     "used": [
       "dunce",
       "lyonoyl",
-      "lyonoyl-domain",
-      "rusqlite_migration"
+      "lyonoyl-domain"
     ]
   },
   {

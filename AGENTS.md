@@ -185,7 +185,7 @@ The order is mandatory. Skipping a step puts technical debt into the foundation.
 2. **A port, if the outside world is involved.** Trait in `ports/`, signatures in domain types. Own error type.
 3. **Test the use case against an in-memory fake port.** Before the adapter. Fakes are hand-written, not `mockall`.
 4. **Adapter in `infrastructure/`.** All foreign types are mapped inside it.
-5. **Schema migration** if needed: a new `M::up(…).down(…)` appended to its list in `src-tauri/src/infrastructure/sqlite/migrations/mod.rs`, never an edit to one already there, plus an upgrade test that starts at the version before it.
+5. **Schema migration** if needed: a new `Migration::up(…).down(…)` appended to its list in `src-tauri/src/infrastructure/sqlite/migrations/mod.rs`, never an edit to one already there, plus an upgrade test that starts at the version before it.
 6. **Command in `commands/`**: unpack `State`, map DTO, map error. Nothing else. `async fn` + `spawn_blocking` for SQLite.
 7. **Regenerate TS types**, commit them.
 8. **Frontend**: call only through `src/shared/ipc/`, screen in `src/features/`. Every string a person reads goes into **every catalog in `src/shared/i18n/locales/`, in the same commit**, and is read through `t()`, never inlined. Invariants 16–18 and section 8 say what that covers and how it is read; `scripts/check-layering.sh` and `catalog.test.ts` refuse what skipped them.
