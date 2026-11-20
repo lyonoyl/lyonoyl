@@ -152,11 +152,17 @@ xattr = "1.6"
 # `tar` it is handed to stops when the application does. Already in the tree, with the same
 # backend, through `png` under Tauri's menus: naming it here adds an edge and not a package.
 flate2 = "1"
-# The picture in the Dock while the application runs, chosen in the settings: AppKit's own
-# application and image, named at the versions and with the features Tauri already builds them with,
-# so they add edges and not packages.
+# The picture in the Dock while the application runs, chosen in the settings, and what a double
+# click on the top of the window does, as System Settings has it: AppKit's own application and image,
+# and Foundation's defaults, named at the versions and with the features Tauri already builds them
+# with, so they add edges and not packages.
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData"] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSData",
+    "NSString",
+    "NSUserDefaults",
+] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",
     "NSApplication",

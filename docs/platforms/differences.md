@@ -109,9 +109,11 @@ A window manager answers a size request with what it is willing to grant, and th
 
 macOS puts the application's name in the menu bar, so a strip inside the window repeating it is a strip of mail nobody can read. The title bar is therefore taken away there and the content given the height back, with only the top-left corner moved down out from under the close, minimize, and zoom buttons.
 
+In its place, the strip under the buttons, across every column, answers as the bar would wherever a press lands on neither a control nor text a person could select: pressed, it moves the window with the pointer, and double-clicked, it does what System Settings has a double click on a title bar do—zoom the window, minimize it, or leave it as it is (`src/app/title-bar.ts`).
+
 Nowhere else. On Windows and Linux the title bar is how a window is moved, closed, and told apart in a task switcher, and an application without one behaves unlike every other one on the desktop.
 
-Which of the two the interface is in is read from the user agent, because that is the one thing available before anything else loads. Being wrong about it costs a few pixels of padding rather than anything a person notices.
+Which of the two the interface is in is read from the user agent, because that is the one thing available before anything else loads. Being wrong about it on Windows or Linux costs a few pixels of padding and a top that moves the window as the system's bar above it does, rather than anything a person notices.
 
 ## The count on the application's icon
 
