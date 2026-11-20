@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // The licences of code that ships inside this application without being a dependency of it.
 //
-// `cargo about` reads the `license` field of each crate, and a `-sys` crate declares the licence of
-// its Rust wrapper. The C project it vendors and compiles in carries its own, and that one never
-// appears: `libsqlite3-sys` says MIT while the SQLCipher it builds is Zetetic's BSD, and
-// `openssl-src` says MIT/Apache-2.0 while the OpenSSL it builds is Apache-2.0 with its own
-// copyright. Both licences ask for the notice to travel with the binary, and `cargo about` alone
-// leaves both out of the list this application shows.
+// `cargo about` reads the `license` field of each crate, and a crate that vendors C declares the
+// licence of its Rust wrapper. The C project it vendors and compiles in carries its own, and that
+// one never appears: `sqlcipher-src`, whose SQLCipher libsqlite3-sys builds, is read as MIT while
+// that SQLCipher is Zetetic's BSD, and `openssl-src` says MIT/Apache-2.0 while the OpenSSL it
+// builds is Apache-2.0 with its own copyright. Both licences ask for the notice to travel with the
+// binary, and `cargo about` alone leaves both out of the list this application shows.
 //
 // The same hole has a second shape: source copied into this tree. The files in
 // `src/shared/ui/primitives/` are shadcn's, taken by its own command and kept unmodified, and the
@@ -32,12 +32,13 @@ import { dirname, join } from "node:path";
  */
 const VENDORED = [
   {
-    crate: "libsqlite3-sys",
+    crate: "sqlcipher-src",
     project: "SQLCipher",
     licence: "BSD-3-Clause",
-    text: "sqlcipher/LICENSE",
+    text: "sqlcipher/LICENSE-sqlcipher",
     // Compiled in on every system by the `bundled-sqlcipher` feature in src-tauri/Cargo.toml,
-    // which is how every page of both databases comes to be encrypted.
+    // which takes it from this crate, and which is how every page of both databases comes to be
+    // encrypted.
   },
   {
     crate: "openssl-src",
