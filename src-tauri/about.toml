@@ -31,3 +31,16 @@ targets = [
 
 # Crates whose licence is stated in a way the collector cannot read on its own.
 workarounds = ["ring"]
+
+# SQLCipher's sources, which libsqlite3-sys compiles in. The crate's `license` adds three to its own
+# MIT: SQLCipher's, whose notice travels as vendored C (`scripts/collect-vendored-licences.mjs`);
+# SQLite's, which is in the public domain and asks for none; and libtomcrypt's, a cipher provider it
+# carries for WebAssembly, which none of the targets above build. The checksum is of the crate's own
+# licence file, so a version that changes it is read again before it ships.
+[sqlcipher-src.clarify]
+license = "MIT"
+
+[[sqlcipher-src.clarify.files]]
+path = "LICENSE"
+license = "MIT"
+checksum = "413f82e0f4f8191a8624a7b7b2c9809466f7f3d930ad52a74ad29f2dd907881d"

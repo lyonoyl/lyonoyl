@@ -126,10 +126,10 @@ fn the_two_halves_of_the_application_are_both_in_it() {
 
 #[test]
 fn what_ships_without_declaring_itself_still_carries_its_notice() {
-    // Neither is a crate, and neither is declared by the crate that builds it: `libsqlite3-sys`
-    // says MIT about its own wrapper while compiling in Zetetic's SQLCipher, and `openssl-src`
-    // says MIT/Apache-2.0 while compiling in OpenSSL. `cargo about` reads the declared field and
-    // so sees neither, and both licences ask for the notice to travel with the binary.
+    // Neither is a crate, and neither is declared by the crate that carries it: `sqlcipher-src`,
+    // whose SQLCipher libsqlite3-sys compiles in, is read as MIT, and `openssl-src` says
+    // MIT/Apache-2.0 while compiling in OpenSSL. `cargo about` reads the declared field and so sees
+    // neither, and both licences ask for the notice to travel with the binary.
     let all = collected();
     let covers = |what: &str| {
         all.iter()
@@ -157,8 +157,9 @@ fn what_ships_without_declaring_itself_still_carries_its_notice() {
         .iter()
         .find(|notice| notice.used.iter().any(|used| used.contains("SQLCipher")))
         .expect("the notice is there");
+    // Its holder's name in any case: SQLCipher's own file has written it both ways.
     assert!(
-        zetetic.text.contains("Zetetic"),
+        zetetic.text.to_lowercase().contains("zetetic llc"),
         "the SQLCipher notice carries no copyright line"
     );
 }
