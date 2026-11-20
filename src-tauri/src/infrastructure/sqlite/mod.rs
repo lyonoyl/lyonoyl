@@ -13,5 +13,6 @@ pub mod op_log;
 mod originals;
 pub mod outbox;
 pub mod placement;
+pub mod pool;
 pub mod settings_repository;
 pub mod threads;
