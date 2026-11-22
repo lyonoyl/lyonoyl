@@ -33,7 +33,13 @@ const DEFAULT_HEIGHT: f64 = 800.0;
 /// so the only way a click on a link inside it can say anything is by trying to navigate — and the
 /// only way to hear that without the message being replaced by whatever it navigated to is to
 /// refuse the navigation before it happens.
-pub fn build(app: &AppHandle, followed: impl Fn(&str) + Send + 'static) -> tauri::Result<()> {
+///
+/// It answers the mode the window was left in, which `restore_and_show` finishes where the window
+/// could not be made in it.
+pub fn build(
+    app: &AppHandle,
+    followed: impl Fn(&str) + Send + 'static,
+) -> tauri::Result<WindowMode> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
 
     // Where it was left, asked for before there is a window rather than after. A window made at
@@ -79,11 +85,14 @@ pub fn build(app: &AppHandle, followed: impl Fn(&str) + Send + 'static) -> tauri
 
     // And the mode, for the same reason as the size. A window shown and then told to fill the
     // screen fills it while the person watches; asked for as it is made, it is simply already
-    // that way.
-    let window = match placement.as_ref().map(WindowPlacement::mode) {
-        Some(WindowMode::Maximized) => window.maximized(true),
-        Some(WindowMode::Fullscreen) => window.fullscreen(true),
-        _ => window,
+    // that way — everywhere but in the one case `made_in` names.
+    let mode = placement
+        .as_ref()
+        .map_or(WindowMode::Normal, WindowPlacement::mode);
+    let window = match made_in(mode) {
+        WindowMode::Maximized => window.maximized(true),
+        WindowMode::Fullscreen => window.fullscreen(true),
+        WindowMode::Normal => window,
     };
 
     // On macOS the window has no bar of its own: the content reaches the top of the window and the
@@ -98,7 +107,22 @@ pub fn build(app: &AppHandle, followed: impl Fn(&str) + Send + 'static) -> tauri
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    window.build().map(|_| ())
+    window.build().map(|_| mode)
+}
+
+/// The mode a window is asked for as it is made: the one it was left in, but for a maximized window
+/// on macOS, which is made at the place it had before it was maximized and zoomed once that place
+/// is set (`restore_and_show`).
+///
+/// There the runtime sets the place of a window it has just made a second time, in a step it queues
+/// for the main thread, and tao queues its zoom ahead of that step. A window asked to be maximized
+/// as it is made would be zoomed and then moved, at its zoomed size, to that earlier place: neither
+/// maximized nor where it was left.
+fn made_in(mode: WindowMode) -> WindowMode {
+    match mode {
+        WindowMode::Maximized if cfg!(target_os = "macos") => WindowMode::Normal,
+        mode => mode,
+    }
 }
 
 /// Whether a navigation may happen, and what to do instead when it may not.
@@ -148,13 +172,16 @@ fn decide(url: &tauri::Url, followed: &impl Fn(&str)) -> bool {
 /// The host Windows and Android put this application's message scheme behind.
 const SCHEME_HOST: &str = "lyomsg.localhost";
 
-/// Restores the window where the user left it, if that place still exists./// Restores the window where the user left it, if that place still exists.
-/// Puts the window where it was left and shows it.
+/// Puts the window where it was left, in the mode it was left in, and shows it.
 ///
 /// The window is created hidden. Showing it first and moving it afterwards is a window that opens
 /// at one size and jumps to another while the person watches — and on macOS the jump is animated,
-/// so it is not even quick. Everything below happens before anything is on screen.
-pub fn restore_and_show(window: &WebviewWindow) {
+/// so it is not even quick. Everything below is asked for before anything is on screen, and only
+/// the zoom on macOS is made once the window is up.
+pub fn restore_and_show(
+    window: &WebviewWindow,
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] mode: WindowMode,
+) {
     // A window manager answers a size request with what it is willing to grant, and that answer
     // arrives as a resize event. Recording it would replace what the person chose with the
     // system's opinion of it, so events are ignored for a moment after the window appears.
@@ -162,8 +189,25 @@ pub fn restore_and_show(window: &WebviewWindow) {
         state.geometry.ignore_until(Instant::now() + RESTORE_SETTLE);
     }
 
-    // Nothing is moved or resized here: the window was made the size, the place and the mode it
-    // was left in. All that is left is to show it.
+    // On macOS a window left maximized is zoomed here rather than as it was made (`made_in`). The
+    // runtime set its place a second time in a step it queued for the main thread as it made the
+    // window, and tao queues the zoom as well, so the zoom comes after that step. A window as large
+    // as the free area of the screen may be zoomed already, put at the top by AppKit as it was
+    // made, and the runtime's step would move it back down: a step queued behind that one puts it
+    // back where AppKit put it.
+    #[cfg(target_os = "macos")]
+    if mode == WindowMode::Maximized {
+        if window.is_maximized().unwrap_or(false) {
+            if let Ok(place) = window.outer_position() {
+                let _ = window.set_position(place);
+            }
+        } else {
+            let _ = window.maximize();
+        }
+    }
+
+    // Nothing else is moved or resized here: the window was made the size and the place it was
+    // left at. All that is left is to show it.
     let _ = window.show();
     let _ = window.set_focus();
 }
@@ -372,6 +416,26 @@ mod opening_tests {
     #[test]
     fn a_first_run_opens_at_the_size_this_application_starts_with() {
         assert_eq!(opens_at(None), (DEFAULT_WIDTH, DEFAULT_HEIGHT));
+    }
+
+    #[test]
+    fn a_window_left_normal_or_in_full_screen_is_made_that_way() {
+        assert_eq!(made_in(WindowMode::Normal), WindowMode::Normal);
+        assert_eq!(made_in(WindowMode::Fullscreen), WindowMode::Fullscreen);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_window_left_maximized_on_macos_is_made_at_its_place_and_zoomed_later() {
+        // Zoomed as it is made, it would be moved afterwards by the runtime's own step, at its
+        // zoomed size, to the place it had before it was maximized.
+        assert_eq!(made_in(WindowMode::Maximized), WindowMode::Normal);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn a_window_left_maximized_elsewhere_is_made_maximized() {
+        assert_eq!(made_in(WindowMode::Maximized), WindowMode::Maximized);
     }
 
     #[test]

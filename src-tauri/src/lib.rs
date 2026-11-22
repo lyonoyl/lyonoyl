@@ -395,13 +395,13 @@ pub fn run() {
             // message is refused too — which is what keeps the message on screen while the person
             // is asked about it.
             let handle = app.handle().clone();
-            bootstrap::window::build(app.handle(), move |name| {
+            let mode = bootstrap::window::build(app.handle(), move |name| {
                 bootstrap::link_followed(&handle, name);
             })?;
 
             if let Some(window) = app.get_webview_window("main") {
                 step("start.window", &mut since);
-                bootstrap::window::restore_and_show(&window);
+                bootstrap::window::restore_and_show(&window, mode);
                 bootstrap::window::persist_on_change(&window);
                 // The picture chosen in the settings, from the start rather than once the window
                 // has asked for anything.
