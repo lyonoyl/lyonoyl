@@ -106,7 +106,7 @@ dom_query = { version = "0.29", default-features = false }
 # Turning a host back into the letters it stands for, so a confirmation shows what a person would
 # recognise rather than `xn--80ajf9b`. Already in the tree through `url`, which Tauri brings.
 idna = "1"
-url = "2"
+url = "2.5.9"
 # Verifying the seal on an update: the hash it is taken over, and the base64 it is written in.
 # `ring` above already carries the signature check. All three already compile into this application
 # and all three are already in the committed licence list -- naming them here adds an edge and not a

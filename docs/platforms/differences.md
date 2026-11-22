@@ -74,7 +74,11 @@ Opening the application while it is already open brings the existing window forw
 
 ## Window position and size
 
-The window stores its position, its size, and its mode (normal, maximized, full screen), and is **made** that way rather than made and then changed. A window created at one size and moved to another afterwards is a window a person watches change, and on macOS both the move and the maximize are animated. Asking for all three as the window is built leaves nothing to animate.
+The window stores its position, its size, and its mode (normal, maximized, full screen), and is **made** at that place and that size rather than made and then moved. A window created at one size and moved to another afterwards is a window a person watches change, and on macOS both the move and the maximize are animated. On Windows and Linux the mode is asked for as the window is built as well.
+
+On macOS the runtime sets the place of a window it has just made a second time, in a step it queues for the main thread, and tao queues the zoom of a maximized window the same way, ahead of that step. A window asked to be maximized as it is built would be zoomed and then moved, at its zoomed size, to the place it had before it was maximized: neither maximized nor where it was left. So there a window left maximized is built at that place and zoomed once it is up, in a step tao queues behind the runtime's; the zoom is seen, and zooming back takes the window to that place. A window as large as the free area is put at the top by AppKit as it is made, and a step queued behind the runtime's puts it back there (`restore_and_show` in `src-tauri/src/bootstrap/window.rs`).
+
+AppKit calls a window zoomed when it fills the free area of the screen, and such a window is stored as maximized. Measured: moved 3 points off it, the window is still zoomed, so it opens filling the free area again; moved 36 points down, it is not, and opens where it was left.
 
 The size is read as the inner size and written back the same way, so nothing drifts on any platform: Windows measures the client rectangle, Linux asks GTK for the window size, macOS the content view.
 
