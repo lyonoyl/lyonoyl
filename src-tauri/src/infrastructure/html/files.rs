@@ -9,27 +9,52 @@ use std::collections::HashSet;
 
 use mail_parser::{Encoding, Message, MessageParser, MessagePart, MimeHeaders, PartType};
 
+use lyonoyl_domain::attachment::opens::opens_as;
+
 use super::guards::{behind_the_guards, Asking, Guarded};
 use super::{picture_served_as, serving, LARGEST_PICTURE};
 use crate::ports::body::{Attached, InlinePart};
-use crate::ports::message_parts::PassedOn;
+use crate::ports::message_parts::{FileTakenOut, NotReadNow, PassedOn};
 
 /// Takes what a message carries out of it: one file by where it sits, or all of it to pass on.
 pub struct MimeParts;
 
 impl crate::ports::message_parts::MessageParts for MimeParts {
-    fn file_at(&self, raw: &[u8], at: u32) -> Option<(String, Vec<u8>)> {
-        let parsed = MessageParser::default().parse(raw)?;
-        let part = parsed.parts.get(at as usize)?;
-        let bytes = bytes_of(&parsed, part)?;
+    fn file_at(&self, raw: &[u8], at: u32) -> Result<Option<FileTakenOut>, NotReadNow> {
+        // Behind the guards, as showing it is: the message is whole and written by whoever sent
+        // it, and a parse that runs away runs away here as well as there.
+        taken_out(behind_the_guards(
+            raw,
+            "message-file",
+            Asking::SomebodyIsWaiting,
+            move |message| {
+                let parsed = MessageParser::default().parse(message)?;
+                let part = parsed.parts.get(at as usize)?;
+                let bytes = bytes_of(&parsed, part)?;
 
-        // The same rule the listing followed, applied again rather than trusted from there: what
-        // arrives here is a number the window sent, and the message may have been fetched again
-        // since the listing was made.
-        let name =
-            lyonoyl_domain::attachment::safe_name(part.attachment_name().unwrap_or_default());
+                // The same rules the listing followed, applied again rather than trusted from
+                // there: what arrives here is a number the window sent, and the message may have
+                // been fetched again since the listing was made.
+                let (name, a_message) = match &part.body {
+                    PartType::Message(nested) => (
+                        message_named(part.attachment_name(), nested.subject()),
+                        true,
+                    ),
+                    _ => (
+                        lyonoyl_domain::attachment::safe_name(
+                            part.attachment_name().unwrap_or_default(),
+                        ),
+                        false,
+                    ),
+                };
 
-        Some((name, bytes))
+                Some(FileTakenOut {
+                    name,
+                    bytes,
+                    a_message,
+                })
+            },
+        ))
     }
 
     fn passed_on(&self, raw: &[u8]) -> Option<PassedOn> {
@@ -46,6 +71,22 @@ impl crate::ports::message_parts::MessageParts for MimeParts {
                     .unwrap_or_default()
             },
         ))
+    }
+}
+
+/// What each of the guards' three answers is for a file taken out of a message.
+///
+/// Apart from `file_at` for the reason `passed_as` is: a test that took the places the process
+/// shares would take them from every test beside it.
+pub(super) fn taken_out(
+    read: Guarded<Option<FileTakenOut>>,
+) -> Result<Option<FileTakenOut>, NotReadNow> {
+    match read {
+        Guarded::Answered(found) => Ok(found),
+        // More than this build reads, or a reading that ran past its time or broke. The listing
+        // the person pressed came from a reading that finished, so this is the moment rather than
+        // the message, and it is said as one rather than as a file the message no longer holds.
+        Guarded::Refused | Guarded::Busy => Err(NotReadNow),
     }
 }
 
@@ -144,9 +185,9 @@ fn carried<'a>(parsed: &'a Message<'_>, part: &'a MessagePart<'_>) -> Option<&'a
 
 /// The files a message carries that its body does not refer to.
 ///
-/// Listed, never held. What comes back is a position, a name and a size — the bytes stay in the
-/// message until somebody asks to save one, because a message with four photographs in it is four
-/// photographs nobody has asked for yet.
+/// Listed, never held. What comes back is a position, a name, a size and whether it opens — the
+/// bytes stay in the message until somebody asks to save or open one, because a message with four
+/// photographs in it is four photographs nobody has asked for yet.
 ///
 /// A part is a file here when it has a filename of its own, or says it is an attachment. A part
 /// the body points at is a picture and belongs to the body; a part with neither a name nor a
@@ -169,16 +210,19 @@ pub(crate) fn files_inside(parsed: &Message<'_>) -> Vec<Attached> {
                 at: at as u32,
                 name: message_named(part.attachment_name(), nested.subject()),
                 bytes: carried(parsed, part).map_or(0, <[u8]>::len) as u64,
+                // A message, saved as one whatever its bytes begin with, and named `.eml`, which
+                // opening refuses too.
+                opens: false,
             });
             continue;
         }
 
-        let size = match &part.body {
-            PartType::Binary(bytes) | PartType::InlineBinary(bytes) => bytes.len(),
+        let bytes: &[u8] = match &part.body {
+            PartType::Binary(bytes) | PartType::InlineBinary(bytes) => bytes,
             PartType::Text(text) | PartType::Html(text)
                 if set_aside.contains(&(at as u32)) && !part.is_encoding_problem =>
             {
-                text.len()
+                text.as_bytes()
             }
             _ => continue,
         };
@@ -198,12 +242,16 @@ pub(crate) fn files_inside(parsed: &Message<'_>) -> Vec<Attached> {
             continue;
         }
 
+        // Never the string the message carried: it is written by whoever sent it, and it is about
+        // to reach a save panel.
+        let name = lyonoyl_domain::attachment::safe_name(named.unwrap_or_default());
         found.push(Attached {
             at: at as u32,
-            // Never the string the message carried: it is written by whoever sent it, and it is
-            // about to reach a save panel.
-            name: lyonoyl_domain::attachment::safe_name(named.unwrap_or_default()),
-            bytes: size as u64,
+            // Read from the bytes saving it would write and the name it is offered under, by the
+            // rule opening it reads them by again.
+            opens: opens_as(&name, bytes).is_some(),
+            name,
+            bytes: bytes.len() as u64,
         });
     }
 
@@ -246,9 +294,12 @@ pub(crate) fn pictures_as_files(parsed: &Message<'_>) -> Vec<Attached> {
             continue;
         }
 
+        let name =
+            lyonoyl_domain::attachment::safe_name(part.attachment_name().unwrap_or_default());
         found.push(Attached {
             at: at as u32,
-            name: lyonoyl_domain::attachment::safe_name(part.attachment_name().unwrap_or_default()),
+            opens: opens_as(&name, bytes).is_some(),
+            name,
             bytes: bytes.len() as u64,
         });
     }

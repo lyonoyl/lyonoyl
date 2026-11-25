@@ -217,7 +217,14 @@ impl Parts {
 }
 
 impl MessageParts for &Parts {
-    fn file_at(&self, _raw: &[u8], _at: u32) -> Option<(String, Vec<u8>)> {
+    fn file_at(
+        &self,
+        _raw: &[u8],
+        _at: u32,
+    ) -> Result<
+        Option<crate::ports::message_parts::FileTakenOut>,
+        crate::ports::message_parts::NotReadNow,
+    > {
         unreachable!("passing a message on takes every file, not one")
     }
     fn passed_on(&self, raw: &[u8]) -> Option<PassedOn> {

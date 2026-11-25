@@ -1069,6 +1069,17 @@ export function saveAttachment(
   return invoke("save_attachment", { messageId, at });
 }
 
+/**
+ * Opens one file that came with a message, in whatever the system opens such a file with.
+ *
+ * Asked as saving one is, by the message and where the file sits in it, and answered with nothing
+ * but whether it opened. The core opens it only once its own bytes say it is a document of pages or
+ * a picture, whatever this window was told.
+ */
+export function openAttachment(messageId: string, at: number): Promise<void> {
+  return invoke("open_attachment", { messageId, at });
+}
+
 export function saveMessage(messageId: string): Promise<SavedMessageDto> {
   return invoke("save_message", { messageId });
 }

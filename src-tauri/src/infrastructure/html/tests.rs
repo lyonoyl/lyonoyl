@@ -1458,6 +1458,8 @@ mod files_a_message_carries {
 
         let (name, bytes) = MimeParts
             .file_at(&raw, listed[1].at)
+            .expect("the message is read now")
+            .map(|file| (file.name, file.bytes))
             .expect("the photograph is where the listing said");
         assert_eq!(name, "photo.jpg");
         assert_eq!(bytes.len(), 331);
@@ -1465,6 +1467,8 @@ mod files_a_message_carries {
 
         let (name, bytes) = MimeParts
             .file_at(&raw, listed[0].at)
+            .expect("the message is read now")
+            .map(|file| (file.name, file.bytes))
             .expect("the invoice is where the listing said");
         assert_eq!(name, "invoice.pdf");
         assert_eq!(bytes.len(), 78);
@@ -1548,9 +1552,187 @@ mod files_a_message_carries {
         );
         let (name, bytes) = MimeParts
             .file_at(&raw, rendered.attachments[0].at)
+            .expect("the message is read now")
+            .map(|file| (file.name, file.bytes))
             .expect("the table is where the listing said");
         assert_eq!(name, "figures.csv");
         assert_eq!(bytes, b"month,total\nOctober,12\nNovember,15\n");
+    }
+
+    #[test]
+    fn a_file_is_taken_out_of_a_message_behind_the_guards_showing_it_passes() {
+        // Each of the guards' three answers, without making the machine busy: a test that took
+        // the places the process shares would take them from every test beside it.
+        use crate::infrastructure::html::files::taken_out;
+        use crate::infrastructure::html::guards::Guarded;
+        use crate::ports::message_parts::{FileTakenOut, NotReadNow};
+
+        let found = Some(FileTakenOut {
+            name: "invoice.pdf".to_owned(),
+            bytes: b"%PDF-1.7".to_vec(),
+            a_message: false,
+        });
+        assert_eq!(taken_out(Guarded::Answered(found.clone())), Ok(found));
+        assert_eq!(taken_out(Guarded::Answered(None)), Ok(None));
+        // A refusal is the moment as well: the listing came from a reading that finished.
+        assert_eq!(taken_out(Guarded::Refused), Err(NotReadNow));
+        assert_eq!(taken_out(Guarded::Busy), Err(NotReadNow));
+    }
+
+    #[test]
+    fn no_file_is_taken_out_of_a_message_past_what_this_build_reads() {
+        // The reader lists no file of such a message, and nothing takes one out of it either.
+        use crate::ports::message_parts::{MessageParts, NotReadNow};
+
+        let mut raw = [
+            "From: zeta@example.com",
+            "To: sigma@example.org",
+            "Subject: Too much",
+            "MIME-Version: 1.0",
+            "Content-Type: multipart/mixed; boundary=\"g1\"",
+            "",
+            "--g1",
+            "Content-Type: application/pdf; name=\"Statement.pdf\"",
+            "Content-Disposition: attachment; filename=\"Statement.pdf\"",
+            "",
+            "%PDF-1.7",
+            "--g1",
+            "Content-Type: text/plain",
+            "",
+            "",
+        ]
+        .join("\r\n")
+        .into_bytes();
+        raw.resize(crate::infrastructure::html::LARGEST_MESSAGE + 1, b'.');
+
+        assert_eq!(MimeParts.file_at(&raw, 1), Err(NotReadNow));
+    }
+
+    #[test]
+    fn a_message_carried_inside_is_taken_out_as_the_listing_names_it_and_says_what_it_is() {
+        // Named `scan.pdf` by its sender and beginning as a PDF does, it is still a message: listed
+        // as one that does not open, offered under the name the listing shows, and said to be a
+        // message, which opening refuses whatever it is called.
+        use crate::ports::message_parts::MessageParts;
+
+        let raw = [
+            "From: zeta@example.com",
+            "To: sigma@example.org",
+            "Subject: The statement",
+            "MIME-Version: 1.0",
+            "Content-Type: multipart/mixed; boundary=\"c1\"",
+            "",
+            "--c1",
+            "Content-Type: text/plain; charset=utf-8",
+            "",
+            "Attached.",
+            "--c1",
+            "Content-Type: message/rfc822",
+            "Content-Disposition: attachment; filename=\"scan.pdf\"",
+            "",
+            "Subject: Carried",
+            "",
+            "%PDF-1.7",
+            "--c1--",
+            "",
+        ]
+        .join("\r\n")
+        .into_bytes();
+        let rendered = body_of(&raw, Viewing::plainly());
+
+        assert_eq!(rendered.attachments.len(), 1, "{:?}", rendered.attachments);
+        let listed = &rendered.attachments[0];
+        assert!(
+            !listed.opens,
+            "a carried message was listed as one that opens"
+        );
+        assert!(listed.name.ends_with(".eml"), "{}", listed.name);
+
+        let taken = MimeParts
+            .file_at(&raw, listed.at)
+            .expect("the message is read now")
+            .expect("the message is where the listing said");
+        assert!(taken.a_message, "a carried message was not said to be one");
+        assert_eq!(
+            taken.name, listed.name,
+            "offered under another name than the one listed"
+        );
+    }
+
+    #[test]
+    fn a_file_opens_when_its_own_bytes_are_a_document_of_pages_or_a_picture() {
+        // Never by the name: a program called a PDF is listed as one that does not open, and a
+        // picture with no name to say so as one that does. The listing reads the bytes saving
+        // would write, and opening reads them again by the same rule.
+        use crate::ports::message_parts::MessageParts;
+
+        let raw = [
+            "From: zeta@example.com",
+            "To: sigma@example.org",
+            "Subject: The statement",
+            "MIME-Version: 1.0",
+            "Content-Type: multipart/mixed; boundary=\"o1\"",
+            "",
+            "--o1",
+            "Content-Type: text/plain; charset=utf-8",
+            "",
+            "Attached.",
+            "--o1",
+            "Content-Type: application/octet-stream; name=\"Statement.pdf\"",
+            "Content-Disposition: attachment; filename=\"Statement.pdf\"",
+            "Content-Transfer-Encoding: base64",
+            "",
+            "JVBERi0xLjcKJeLjz9MK",
+            "--o1",
+            "Content-Type: application/pdf; name=\"Invoice.pdf\"",
+            "Content-Disposition: attachment; filename=\"Invoice.pdf\"",
+            "Content-Transfer-Encoding: base64",
+            "",
+            "TVqQAAMAAAA=",
+            "--o1",
+            "Content-Type: application/octet-stream",
+            "Content-Disposition: attachment; filename=\"scan\"",
+            "Content-Transfer-Encoding: base64",
+            "",
+            "/9j/4AAQSkZJRgA=",
+            "--o1",
+            "Content-Type: text/plain; name=\"notes.txt\"",
+            "Content-Disposition: attachment; filename=\"notes.txt\"",
+            "",
+            "Nothing to open.",
+            "--o1--",
+            "",
+        ]
+        .join("\r\n")
+        .into_bytes();
+        let rendered = body_of(&raw, Viewing::plainly());
+
+        assert_eq!(
+            rendered
+                .attachments
+                .iter()
+                .map(|file| (file.name.as_str(), file.opens))
+                .collect::<Vec<_>>(),
+            vec![
+                ("Statement.pdf", true),
+                ("Invoice.pdf", false),
+                ("scan", true),
+                ("notes.txt", false),
+            ]
+        );
+        for file in &rendered.attachments {
+            let (_, bytes) = MimeParts
+                .file_at(&raw, file.at)
+                .expect("the message is read now")
+                .map(|file| (file.name, file.bytes))
+                .expect("the file is where the listing said");
+            assert_eq!(
+                lyonoyl_domain::attachment::opens::opens_as(&file.name, &bytes).is_some(),
+                file.opens,
+                "{} is listed one way and opened another",
+                file.name
+            );
+        }
     }
 
     /// A note with a message carried inside it, as a mail app passes one on as a file, and the
@@ -1606,6 +1788,8 @@ mod files_a_message_carries {
         );
         let (_, bytes) = MimeParts
             .file_at(&raw, rendered.attachments[0].at)
+            .expect("the message is read now")
+            .map(|file| (file.name, file.bytes))
             .expect("the message is where the listing said");
         assert_eq!(bytes, carried);
         assert_eq!(rendered.attachments[0].bytes, carried.len() as u64);
@@ -1669,6 +1853,8 @@ mod files_a_message_carries {
         assert_eq!(rendered.attachments[0].name, "About Tuesday.eml");
         let (_, bytes) = MimeParts
             .file_at(&raw, rendered.attachments[0].at)
+            .expect("the message is read now")
+            .map(|file| (file.name, file.bytes))
             .expect("the message is where the listing said");
         assert_eq!(
             bytes,

@@ -228,7 +228,9 @@ describe("MessageBody", () => {
     open.mockResolvedValue(
       body({
         kind: "nothing",
-        attachments: [{ at: 2, name: "invoice.pdf", bytes: "2500000" }],
+        attachments: [
+          { at: 2, name: "invoice.pdf", bytes: "2500000", opens: false },
+        ],
       }),
     );
     show();
@@ -690,6 +692,7 @@ describe("MessageBody, the files a message came with", () => {
     bytes: "2500000",
   };
 
+  /** Files that do not open: these are about the row itself. */
   function showWith(attachments: (typeof WITH_A_FILE)[]) {
     open.mockResolvedValue({
       name: "body-1",
@@ -699,7 +702,7 @@ describe("MessageBody, the files a message came with", () => {
       remoteNotShown: 0,
       remoteNotHad: 0,
       truncated: false,
-      attachments,
+      attachments: attachments.map((file) => ({ opens: false, ...file })),
     });
   }
 
@@ -729,115 +732,6 @@ describe("MessageBody, the files a message came with", () => {
     expect(
       screen.getAllByRole("button", { name: /^save /i }),
     ).toHaveLength(2);
-  });
-
-  it("says only the size where the name ends in no kind anybody reads", async () => {
-    // No extension, and one that is not a word, and nothing stands in for either. The type the
-    // message declared never reaches the window: it is the sender's claim, and the name is what
-    // the system goes by.
-    showWith([
-      { at: 2, name: "thing", bytes: "1024" },
-      { at: 3, name: "Minutes v2. final draft", bytes: "2048" },
-    ]);
-
-    show();
-
-    expect(await screen.findByText(nameShown("thing"))).toBeTruthy();
-    expect(screen.getByText("1 kB")).toBeTruthy();
-    expect(screen.getByText(nameShown("Minutes v2. final draft"))).toBeTruthy();
-    expect(screen.getByText("2 kB")).toBeTruthy();
-  });
-
-  it("names the kind its name ends in, never the one the message declared", async () => {
-    // A message can call an application a PDF, in the type it declares, which never reaches the
-    // window, and earlier in the name, which does. The end of the name is what the system opens it
-    // by, so the row says what the end says, and the claim appears nowhere.
-    showWith([{ at: 2, name: "Statement.pdf.app", bytes: "2500000" }]);
-
-    show();
-
-    expect(await screen.findByText(nameShown("Statement.pdf.app"))).toBeTruthy();
-    expect(screen.getByText("APP · 2.5 MB")).toBeTruthy();
-    expect(screen.queryByText(/^PDF/)).toBeNull();
-  });
-
-  it("keeps how a long name ends on screen, cutting it in the middle", async () => {
-    // Cut at its end, a long name loses its extension off screen, and the extension is what decides
-    // what the file does when it is opened. The start gives way; the ending does not.
-    const name = "Statement-for-your-account-ending-0000-and-more-words.pdf.app";
-    showWith([{ at: 2, name, bytes: "2500000" }]);
-
-    show();
-
-    const shown = await screen.findByText(nameShown(name));
-    const [start, ending] = Array.from(shown.children);
-    expect(ending?.textContent).toBe(".app");
-    expect(ending?.className).toContain("shrink-0");
-    expect(ending?.className).not.toMatch(/truncate|ellipsis|overflow/);
-    expect(start?.textContent).toBe(
-      "Statement-for-your-account-ending-0000-and-more-words.pdf",
-    );
-    expect(start?.className).toContain("text-ellipsis");
-    // And the whole of it is what the button is called, for whoever hears it rather than sees it.
-    expect(
-      screen.getByRole("button", { name: (called) => called.includes(name) }),
-    ).toBeTruthy();
-  });
-
-  it("keeps only the last characters of an ending longer than any extension", async () => {
-    // Kept whole, an ending of any length would take the whole room, and how the name starts would
-    // be cut down to nothing.
-    const name = `notes.${"x".repeat(40)}`;
-    showWith([{ at: 2, name, bytes: "1024" }]);
-
-    show();
-
-    const shown = await screen.findByText(nameShown(name));
-    const [start, ending] = Array.from(shown.children);
-    expect(ending?.textContent).toBe("x".repeat(20));
-    expect(start?.textContent).toBe(`notes.${"x".repeat(20)}`);
-    expect(screen.getByText("1 kB")).toBeTruthy();
-  });
-
-  it("keeps an ending too wide for the room inside it, off the size beside it", async () => {
-    // A dot and nineteen ideographs are within the characters an ending keeps whole, and wider
-    // than the room a name has. Unclipped, they are drawn over the size beside them. The room
-    // clips what does not fit it; the ending itself is still never cut short.
-    const wide = "\u5831".repeat(19);
-    const name = `notes.${wide}`;
-    showWith([{ at: 2, name, bytes: "1024" }]);
-
-    show();
-
-    const shown = await screen.findByText(nameShown(name));
-    expect(shown.lastElementChild?.textContent).toBe(`.${wide}`);
-    expect(shown.className).toMatch(/\bmax-w-56\b/);
-    expect(shown.className).toMatch(/\boverflow-hidden\b/);
-    expect(screen.getByText("1 kB")).toBeTruthy();
-  });
-
-  it("keeps the ending at the right of a name that starts right to left", async () => {
-    // Laid out in the name's own direction, one Hebrew letter at the front turns the row around:
-    // the ending goes to the far left, drawn `app.`, and the last thing read is the `.pdf` before
-    // it. The row runs left to right whatever the name; only the start keeps its own direction.
-    const start = "\u05D0Statement-for-your-account-ending-0000.pdf";
-    const name = `${start}.app`;
-    showWith([{ at: 2, name, bytes: "2500000" }]);
-
-    show();
-
-    const button = await screen.findByRole("button", {
-      name: (called) => called.includes(name),
-    });
-    const shown = button.firstElementChild;
-    expect(shown?.textContent).toBe(name);
-    expect(shown?.getAttribute("dir")).toBe("ltr");
-    expect(shown?.lastElementChild?.textContent).toBe(".app");
-    expect(
-      shown?.lastElementChild?.closest("[dir]")?.getAttribute("dir"),
-    ).toBe("ltr");
-    expect(shown?.firstElementChild?.textContent).toBe(start);
-    expect(shown?.firstElementChild?.getAttribute("dir")).toBe("auto");
   });
 
   it("asks for it by where it sits, never by its name", async () => {

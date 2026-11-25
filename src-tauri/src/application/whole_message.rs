@@ -1,9 +1,10 @@
 //! The message itself, as the bytes its server handed over.
 //!
-//! What opening a message reads, and what passing one on reads. Read from the copy this device
-//! keeps, and from the server only where it keeps none — and then kept, so the next reading is from
-//! here. One place, because where a message is has one answer, and two readers asking it two ways
-//! would be a message opened from here and passed on from a server that has since lost it.
+//! What opening a message reads, what passing one on reads, and what saving or opening a file it
+//! carries reads. Read from the copy this device keeps, and from the server only where it keeps
+//! none — and then kept, so the next reading is from here. One place, because where a message is
+//! has one answer, and two readers asking it two ways would be a message opened from here and
+//! passed on from a server that has since lost it.
 
 use crate::application::error::UseCaseError;
 use crate::ports::account_repository::AccountRepository;

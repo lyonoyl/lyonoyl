@@ -10,7 +10,7 @@ use crate::commands::error::{CommandError, ErrorCode};
 use crate::commands::list::MessageIdDto;
 use crate::commands::mailboxes::FolderRoleDto;
 use crate::read_model::mailboxes::MailboxReadModel;
-use crate::read_model::message::{MessageDetails, MessageReadModel, Placement};
+use crate::read_model::message::{MessageDetails, MessageReadModel, Placement, WhereToRead};
 use crate::AppState;
 use lyonoyl_domain::attachment::reorders_text;
 use lyonoyl_domain::message::{BodyState, MessageId};
@@ -334,35 +334,29 @@ pub async fn save_attachment(
     let profile = state.storage.profile()?;
     let index = state.storage.index_holding_message(message.get())?;
     let credentials = state.credentials.sharing(state.secrets.clone());
+    let sealing = adapters::message_key(&state.secrets).map_err(|_| {
+        CommandError::new(
+            ErrorCode::CredentialsUnavailable,
+            "The key this device keeps its mail under cannot be reached.",
+        )
+    })?;
     let runtime = tauri::async_runtime::handle().inner().clone();
     let event_loop = state.event_loop;
 
     tauri::async_runtime::spawn_blocking(move || {
-        let Some(place) = MessageReadModel::new(index.clone()).where_to_read(message)? else {
-            return Err(CommandError::new(
-                ErrorCode::InvalidRequest,
-                "That message is not in the index.",
-            ));
-        };
-
-        let Some(account_id) =
-            MailboxReadModel::new(profile.clone(), index).account_of(place.account)?
-        else {
-            return Err(CommandError::new(
-                ErrorCode::InvalidRequest,
-                "That message belongs to an account that is not here.",
-            ));
-        };
+        let (place, account_id) = where_its_file_is(profile.clone(), index.clone(), message)?;
 
         let saved = SaveAttachment::new(
             adapters::accounts(profile),
             &credentials,
             crate::bootstrap::mail_servers(runtime),
-            adapters::save_dialog(app, event_loop),
+            adapters::message_bodies(index, sealing),
             crate::infrastructure::html::MimeParts,
+            adapters::save_dialog(app, event_loop),
         )
         .execute(
             &account_id,
+            message,
             &place.mailbox,
             place.uid_validity,
             place.uid,
@@ -376,6 +370,113 @@ pub async fn save_attachment(
     })
     .await
     .map_err(|_| CommandError::new(ErrorCode::Internal, "A background task failed."))?
+}
+
+/// Opens one file that came with a message, in whatever the system opens such a file with.
+///
+/// Asked as saving one is, by naming the message and where the file sits in it, and answered with
+/// nothing but whether it opened: where its copy went is not the window's to learn (invariant 12).
+/// It opens only when its own bytes say it is a document of pages or a picture, which the use case
+/// reads again from the bytes rather than taking the window's word, given when the message was
+/// drawn.
+#[tauri::command]
+pub async fn open_attachment(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    message_id: String,
+    at: u32,
+) -> Result<(), CommandError> {
+    use crate::application::open_attachment::OpenAttachment;
+    use crate::infrastructure::html::MimeParts;
+
+    let message = message_id
+        .parse::<u64>()
+        .ok()
+        .and_then(|value| MessageId::new(value).ok())
+        .ok_or_else(|| {
+            CommandError::new(ErrorCode::InvalidRequest, "Message identifier is invalid.")
+        })?;
+
+    let profile = state.storage.profile()?;
+    let index = state.storage.index_holding_message(message.get())?;
+    let credentials = state.credentials.sharing(state.secrets.clone());
+    let sealing = adapters::message_key(&state.secrets).map_err(|_| {
+        CommandError::new(
+            ErrorCode::CredentialsUnavailable,
+            "The key this device keeps its mail under cannot be reached.",
+        )
+    })?;
+    let opened = crate::bootstrap::opened_files(&app).map_err(|_| {
+        CommandError::new(
+            ErrorCode::FileNotOpened,
+            "This device has no folder for caches to open a file from.",
+        )
+    })?;
+    let runtime = tauri::async_runtime::handle().inner().clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let (place, account_id) = where_its_file_is(profile.clone(), index.clone(), message)?;
+
+        OpenAttachment::new(
+            adapters::accounts(profile),
+            &credentials,
+            crate::bootstrap::mail_servers(runtime),
+            adapters::message_bodies(index, sealing),
+            MimeParts,
+            adapters::system_opening(opened),
+        )
+        .execute(
+            &account_id,
+            message,
+            &place.mailbox,
+            place.uid_validity,
+            place.uid,
+            at,
+        )
+        .map_err(CommandError::from)
+    })
+    .await
+    .map_err(|_| CommandError::new(ErrorCode::Internal, "A background task failed."))?
+}
+
+/// Where a message a file is taken out of is read from, and the account it belongs to.
+///
+/// One place for saving a file and opening one, so the two cannot drift apart. A message the index
+/// measured past what this build reads is refused here, before anything is fetched: read whole, it
+/// would be refused only once it was in memory.
+fn where_its_file_is(
+    profile: crate::infrastructure::sqlite::connection::SqlitePool,
+    index: crate::infrastructure::sqlite::connection::SqlitePool,
+    message: MessageId,
+) -> Result<(WhereToRead, String), CommandError> {
+    let Some(place) = MessageReadModel::new(index.clone()).where_to_read(message)? else {
+        return Err(CommandError::new(
+            ErrorCode::InvalidRequest,
+            "That message is not in the index.",
+        ));
+    };
+
+    refused_when_too_large(place.size)?;
+
+    let Some(account_id) = MailboxReadModel::new(profile, index).account_of(place.account)? else {
+        return Err(CommandError::new(
+            ErrorCode::InvalidRequest,
+            "That message belongs to an account that is not here.",
+        ));
+    };
+
+    Ok((place, account_id))
+}
+
+/// Refuses a message the index measured past what this build reads.
+fn refused_when_too_large(size: Option<u64>) -> Result<(), CommandError> {
+    if crate::infrastructure::html::too_large_to_read(size) {
+        return Err(CommandError::new(
+            ErrorCode::InvalidRequest,
+            "That message is larger than this build reads.",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -474,5 +575,20 @@ mod tests {
 
         assert_eq!(dto.to.shown, [longest]);
         assert_eq!(dto.to.all, 2);
+    }
+
+    #[test]
+    fn a_message_measured_past_what_is_read_is_refused_before_a_file_is_taken_out_of_it() {
+        // Saving a file and opening one both go through `where_its_file_is`, which asks this
+        // before anything is fetched.
+        let largest = crate::infrastructure::html::LARGEST_MESSAGE as u64;
+
+        let refused = refused_when_too_large(Some(largest + 1)).expect_err("refused");
+        assert_eq!(refused.code, ErrorCode::InvalidRequest);
+        assert!(refused_when_too_large(Some(largest)).is_ok());
+        assert!(
+            refused_when_too_large(None).is_ok(),
+            "a size nobody measured is read, and the guards refuse it in hand"
+        );
     }
 }

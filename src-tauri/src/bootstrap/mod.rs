@@ -78,6 +78,22 @@ pub fn data_directory(app: &tauri::AppHandle) -> Result<std::path::PathBuf, taur
     Ok(base.join(DATA_DIRECTORY))
 }
 
+/// The folder the files this application opens are copied into, under the system's folder for
+/// caches and the same name as the data directory.
+///
+/// Outside the data directory on macOS and Linux: a copy is there only for the program the system
+/// opens it with, and goes at the next start. Windows keeps caches in the folder the data directory
+/// is in, so there it lies beside the databases' folder.
+pub fn opened_files(app: &tauri::AppHandle) -> Result<std::path::PathBuf, tauri::Error> {
+    use tauri::Manager;
+
+    Ok(app
+        .path()
+        .cache_dir()?
+        .join(DATA_DIRECTORY)
+        .join(crate::infrastructure::opening::OPENED))
+}
+
 /// Result of wiring up local storage.
 ///
 /// Storage failure is not fatal: the window is shown regardless, and the UI renders a recovery

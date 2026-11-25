@@ -19,6 +19,7 @@ pub mod notification;
 /// Unix only: Windows sets a process no limit of this kind.
 #[cfg(unix)]
 pub mod open_files;
+pub mod opening;
 pub mod progress;
 pub mod pushes;
 /// A made-up mailbox for the build made for screenshots, and for the tests of it. Compiled out of

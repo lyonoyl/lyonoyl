@@ -638,6 +638,8 @@ mod tests {
         assert_eq!(listed[0].name, "About Tuesday.eml");
         let (_, bytes) = crate::infrastructure::html::MimeParts
             .file_at(wire.as_bytes(), listed[0].at)
+            .expect("the message is read now")
+            .map(|file| (file.name, file.bytes))
             .expect("the message is where the listing said");
         assert_eq!(bytes, carried);
     }

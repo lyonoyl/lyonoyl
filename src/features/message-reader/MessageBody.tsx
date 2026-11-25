@@ -6,18 +6,18 @@ import {
   isCommandError,
   onMessageLink,
   onPictureMissing,
-  saveAttachment,
   openMessageBody,
   whatTheWindowWears,
 } from "@/shared/ipc/client";
 import { Button } from "@/shared/ui/primitives/button";
-import { inRoundNumbers } from "@/shared/ui/bytes";
 import type { BodyFormDto } from "@/shared/ipc/generated/BodyFormDto";
 import type { CommandError } from "@/shared/ipc/generated/CommandError";
 import type { MessageBodyDto } from "@/shared/ipc/generated/MessageBodyDto";
 import type { ShowPicturesDto } from "@/shared/ipc/generated/ShowPicturesDto";
 import { LinkConfirmation, type Asked } from "@/shared/ui/LinkConfirmation";
 import { MessageFrame } from "@/shared/ui/MessageFrame";
+
+import { Attachments } from "./Attachments";
 
 type State =
   | { status: "loading" }
@@ -28,73 +28,6 @@ type State =
       asked: boolean;
     }
   | { status: "failed"; error: CommandError };
-
-/**
- * The body of a message, shown without this window ever holding it.
- *
- * The frame below is the third of the four layers between a message and the reader: the body is
- * sanitized in Rust, served on a scheme of its own under a policy of its own, and embedded here in
- * a sandbox with nothing allowed in it. No `allow-*`, ever — one of them turns a frame holding a
- * hostile message into a place that can run it, and the window it sits in is the one that holds
- * IPC.
- */
-/**
- * The extension a file's name ends in, without its dot, or nothing where the name has none.
- *
- * What the system reads to decide what a saved file is and what opens it. A dot at the very start
- * is not one — it is what hides a file — and the window does not rely on the names reaching it
- * already without such a dot.
- */
-function extensionOf(name: string): string {
-  const dot = name.lastIndexOf(".");
-
-  return dot > 0 ? name.slice(dot + 1) : "";
-}
-
-/**
- * The word for a kind of file: the extension its name ends in, in capitals.
- *
- * Taken from the name and never from the type the message declared for the part. The extension is
- * what the system goes by once the file is saved; the declared type is only the sender's word for
- * it, and a message can call an application a PDF — a row reading PDF beside it would be this
- * window repeating the claim. Not a catalogue key and not translated: an extension is part of the
- * name the message gave the file.
- *
- * Shown only when it is short and plain. An extension is whatever follows the last dot, and
- * `final draft` is not a word for a kind of anything. Where there is no word, the row is a name and
- * a size.
- */
-function kindOf(name: string): string {
-  const extension = extensionOf(name);
-
-  return /^[a-z0-9]{1,8}$/i.test(extension) ? extension.toUpperCase() : "";
-}
-
-/** The most of a name's end that is kept whole: any extension a system reads, and not much more. */
-const LONGEST_ENDING = 20;
-
-/**
- * A file's name as two parts: the start, which may be cut short, and the ending, which never is.
- *
- * The ending is the extension, dot and all. A name cut at its end loses exactly that, and a sender
- * who knows it writes `Statement-for-your-account-ending-0000.pdf.app`: cut there, it reads as a
- * document and opens as an application. So the cut goes in the middle, and the ending stays on
- * screen. Past the length of any extension a system reads, only the last characters are kept
- * whole, so a name whose last dot is followed by a sentence rather than an extension still shows
- * how it starts.
- */
-function startAndEnding(name: string): [string, string] {
-  const extension = extensionOf(name);
-  if (extension === "") return [name, ""];
-
-  const characters = Array.from(name);
-  const kept = Math.min(Array.from(extension).length + 1, LONGEST_ENDING);
-
-  return [
-    characters.slice(0, characters.length - kept).join(""),
-    characters.slice(characters.length - kept).join(""),
-  ];
-}
 
 /** The three marks the stylesheet keys its colours off, as one value to compare. */
 function theLookOfTheWindow(): string {
@@ -109,6 +42,15 @@ function theLookOfTheWindow(): string {
   ].join(":");
 }
 
+/**
+ * The body of a message, shown without this window ever holding it.
+ *
+ * The frame below is the third of the four layers between a message and the reader: the body is
+ * sanitized in Rust, served on a scheme of its own under a policy of its own, and embedded here in
+ * a sandbox with nothing allowed in it. No `allow-*`, ever — one of them turns a frame holding a
+ * hostile message into a place that can run it, and the window it sits in is the one that holds
+ * IPC.
+ */
 export function MessageBody({
   messageId,
   showPictures = "whenAsked",
@@ -466,89 +408,6 @@ export function MessageBody({
           and a file listed inside the frame would be a file listed by the message itself. */}
       <Attachments messageId={messageId} files={body.attachments} />
     </div>
-  );
-}
-
-/**
- * The files a message came with, each a button that saves it.
- *
- * Shown under a body that was drawn and under one there was nothing to draw alike: a message whose
- * whole content is an attachment, and a reply too deep to render whose pictures travelled inside it,
- * both have files to hand over and no body to hang them beneath. Nothing where the message carried
- * nothing.
- */
-function Attachments({
-  messageId,
-  files,
-}: {
-  messageId: string;
-  files: MessageBodyDto["attachments"];
-}) {
-  const { t, language } = useI18n();
-
-  if (files.length === 0) return null;
-
-  return (
-    <div className="flex flex-col gap-1 border-t border-border px-6 py-3">
-      <p className="text-xs font-medium text-muted-foreground">
-        {t("reading.attachments")}
-      </p>
-      <ul className="flex flex-wrap gap-2">
-        {files.map((file) => (
-          <li key={file.at}>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              aria-label={t("reading.saveAttachment", { name: file.name })}
-              onClick={() => {
-                // Asked by position. The name is shown and never sent: two files may share
-                // one, and where this goes is the system's dialog to decide.
-                void saveAttachment(messageId, file.at).catch(() => {
-                  /* Said by the dialog's own failure, or by nothing: closing it is an answer. */
-                });
-              }}
-            >
-              <FileName name={file.name} />
-              <span className="ms-2 shrink-0 text-xs tabular-nums text-muted-foreground">
-                {[kindOf(file.name), inRoundNumbers(file.bytes, language, t)]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            </Button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-/**
- * A file's name, cut in the middle where it does not fit, so that how it ends is always on screen.
- *
- * The two parts run left to right whatever script the name is in, and the ending, read left to
- * right as well, is always at the right edge. Laid out in the name's own direction, one
- * right-to-left letter at the front would turn the row around: the ending at the far left, drawn
- * `app.`, and the `.pdf` before it the last thing read. The start keeps the name's own direction
- * and gives way; the ending does not.
- *
- * The name never takes more than its room. An ending wider than the room is clipped at the room's
- * edge rather than drawn over the size beside it — no extension anything opens a file by is that
- * wide.
- *
- * Spaces are kept as written: a space just before the last dot is part of the name, and drawn as
- * two parts it would otherwise be dropped where they meet.
- */
-function FileName({ name }: { name: string }) {
-  const [start, ending] = startAndEnding(name);
-
-  return (
-    <span dir="ltr" className="flex min-w-0 max-w-56 overflow-hidden">
-      <span dir="auto" className="overflow-hidden text-ellipsis whitespace-pre">
-        {start}
-      </span>
-      {ending && <span className="shrink-0 whitespace-pre">{ending}</span>}
-    </span>
   );
 }
 

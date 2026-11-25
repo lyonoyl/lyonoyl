@@ -79,12 +79,21 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 
 | Defense | Held by |
 | --- | --- |
-| A file is saved only through the system's dialog, run by the core: no path comes from the window | `scripts/check-layering.sh` |
+| A file is saved only through the system's dialog and opened only from a copy the core writes: no path comes from the window | `scripts/check-layering.sh` |
 | A saved file's name is made rather than taken: every character that reorders text goes, and a name Windows keeps for a device is refused | `every_character_that_reorders_text_is_removed`, `a_name_windows_keeps_for_a_device_is_not_offered` |
 | A saved file never keeps a leading dot | `a_space_between_the_dots_does_not_keep_one_of_them` |
-| A saved file carries the mark of a download on macOS | `a_file_saved_out_of_a_message_carries_the_mark_of_a_download` |
+| A saved file carries the mark of a download, on macOS and on Windows | `a_file_saved_out_of_a_message_carries_the_mark_of_a_download`, `a_file_saved_out_of_a_message_carries_the_mark_of_the_internet_on_windows` |
 | A link under the chosen name is replaced, never written through | `a_link_under_the_chosen_name_is_replaced_rather_than_written_through` |
-| A file's row shows its real name and size, not the type its sender declared | `a_file_crosses_as_where_it_sits_what_it_is_called_and_how_large_it_is` |
+| A file's row shows its real name and size, not the type its sender declared | `a_file_crosses_as_where_it_sits_what_it_is_called_how_large_it_is_and_whether_it_opens` |
+| A file opens only when its first bytes are a PDF or a picture, read as the message is drawn and again as it opens, never by its name or declared type | `what_runs_or_holds_other_files_does_not_open`, `a_header_almost_right_or_not_at_the_start_does_not_open`, `a_file_opens_when_its_own_bytes_are_a_document_of_pages_or_a_picture`, `a_program_called_a_pdf_is_not_opened_and_nothing_is_written` |
+| The first bytes refuse a picture in HEIF whose first box says it is AVIF, however long the box says it is, and a Canon camera's raw picture | `a_picture_in_heif_that_says_it_is_avif_does_not_open_as_heic`, `a_first_box_whose_size_is_nought_or_one_is_read_as_far_as_it_goes`, `a_raw_picture_from_a_camera_does_not_open_as_a_tiff` |
+| A name only takes opening away: other cameras' raw pictures stay files to save, and so does anything named as a message | `a_name_takes_opening_away_and_never_gives_it`, `a_raw_picture_from_a_camera_does_not_open_as_a_tiff`, `a_message_carried_inside_is_not_opened_whatever_its_bytes_begin_with` |
+| A message carried inside another is told by what it is, offered under the name the row shows, and never opened, whatever it is called | `a_message_carried_inside_is_taken_out_as_the_listing_names_it_and_says_what_it_is`, `a_message_carried_inside_is_not_opened_whatever_it_is_called` |
+| An opened file's copy is named for what its bytes are, so the system opens it with the program for that kind, and never under a name Windows keeps for a device | `any_other_name_is_given_the_ending_its_bytes_say_after_its_own`, `a_file_is_named_for_what_its_bytes_are_whatever_the_message_called_it`, `a_cut_that_would_leave_a_name_windows_keeps_for_a_device_leaves_none` |
+| An opened file's copy is written in a folder of its own, marked as a download on macOS and Windows, and read-only with its folder; a copy the disk would not mark is not opened | `every_copy_is_written_in_a_folder_of_its_own_under_the_name_given`, `a_copy_carries_the_mark_of_a_download`, `a_copy_and_its_folder_are_read_only_and_the_folder_for_copies_is_its_owners`, `src-tauri/src/infrastructure/opening/mod.rs` |
+| The folder for copies, and the folder above it, are written into only where each is a folder, not a link or a file, and on Unix the person's own, made theirs alone | `a_folder_for_copies_that_is_a_link_is_not_written_into`, `a_file_where_the_folder_for_copies_should_be_is_not_written_into`, `a_folder_above_the_copies_that_is_a_link_is_not_written_into`, `a_folder_above_the_copies_that_others_could_write_in_is_made_this_persons_alone`, `src-tauri/src/infrastructure/opening/mod.rs` |
+| The copies held at once weigh at most eight messages together, each counting for at least 64 KiB, and the oldest go first; one opening writes at a time | `the_oldest_copies_go_first_once_the_copies_would_weigh_more_than_they_may`, `copies_of_a_few_bytes_are_bounded_by_their_number`, `the_copies_held_at_once_are_bounded_by_what_eight_messages_weigh_and_by_their_number`, `src-tauri/src/infrastructure/opening/mod.rs` |
+| Every opened copy goes at the next start, and the sweep takes only what it made and follows no link | `the_start_takes_away_every_copy_an_earlier_run_opened_and_nothing_else`, `a_folder_for_copies_that_is_a_link_is_not_looked_into` |
 | A file chosen to attach is read within a bound, and a device or a pipe is refused | `a_file_heavier_than_a_message_may_be_is_refused_as_it_is_chosen`, `a_device_that_never_ends_is_refused_rather_than_read`, `a_pipe_is_refused_without_waiting_for_somebody_to_write_into_it` |
 
 ## A message cannot exhaust the application
@@ -92,6 +101,7 @@ Every defense Lyonoyl Mail has, each beside what holds it: a test that fails wit
 | Defense | Held by |
 | --- | --- |
 | A message larger than this build reads is refused before it is parsed | `a_message_larger_than_this_build_reads_is_refused_rather_than_parsed` |
+| A file is taken out of a message, to be saved or opened, within the bounds a body is drawn within, and a message the index measured past them is refused before it is fetched | `a_file_is_taken_out_of_a_message_behind_the_guards_showing_it_passes`, `no_file_is_taken_out_of_a_message_past_what_this_build_reads`, `a_message_measured_past_what_is_read_is_refused_before_a_file_is_taken_out_of_it` |
 | Nesting is measured before parsing, and a document deeper than an engine builds is not drawn | `a_document_as_deep_as_an_engine_builds_is_drawn_and_one_level_deeper_is_not` |
 | A message of more than 8,000 elements is shown as text | `a_message_of_tens_of_thousands_of_elements_is_shown_as_text` |
 | A message forwarded in its own form is read within the bounds a body is drawn within, and is forwarded as text past them | `markup_past_what_a_body_is_drawn_within_is_not_cut_down` |

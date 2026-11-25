@@ -3,14 +3,15 @@
 /**
  * A file a message carried.
  *
- * Where it sits, what it is called and how large it is, and nothing more. Not the type the message
- * declares for it: the window names a file's kind by its name, which is what the system goes by
- * once the file is saved, and a declared type beside the name is the sender's claim handed to the
- * one place that could repeat it.
+ * Where it sits, what it is called, how large it is and whether it opens, and nothing more. Not
+ * the type the message declares for it: the window names a file's kind by its name, which is what
+ * the system goes by once the file is saved, and a declared type beside the name is the sender's
+ * claim handed to the one place that could repeat it. Whether it opens is decided by the core,
+ * from its bytes, and crosses as that decision.
  */
 export type AttachedDto = { 
 /**
- * Where it sits in the message, and what is sent back to save it.
+ * Where it sits in the message, and what is sent back to save or open it.
  */
 at: number, 
 /**
@@ -21,4 +22,9 @@ name: string,
 /**
  * Bytes, as text: a file can be larger than a JavaScript number holds exactly.
  */
-bytes: string, };
+bytes: string, 
+/**
+ * Whether pressing it opens it, because its bytes are a document of pages or a picture.
+ * Every other file is saved.
+ */
+opens: boolean, };
