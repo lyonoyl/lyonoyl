@@ -40,8 +40,9 @@ use crate::infrastructure::net::{
 };
 use crate::ports::credential::Credential;
 use crate::ports::mail_provider::{
-    DiscoveredMailbox, MailFetch, MailProviderError, MailSync, MailWatch, MailboxDiscovery,
-    ProviderFactory, SyncIntent, SyncRequest, Unread, WatchEnded, Watched, Watermark,
+    DiscoveredMailbox, MailFetch, MailPass, MailProviderError, MailSync, MailWatch,
+    MailboxDiscovery, ProviderFactory, SyncIntent, SyncRequest, Unread, WatchEnded, Watched,
+    Watermark,
 };
 use lyonoyl_domain::account::{Encryption, MailAccount};
 use lyonoyl_domain::folder::FolderRole;
@@ -67,14 +68,6 @@ use read_only::ReadOnly;
 /// cannot reach the server whatever issues it.
 type Session = async_imap::Session<Deadline<ReadOnly<Stream>>>;
 
-/// A provider backed by an IMAP server.
-///
-/// Each call opens its own session and closes it. Keeping a connection alive between calls is worth
-/// doing later, and needs a way to notice a server that dropped it; a session per call is correct
-/// first.
-///
-/// The runtime is shared, not owned: an account is one of many, and a hundred accounts must not
-/// mean a hundred runtimes with their own threads.
 /// A session kept open between calls, and what was settled when it was opened.
 struct Held {
     session: Session,
@@ -83,11 +76,16 @@ struct Held {
     qresync: bool,
 }
 
+/// A provider backed by an IMAP server.
+///
+/// One provider serves one pass over one account, or one message a person opens, and keeps one
+/// session for it: opened on the first call, kept between calls, opened again only after a call
+/// fails, and closed when the provider goes.
+///
+/// The runtime is shared, not owned: an account is one of many, and a hundred accounts must not
+/// mean a hundred runtimes with their own threads.
 pub struct ImapProvider {
     /// The session this provider keeps between calls, once it has one.
-    ///
-    /// One provider is one pass over one account, so this is a session per pass rather than a
-    /// pool: it is opened on the first call and closed when the provider goes.
     held: std::sync::Mutex<Option<Held>>,
     /// Whether something on this provider has failed, which gives the sessions it opens after
     /// that the patient deadline rather than the short one. One provider is one pass, so the
@@ -96,6 +94,9 @@ pub struct ImapProvider {
     account: ImapAccount,
     policy: TransportPolicy,
     runtime: Handle,
+    /// Whether a person is waiting for what this provider does: a refresh, a message to open, a
+    /// connection to test. The sessions it opens then go as the probe of a paused server.
+    waiting: net::Waiting,
 }
 
 impl ImapProvider {
@@ -108,7 +109,22 @@ impl ImapProvider {
             runtime,
             held: std::sync::Mutex::new(None),
             patient: std::sync::atomic::AtomicBool::new(false),
+            waiting: net::Waiting::Nobody,
         })
+    }
+
+    /// The same provider, for something a person is waiting for.
+    pub fn with_a_person_waiting(self) -> Self {
+        Self {
+            waiting: net::Waiting::Person,
+            ..self
+        }
+    }
+
+    /// Whether a person is waiting for this provider's sessions.
+    #[cfg(test)]
+    pub(crate) fn waiting(&self) -> net::Waiting {
+        self.waiting
     }
 
     /// Runs `work` on this provider's session, opening one if it has none.
@@ -198,7 +214,7 @@ impl ImapProvider {
 
         let stream = self
             .policy
-            .connect_retrying(&self.account.endpoint)
+            .connect_retrying_for(&self.account.endpoint, self.waiting)
             .await
             .map_err(transport_failed)?;
 
@@ -220,8 +236,7 @@ thread_local! {
     /// **Per thread, and that is the whole point.** A count across the process attributes every
     /// other account's connections to whichever pass happens to be running, and with nine accounts
     /// read side by side and eight more holding a watch, every pass reports the whole round's
-    /// total. Measured that way, one pass over six folders appeared to open sixty-three sessions;
-    /// it opens seven, and sixty-three was nine accounts times seven.
+    /// total, and the number reads as a pass opening a connection for every folder it reads.
     ///
     /// A pass is one blocking thread and every session it opens is opened on that thread, so this
     /// is exactly the work asked about and nothing else.
@@ -737,11 +752,51 @@ fn grew(held: u32, heard: impl IntoIterator<Item = Heard>) -> bool {
 /// threads.
 pub struct ImapProviderFactory {
     runtime: Handle,
+    /// Whether everything this factory builds is for a person waiting: a refresh.
+    for_a_refresh: bool,
+}
+
+/// What a provider is built for, which decides whether a person is waiting for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Work {
+    /// Listing an account's mailboxes: adding an account, testing or changing one.
+    Listing,
+    /// Messages read whole: one a person opens, keeps, forwards, or opens a file of.
+    Messages,
+    /// A pass over an account.
+    Pass,
+    /// Reading folders on their own.
+    Folders,
+    /// A watch for new mail.
+    Watch,
 }
 
 impl ImapProviderFactory {
     pub fn new(runtime: Handle) -> Self {
-        Self { runtime }
+        Self {
+            runtime,
+            for_a_refresh: false,
+        }
+    }
+
+    /// The same, for a pass a person asked for: a refresh, whose connections go as the probe of a
+    /// paused server rather than wait for its pause to end.
+    pub fn for_a_refresh(runtime: Handle) -> Self {
+        Self {
+            runtime,
+            for_a_refresh: true,
+        }
+    }
+
+    /// Whether a person waits for a provider built for `work`.
+    ///
+    /// The one list of who counts as a person: what the account screen and the reader ask for, and
+    /// everything a refresh does. A round, a watch and a push are the timer's.
+    pub(crate) fn waiting_for(&self, work: Work) -> net::Waiting {
+        match (self.for_a_refresh, work) {
+            (true, _) | (false, Work::Listing | Work::Messages) => net::Waiting::Person,
+            (false, Work::Pass | Work::Folders | Work::Watch) => net::Waiting::Nobody,
+        }
     }
 }
 
@@ -760,6 +815,20 @@ impl ImapProviderFactory {
             self.runtime.clone(),
         )
     }
+
+    /// A provider for `work`, waited for by whoever [`Self::waiting_for`] says.
+    pub(crate) fn provider(
+        &self,
+        account: &MailAccount,
+        credential: &Credential,
+        work: Work,
+    ) -> Result<ImapProvider, MailProviderError> {
+        let provider = self.provider_for(account, credential)?;
+        Ok(match self.waiting_for(work) {
+            net::Waiting::Person => provider.with_a_person_waiting(),
+            net::Waiting::Nobody => provider,
+        })
+    }
 }
 
 impl ProviderFactory for ImapProviderFactory {
@@ -772,9 +841,11 @@ impl ProviderFactory for ImapProviderFactory {
         account: &MailAccount,
         credential: &Credential,
     ) -> Result<Box<dyn MailboxDiscovery>, MailProviderError> {
-        let provider = self.provider_for(account, credential)?;
-
-        Ok(Box::new(provider))
+        Ok(Box::new(self.provider(
+            account,
+            credential,
+            Work::Listing,
+        )?))
     }
 
     fn sync(
@@ -782,7 +853,11 @@ impl ProviderFactory for ImapProviderFactory {
         account: &MailAccount,
         credential: &Credential,
     ) -> Result<Box<dyn MailSync>, MailProviderError> {
-        Ok(Box::new(self.provider_for(account, credential)?))
+        Ok(Box::new(self.provider(
+            account,
+            credential,
+            Work::Folders,
+        )?))
     }
 
     fn watch(
@@ -790,7 +865,7 @@ impl ProviderFactory for ImapProviderFactory {
         account: &MailAccount,
         credential: &Credential,
     ) -> Result<Box<dyn MailWatch>, MailProviderError> {
-        Ok(Box::new(self.provider_for(account, credential)?))
+        Ok(Box::new(self.provider(account, credential, Work::Watch)?))
     }
 
     fn reading(
@@ -798,7 +873,21 @@ impl ProviderFactory for ImapProviderFactory {
         account: &MailAccount,
         credential: &Credential,
     ) -> Result<Box<dyn MailFetch>, MailProviderError> {
-        Ok(Box::new(self.provider_for(account, credential)?))
+        Ok(Box::new(self.provider(
+            account,
+            credential,
+            Work::Messages,
+        )?))
+    }
+
+    /// One provider, so one session: the listing, the folders and the messages of a pass ask it
+    /// one after another, and it signs in once, and again only after a call fails.
+    fn pass(
+        &self,
+        account: &MailAccount,
+        credential: &Credential,
+    ) -> Result<Box<dyn MailPass>, MailProviderError> {
+        Ok(Box::new(self.provider(account, credential, Work::Pass)?))
     }
 }
 
@@ -865,8 +954,11 @@ fn selectable(attributes: &[NameAttribute<'_>]) -> bool {
 
 fn transport_failed(error: TransportError) -> MailProviderError {
     match error {
-        TransportError::Unreachable | TransportError::Timeout => MailProviderError::Offline,
-        TransportError::Tls
+        TransportError::Unreachable | TransportError::NoRoute | TransportError::Timeout => {
+            MailProviderError::Offline
+        }
+        TransportError::CutOff
+        | TransportError::Tls
         | TransportError::PlaintextRefused
         | TransportError::UnsupportedEncryption => MailProviderError::Protocol,
     }

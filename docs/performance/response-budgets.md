@@ -16,7 +16,7 @@ Measure on a Mac with Apple Silicon; apply a ×1.5 multiplier for a mid-range Wi
 | First local search result | ≤120 ms |
 | A hundred accounts synchronizing at once | no interface stall, no unbounded thread or connection growth |
 | Spinner must not appear before | 250 ms |
-| Connections to the server, per pass over one account | one to list the mailboxes and one to read them, and a third only where there are messages to read whole—never one per mailbox, per batch, or per message |
+| Connections to the server, per pass over one account | one, and another only where a failure ended the conversation—never one per mailbox, per batch, or per message |
 
 ## Rules
 
@@ -35,7 +35,7 @@ A test holds this rule by counting provider calls; no gate times it.
 
 **Measured against real servers, nine accounts of six mailboxes each, over a network.** The application's own journal recorded it; `scripts/where-the-time-went.sh` prints it.
 
-| | one connection per unit of work | one per pass |
+| | one connection per unit of work | one per kind of work |
 | --- | --- | --- |
 | A round over nine accounts | 12.5–13.5 s | 5.5–6.5 s |
 | One pass over one account | 12.5 s | 5.7 s |
@@ -43,6 +43,8 @@ A test holds this rule by counting provider calls; no gate times it.
 | Spent opening them | 7.0 s—57% of the pass | 2.05 s—36% |
 
 One connection to a server across a network costs a second—7.0 s for the seven in the table: a name to resolve, a handshake, a sign-in. That is the number every other figure here follows from.
+
+**A pass opens one connection while nothing fails.** The listing, every folder, and every message read whole go over the same one. One connection per kind of work spends two or three of those seconds on a pass, and one connection per pass spends one, a figure that follows from the one measured above and is not measured on its own; a server holding many of somebody's mailboxes hears from each of them once a round. `a_pass_asks_for_one_provider_however_many_mailboxes_it_reads` holds that a pass asks for one provider, and `one_provider_signs_in_once_for_the_listing_a_folder_and_a_message` that one IMAP provider is one session.
 
 What is left in a pass is 3.65 seconds of commands over six mailboxes—608 ms each, which is two or three round trips for an `EXAMINE` and a fetch. Below that there is no room without either fewer mailboxes read per round or more than one connection reading them at once, and both are decisions rather than tuning.
 
@@ -58,6 +60,7 @@ A person may add a hundred mailboxes, and all of them synchronize and watch for 
 
 - **One runtime, not one per account.** Network work shares a single asynchronous runtime; an adapter borrows a handle to it and never builds its own.
 - **A cap on what runs at once.** Each account holds one watching connection, up to a hundred, and has one pass at a time; at most sixteen passes talk to servers at once, a round holds at most eight of them, and a pass is given at most ten minutes, so one slow server holds its own place and nobody else's.
+- **A pause for a server that stops answering.** When a connection to a server times out, is turned away, or has its handshake cut off, and the server answered nobody else since that connection set out, no new connection is opened to it and nothing is sent until one probe goes, after 30 seconds, then after a minute, then every two minutes; connections that come while the probe is on its way wait for its answer, and the first connection the server takes lets every mailbox on it through. A refresh, a message to open or a connection to test goes as the probe at once. An account whose password the server refused is not signed in to by the timer again until a wait is over, fifteen minutes the first time and doubling up to two hours, or until a person asks for it or gives it new settings; meanwhile its outbox still goes to the sending server.
 - **Nothing waits on the interface thread.** Every network and database call happens off it.
 
 Measured on the development server: a hundred accounts opening a session and listing their mailboxes finish in 0.35 s, with no failure and no wait. The test is `a_hundred_accounts_work_at_the_same_time`, started with `cargo test -p lyonoyl --lib a_hundred_accounts_work_at_the_same_time -- --ignored --nocapture`.
@@ -145,7 +148,7 @@ What a change costs before every count agrees is one read of the sidebar, and th
 
 A hundred files cost three times one file at position 4,900 and nothing like a hundred times: what the merge compares is three integers a row, and the rows above the window are never built into a message. The sidebar, read over every file as the window reads it, goes the other way and gets cheaper the more accounts there are, because its cost follows the messages in a file rather than the number of files. Everything here is far inside the 150 ms budget.
 
-**This is the reading half.** What a hundred accounts cost while they are being *read from their servers* is bounded by the limits rather than measured here: sixteen passes at once, of which a round may hold eight, two connections per pass and a third where mail waits to be read whole, and one watching connection per account. Those are covered by the scheduler's own tests.
+**This is the reading half.** What a hundred accounts cost while they are being *read from their servers* is bounded by the limits rather than measured here: sixteen passes at once, of which a round may hold eight, one connection per pass, and one watching connection per account. Those are covered by the scheduler's own tests.
 
 Two things decide these figures, and both are about what a row above the window costs. The merge compares three integers per row rather than a message, so nothing above the window is ever built into a subject and a sender. And the keys come out of the index over `conversations` without touching `messages`: joining it to name an account, which only an account-scoped view needs, costs one lookup by row number for every conversation above the window—the bottom of the list takes 387 ms with the join and 145 ms without, so the two views that do not need it do not make it.
 

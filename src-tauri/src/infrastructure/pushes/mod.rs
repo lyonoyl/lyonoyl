@@ -191,17 +191,29 @@ impl Pushes {
     }
 
     /// One push, answering with what it did — nothing, when it could not run at all.
+    ///
+    /// While the account's password stands refused, only the outbox is handed over: every
+    /// instruction a person gives would otherwise be one more refused sign-in, which is what gets an
+    /// address shut out, and the sending server answers for each message on its own.
     async fn once(&self, account_id: &str) -> Pushed {
         let push = Arc::clone(&self.0.push);
-        self.holding(account_id, move |account_id| push.push(account_id))
-            .await
-            .and_then(Result::ok)
-            .unwrap_or_default()
+        let refused = self.0.in_flight.refused().holds_off(account_id);
+        self.holding(account_id, move |account_id| match refused {
+            true => push.hand_over(account_id),
+            false => push.push(account_id),
+        })
+        .await
+        .and_then(Result::ok)
+        .unwrap_or_default()
     }
 
     /// Files the copies of what went out, answering whether any is now on the server to be read
     /// back.
     async fn file_copies(&self, account_id: &str) -> bool {
+        // Filed over the reading server, whose password stands refused: the copy waits.
+        if self.0.in_flight.refused().holds_off(account_id) {
+            return false;
+        }
         let push = Arc::clone(&self.0.push);
         self.holding(account_id, move |account_id| push.file_copies(account_id))
             .await
@@ -212,6 +224,9 @@ impl Pushes {
     /// Reads the account back after a burst that moved mail, announcing what that changed, and
     /// answers whether it let go of anything waiting for it.
     async fn read_back(&self, account_id: &str) -> bool {
+        if self.0.in_flight.refused().holds_off(account_id) {
+            return false;
+        }
         let push = Arc::clone(&self.0.push);
         let Some(Ok(ReadBack { changed, let_go })) = self
             .holding(account_id, move |account_id| push.read_back(account_id))
@@ -237,7 +252,8 @@ impl Pushes {
         let Ok(_permit) = Arc::clone(&self.0.at_once).acquire_owned().await else {
             return None;
         };
-        // A push waits for whatever holds the account and is never turned away.
+        // A push waits for whatever holds the account and is never turned away; while the
+        // account's password stands refused it signs in to nothing (`once`).
         let claim = self
             .0
             .in_flight

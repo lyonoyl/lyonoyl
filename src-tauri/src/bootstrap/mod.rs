@@ -9,7 +9,9 @@ pub mod window;
 mod servers;
 pub mod updates;
 pub mod workspace_sync;
-pub use servers::{mail_actions, mail_servers, mail_submission, opening};
+pub use servers::{
+    mail_actions, mail_servers, mail_servers_for_a_refresh, mail_submission, opening,
+};
 
 /// The build made for screenshots: a profile of its own, filled from a scene, and mail read from
 /// that scene rather than from any server. Compiled into that build and its tests, and out of every

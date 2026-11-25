@@ -62,6 +62,13 @@ impl MailboxDiscovery for Box<dyn MailboxDiscovery> {
     }
 }
 
+/// Borrowed, so the provider that lists a pass's mailboxes goes on to read them.
+impl<T: MailboxDiscovery + ?Sized> MailboxDiscovery for &T {
+    fn list_mailboxes(&self) -> Result<Vec<DiscoveredMailbox>, MailProviderError> {
+        (**self).list_mailboxes()
+    }
+}
+
 /// Builds a provider for one account.
 ///
 /// The composition root decides which protocol backs an account; nothing above this port knows
@@ -103,6 +110,80 @@ pub trait ProviderFactory: Send + Sync {
         account: &MailAccount,
         credential: &Credential,
     ) -> Result<Box<dyn MailFetch>, MailProviderError>;
+
+    /// One provider for a whole pass over an account: the mailbox listing, the folders, and the
+    /// messages read whole.
+    ///
+    /// A provider keeps its session, so this is what a pass costs a server: one conversation where
+    /// one provider serves it all, and one for each of the three where they are separate, which is
+    /// what this default builds for a factory that does not override it.
+    fn pass(
+        &self,
+        account: &MailAccount,
+        credential: &Credential,
+    ) -> Result<Box<dyn MailPass>, MailProviderError> {
+        three_providers(self, account, credential)
+    }
+}
+
+/// Everything a pass over an account asks of its server.
+pub trait MailPass: MailboxDiscovery + MailSync + MailFetch {}
+
+impl<T: MailboxDiscovery + MailSync + MailFetch + ?Sized> MailPass for T {}
+
+/// The three providers a pass asks for, built separately and answering as one.
+pub fn three_providers<F: ProviderFactory + ?Sized>(
+    factory: &F,
+    account: &MailAccount,
+    credential: &Credential,
+) -> Result<Box<dyn MailPass>, MailProviderError> {
+    Ok(Box::new(ThreeProviders {
+        mailboxes: factory.discovery(account, credential)?,
+        folders: factory.sync(account, credential)?,
+        messages: factory.reading(account, credential)?,
+    }))
+}
+
+struct ThreeProviders {
+    mailboxes: Box<dyn MailboxDiscovery>,
+    folders: Box<dyn MailSync>,
+    messages: Box<dyn MailFetch>,
+}
+
+impl MailboxDiscovery for ThreeProviders {
+    fn list_mailboxes(&self) -> Result<Vec<DiscoveredMailbox>, MailProviderError> {
+        self.mailboxes.list_mailboxes()
+    }
+}
+
+impl MailSync for ThreeProviders {
+    fn flag_scope(&self) -> FlagScope {
+        self.folders.flag_scope()
+    }
+
+    fn fetch(&self, request: &SyncRequest) -> Result<SyncBatch, MailProviderError> {
+        self.folders.fetch(request)
+    }
+}
+
+impl MailFetch for ThreeProviders {
+    fn whole_message(
+        &self,
+        mailbox: &str,
+        uid_validity: UidValidity,
+        uid: Uid,
+    ) -> Result<Vec<u8>, MailProviderError> {
+        self.messages.whole_message(mailbox, uid_validity, uid)
+    }
+
+    fn whole_messages(
+        &self,
+        mailbox: &str,
+        uid_validity: UidValidity,
+        uids: &[Uid],
+    ) -> Result<Vec<(Uid, Vec<u8>)>, Unread> {
+        self.messages.whole_messages(mailbox, uid_validity, uids)
+    }
 }
 
 /// A provider handed out as a boxed trait object syncs like any other.
