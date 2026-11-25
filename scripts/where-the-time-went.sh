@@ -5,9 +5,9 @@
 # The question "why is updating so slow" has one honest answer and it is not a guess: the journal
 # records what each pass cost and where its time went (sync.read), what each watch heard and how long
 # it waited (watch.ended), what each push told the server and handed over (push.finished), what
-# reading back a burst of pushes cost (push.readBack), and how many times the application said
-# hello to a server. This reads the newest journal and says it
-# in one screen.
+# reading back a burst of pushes cost (push.readBack), how many times the application said hello to
+# a server, and when a mail server stopped answering and was paused (server.paused) or answered
+# again (server.resumed). This reads the newest journal and says it in one screen.
 #
 # Nothing here reaches a network or a mailbox. It reads counts and durations, which is all the
 # journal holds — no address, no mailbox name, no subject.
@@ -29,6 +29,14 @@ fi
 
 echo "Journal: $newest"
 echo
+
+# Written at every level, so shown even where no pass is: a server that stopped answering is the
+# first thing to know about a run in which nothing arrived.
+if grep -q -E "server\.(paused|resumed)" "$newest"; then
+    echo "Servers that stopped answering (paused for, answered again after):"
+    grep -E "server\.(paused|resumed)" "$newest" | tail -20 | sed 's/^/  /'
+    echo
+fi
 
 rounds=$(grep -c "round.finished" "$newest" || true)
 passes=$(grep -c "sync.read" "$newest" || true)

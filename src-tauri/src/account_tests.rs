@@ -402,6 +402,61 @@ fn a_pass_over_a_real_mailbox_brings_its_mail_into_the_index() {
 }
 
 #[test]
+fn one_provider_signs_in_once_for_the_listing_a_folder_and_a_message() {
+    // What a server shutting this machine out counts is conversations: a pass holds one from its
+    // listing to its last message.
+    if !server_is_running() {
+        eprintln!("the development mail server is not running; skipping");
+        return;
+    }
+
+    use crate::application::mailboxes::SyncMailboxes;
+    use crate::application::sync::SyncFolder;
+    use crate::infrastructure::fake_provider::SeededIndex;
+    use crate::infrastructure::sqlite::mail_index::SqliteMailIndex;
+    use crate::ports::mail_provider::{MailPass, ProviderFactory};
+    use lyonoyl_domain::message::FolderId;
+
+    let mailbox = holding_the_corpus("one-session-a-pass");
+    let index = SeededIndex::with("one-session-a-pass", FolderId::new(1).expect("non-zero"), 0);
+    let account = development_account("acc-1", &mailbox.address);
+    let factory = ImapProviderFactory::new(runtime().handle().clone());
+    let before = factory.conversations().0;
+
+    let for_the_pass = factory
+        .pass(
+            &account,
+            &Credential::password(SecretString::from("lyonoyl".to_owned())),
+        )
+        .expect("the provider builds");
+    let provider: &dyn MailPass = &*for_the_pass;
+
+    let recorded = SyncMailboxes::new(provider, SqliteMailIndex::new(index.pool.clone()))
+        .execute(9)
+        .expect("the server lists its mailboxes");
+    let inbox = recorded.inbox.expect("the account has an inbox");
+    let read = SyncFolder::new(provider, SqliteMailIndex::new(index.pool.clone()))
+        .execute(inbox)
+        .expect("the inbox is read");
+    assert_eq!(read.summary.added, mailbox.uids.len());
+    let (name, _) = recorded
+        .folders
+        .iter()
+        .find(|(_, folder)| *folder == inbox)
+        .expect("the inbox is among the folders");
+    let raw = provider
+        .whole_message(name, mailbox.generation, mailbox.uids[0])
+        .expect("a message read whole");
+    assert!(!raw.is_empty());
+
+    assert_eq!(
+        factory.conversations().0 - before,
+        1,
+        "the listing, the inbox and a message whole on one session"
+    );
+}
+
+#[test]
 fn a_folder_whose_numbering_the_server_replaced_is_read_again_rather_than_left_empty() {
     if !server_is_running() {
         eprintln!("the development mail server is not running; skipping");

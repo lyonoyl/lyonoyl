@@ -455,6 +455,16 @@ impl AccountPush for WorkspaceSync {
         })
     }
 
+    fn hand_over(&self, account_id: &str) -> Result<Pushed, AccountSyncError> {
+        let handed_over = self.send_what_is_waiting(account_id)?;
+
+        Ok(Pushed {
+            moved: false,
+            more: false,
+            sent: handed_over.sent > 0,
+        })
+    }
+
     fn file_copies(&self, account_id: &str) -> Result<bool, AccountSyncError> {
         let filed = self.file_what_went_out(account_id)?;
         wrote_down_a_round(&*crate::infrastructure::journal::journal(), filed);
@@ -515,7 +525,7 @@ impl WorkspaceSync {
             // Written down before the failure is passed on.
             Err(why) => {
                 a_pass_ended(&self.profile, account_id, Err(&why));
-                return Err(AccountSyncError::Failed);
+                return Err(for_the_schedule(&why));
             }
         };
 
@@ -577,7 +587,77 @@ impl AccountWatch for WorkspaceSync {
             SqliteMailIndex::new(self.index_of(number)?),
         )
         .execute(account_id, number, since)
-        .map_err(|_| AccountSyncError::Failed)
+        .map_err(|why| {
+            // Written down where the foot of the window and every build's journal read it, as a
+            // pass writes it: a watch that heard the refusal first leaves the account to its wait,
+            // and the window says to sign in again rather than nothing at all.
+            if matches!(why, UseCaseError::Unauthorized) {
+                a_pass_ended(&self.profile, account_id, Err(&why));
+            }
+            for_the_schedule(&why)
+        })
+    }
+}
+
+/// A failed pass or watch as the schedule needs it: whether the server refused the password, which
+/// nothing on a timer may ask it again after, or anything else.
+pub(crate) fn for_the_schedule(why: &UseCaseError) -> AccountSyncError {
+    match why {
+        UseCaseError::Unauthorized => AccountSyncError::SignInRefused,
+        // Every other failure, named, so a new one is a decision rather than a default: none of
+        // them is a password the server refused.
+        UseCaseError::StorageUnavailable
+        | UseCaseError::StorageCorrupted
+        | UseCaseError::Offline
+        | UseCaseError::ProviderProtocol
+        | UseCaseError::NotOursToReplace
+        | UseCaseError::Cancelled
+        | UseCaseError::UnexpectedFolder
+        | UseCaseError::StaleSyncBatch
+        | UseCaseError::CredentialsUnavailable
+        | UseCaseError::CredentialsMissing
+        | UseCaseError::AccountAlreadyAdded
+        | UseCaseError::NoNumbersLeftForAnAccount
+        | UseCaseError::UnknownAccount
+        | UseCaseError::MailboxesNotKnownYet
+        | UseCaseError::NoPlaceToSave
+        | UseCaseError::FileNotWritten
+        | UseCaseError::FileNotOpened
+        | UseCaseError::OperationRaced
+        | UseCaseError::MessageHasNoRecipients
+        | UseCaseError::MessageIsTooLarge
+        | UseCaseError::NotThisAccountsAddress
+        | UseCaseError::MessageAlreadyWaiting
+        | UseCaseError::NoRoomForDrafts
+        | UseCaseError::GroupNameRequired
+        | UseCaseError::GroupNameTooLong
+        | UseCaseError::SignatureTooLong
+        | UseCaseError::UnknownGroup
+        | UseCaseError::NoSuchPart
+        | UseCaseError::TooBusyToRead => AccountSyncError::Failed,
+    }
+}
+
+#[cfg(test)]
+mod for_the_schedule_tests {
+    use super::*;
+
+    #[test]
+    fn a_refused_password_is_told_to_the_schedule_apart_from_every_other_failure() {
+        assert_eq!(
+            for_the_schedule(&UseCaseError::Unauthorized),
+            AccountSyncError::SignInRefused
+        );
+        // Nothing reached the server for these, or the server is not to blame: a password that
+        // cannot be read here, a network that is not there, a database that will not open.
+        for other in [
+            UseCaseError::CredentialsMissing,
+            UseCaseError::CredentialsUnavailable,
+            UseCaseError::Offline,
+            UseCaseError::StorageUnavailable,
+        ] {
+            assert_eq!(for_the_schedule(&other), AccountSyncError::Failed);
+        }
     }
 }
 
@@ -901,6 +981,42 @@ mod tests {
             sent.left(),
             0,
             "a filed message was kept after the account was read back"
+        );
+    }
+
+    /// A password the server refuses reaches the schedule as such from a pass and from a watch, and
+    /// a watch that hears it first writes it where the foot of the window reads it: the timer then
+    /// leaves the account, and the window says to sign in again rather than nothing at all.
+    #[test]
+    fn a_refused_password_reaches_the_schedule_and_the_window_from_a_watch_and_from_a_pass() {
+        if !crate::dev_mail_server::answering() {
+            eprintln!("the development mail server is not running; skipping");
+            return;
+        }
+        let here = SentHere::on_the_development_server("refused-password");
+        // A pass with the password that works first, so a watch knows the account's mailboxes.
+        AccountSync::sync(&*here.sync, "acc-1").expect("the first pass reads the account");
+        here.sync
+            .credentials
+            .save(
+                &CredentialRef::new("acc-1", CredentialPurpose::ImapPassword),
+                &SecretString::from("not-the-password".to_owned()),
+            )
+            .expect("the new password is kept");
+
+        assert_eq!(
+            AccountWatch::watch(&*here.sync, "acc-1", None).err(),
+            Some(AccountSyncError::SignInRefused)
+        );
+        let how = crate::read_model::activity::ActivityReadModel::new(here.profile.clone())
+            .how_things_are()
+            .expect("readable");
+        assert_eq!(how.accounts_failing, 1);
+        assert_eq!(how.stopped_by, Some(WhyItStopped::SignIn));
+
+        assert_eq!(
+            AccountSync::sync(&*here.sync, "acc-1").err(),
+            Some(AccountSyncError::SignInRefused)
         );
     }
 

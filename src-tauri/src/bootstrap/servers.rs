@@ -22,6 +22,23 @@ pub fn mail_servers(_runtime: tokio::runtime::Handle) -> crate::infrastructure::
     super::scene::played()
 }
 
+/// The same servers, for a pass a person asked for: a refresh. Its connections go as the probe of
+/// a server that has stopped answering, rather than wait for its pause to end.
+#[cfg(not(feature = "screenshots"))]
+pub fn mail_servers_for_a_refresh(
+    runtime: tokio::runtime::Handle,
+) -> crate::infrastructure::imap::ImapProviderFactory {
+    crate::infrastructure::imap::ImapProviderFactory::for_a_refresh(runtime)
+}
+
+/// The same in the build made for screenshots: its scene, where nothing is ever paused.
+#[cfg(feature = "screenshots")]
+pub fn mail_servers_for_a_refresh(
+    _runtime: tokio::runtime::Handle,
+) -> crate::infrastructure::scene::Servers {
+    super::scene::played()
+}
+
 /// The message the window opens on, with the folder it is read in: none. A person opens what they
 /// want to read.
 #[cfg(not(feature = "screenshots"))]

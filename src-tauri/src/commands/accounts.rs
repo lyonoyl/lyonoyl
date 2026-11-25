@@ -292,6 +292,7 @@ pub async fn change_account(
     let password = SecretString::from(password);
     let runtime = tauri::async_runtime::handle().inner().clone();
     let secrets = passwords(&state.credentials, &state.secrets);
+    let changed = account_id.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
         crate::application::accounts::ChangeAccount::new(
@@ -303,6 +304,10 @@ pub async fn change_account(
     })
     .await
     .map_err(background_task_failed)??;
+
+    // New settings, a new password perhaps: everything may ask the server again, where a refused
+    // password had left the account to the person.
+    state.in_flight.refused().lift(&changed);
 
     Ok(summary)
 }

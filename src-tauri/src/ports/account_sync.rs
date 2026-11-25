@@ -2,10 +2,14 @@ use thiserror::Error;
 
 pub use crate::ports::mail_provider::{WatchEnded, Watched, Watermark};
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub enum AccountSyncError {
     #[error("the account could not be synchronised")]
     Failed,
+    /// The server refused the account's password. Nothing on a timer asks it again: a sign-in
+    /// refused every thirty seconds is what gets an address shut out.
+    #[error("the server refused the account's password")]
+    SignInRefused,
 }
 
 /// What one pass over one account changed.
@@ -107,6 +111,11 @@ pub struct ReadBack {
 /// of a thousand emptied twenty at a time would otherwise read the whole account fifty times.
 pub trait AccountPush: Send + Sync + 'static {
     fn push(&self, account_id: &str) -> Result<Pushed, AccountSyncError>;
+
+    /// Hands over what is waiting to be sent, and nothing else: no sign-in to the server mail is
+    /// read from, whose password stands refused. The sending server gives each message its own
+    /// answer, and the queue of instructions waits for the refusal to be lifted.
+    fn hand_over(&self, account_id: &str) -> Result<Pushed, AccountSyncError>;
 
     /// Files the copies of what went out, and answers whether any copy is now in the folder for
     /// sent mail — which only reading the account brings into the index.

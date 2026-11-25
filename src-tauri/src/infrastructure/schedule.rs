@@ -77,6 +77,21 @@ const _: () = assert!(A_ROUND_AT_ONCE < AT_ONCE);
 /// once the next watch is open.
 const AFTER_A_FAILED_WATCH: Duration = Duration::from_secs(30);
 
+/// The longest a watcher waits after watches that failed one after another.
+///
+/// A server that takes the connection and fails every session — a certificate that does not verify,
+/// a greeting that says goodbye — would otherwise be reconnected to every thirty seconds by every
+/// mailbox on it. The rounds go on reading the account meanwhile.
+const AFTER_FAILED_WATCHES_AT_MOST: Duration = Duration::from_secs(5 * 60);
+
+/// How long a watcher waits after `failed` watches failed in a row: thirty seconds after one,
+/// doubling up to five minutes.
+fn after_failed_watches(failed: u32) -> Duration {
+    AFTER_A_FAILED_WATCH
+        .saturating_mul(1 << failed.saturating_sub(1).min(5))
+        .min(AFTER_FAILED_WATCHES_AT_MOST)
+}
+
 /// How often the wait between rounds looks at the wall clock.
 const GLANCE: Duration = Duration::from_secs(5);
 
@@ -159,6 +174,8 @@ pub struct InFlight {
     freed: Arc<tokio::sync::Notify>,
     /// Where a pass a person asked for says how far it has got, so a claim ending clears that too.
     how_far: Option<crate::infrastructure::progress::HowFarAlong>,
+    /// The accounts whose server refused their password, which the timer leaves for a while.
+    refused: crate::infrastructure::refused_sign_ins::RefusedSignIns,
 }
 
 impl InFlight {
@@ -234,6 +251,23 @@ impl InFlight {
     /// Claims an account, waiting for it where the rule above says to wait, or answers `None`
     /// where it says to leave it alone.
     pub async fn claim_waiting(&self, account_id: &str, why: Why) -> Option<Claim> {
+        // A refused password is not asked again on the timer until its wait is over: a sign-in
+        // refused every two minutes is what a provider answers by shutting the whole address out.
+        // A person's claim lifts the refusal when it is taken; a push signs in to nothing while
+        // the refusal stands, and hands over the outbox alone.
+        let timed = matches!(why, Why::Background | Why::Arrival);
+        if timed && !self.refused.may_sign_in(account_id) {
+            return None;
+        }
+
+        let claim = self.claiming(account_id, why).await;
+        if claim.is_none() && timed {
+            self.refused.did_not_ask(account_id);
+        }
+        claim
+    }
+
+    async fn claiming(&self, account_id: &str, why: Why) -> Option<Claim> {
         loop {
             // Listening before looking, so a claim that ends between the two is not missed.
             let freed = self.freed.notified();
@@ -246,6 +280,11 @@ impl InFlight {
                 Err(_) => return None,
             }
         }
+    }
+
+    /// The accounts whose server refused their password.
+    pub fn refused(&self) -> &crate::infrastructure::refused_sign_ins::RefusedSignIns {
+        &self.refused
     }
 
     fn try_to_claim(&self, account_id: &str, why: Why) -> Result<Claim, Turn> {
@@ -261,12 +300,18 @@ impl InFlight {
             held.asked.insert(account_id.to_owned());
         }
 
+        if why == Why::Person {
+            self.refused.lift(account_id);
+        }
+
         Ok(Claim {
             reading: Arc::clone(&self.reading),
             freed: Arc::clone(&self.freed),
             account_id: account_id.to_owned(),
             why,
             how_far: self.how_far.clone(),
+            refused: self.refused.clone(),
+            ticket: self.refused.ticket(account_id),
         })
     }
 
@@ -332,6 +377,17 @@ pub struct Claim {
     why: Why,
     /// Cleared with the claim, so a pass that ended any way at all leaves nothing behind.
     how_far: Option<crate::infrastructure::progress::HowFarAlong>,
+    refused: crate::infrastructure::refused_sign_ins::RefusedSignIns,
+    /// Which lift of a refusal the sign-in under this claim set out after.
+    ticket: crate::infrastructure::refused_sign_ins::Ticket,
+}
+
+impl Claim {
+    /// How the pass under this claim ended, as the schedule hears it: a sign-in that worked lifts
+    /// a refusal of the account's password, and one the server refused is remembered.
+    pub fn ended(&self, how: Result<(), AccountSyncError>) {
+        self.refused.ended(&self.account_id, self.ticket, how);
+    }
 }
 
 impl Drop for Claim {
@@ -443,6 +499,7 @@ async fn read_one<S: AccountSync>(
                 Some(how_far) => sync.sync_telling(&account_id, how_far),
                 None => sync.sync(&account_id),
             };
+            claim.ended(changed.map(|_| ()));
             drop(claim);
             (account_id, changed)
         })
@@ -716,6 +773,7 @@ async fn watching_one<S: AccountSync, W: AccountWatch>(
     // news is being read, or the next connection opened — and the next watch reports what arrived
     // meanwhile the moment it looks, rather than counting it as already there.
     let mut seen: Option<Watermark> = None;
+    let mut failed_in_a_row = 0;
 
     loop {
         // An account that was removed while its watch was open has nothing left to watch.
@@ -724,6 +782,14 @@ async fn watching_one<S: AccountSync, W: AccountWatch>(
             Ok(_) => return Ended::Released,
             Err(_) => return Ended::Released,
         }
+
+        // A server that refused the password is not asked again by a watch until the refusal's
+        // wait is over: a sign-in refused every thirty seconds is what gets an address shut out.
+        if !in_flight.refused().may_sign_in(&account_id) {
+            tokio::time::sleep(AFTER_A_FAILED_WATCH).await;
+            continue;
+        }
+        let ticket = in_flight.refused().ticket(&account_id);
 
         let began = std::time::Instant::now();
         let watching = {
@@ -745,6 +811,15 @@ async fn watching_one<S: AccountSync, W: AccountWatch>(
                 ended.watched
             });
         wrote_down_a_watch(&answer, began.elapsed());
+        in_flight.refused().ended(
+            &account_id,
+            ticket,
+            answer.as_ref().map(|_| ()).map_err(|failed| *failed),
+        );
+        failed_in_a_row = match answer {
+            Ok(_) => 0,
+            Err(_) => failed_in_a_row + 1,
+        };
 
         match step(answer) {
             // What this device has just pushed, coming back: the index holds it already. Judged
@@ -781,7 +856,9 @@ async fn watching_one<S: AccountSync, W: AccountWatch>(
                 }
             }
             NextStep::WatchAgain => {}
-            NextStep::WaitThenWatch => tokio::time::sleep(AFTER_A_FAILED_WATCH).await,
+            NextStep::WaitThenWatch => {
+                tokio::time::sleep(after_failed_watches(failed_in_a_row)).await
+            }
             NextStep::Stop => return Ended::CannotPush,
         }
     }
@@ -817,23 +894,25 @@ async fn read_now<S: AccountSync>(
     // coming back, and it has to be read.
     let claim = in_flight.claim_waiting(account_id, why).await?;
     let sync = Arc::clone(sync);
-    let account_id = account_id.to_owned();
+    let reading = account_id.to_owned();
     let told = (why == Why::Arrival).then(|| InboxFirst::telling(Arc::clone(announce)));
 
     let changed = runtime
         .spawn_blocking(move || {
+            let account_id = reading;
             let changed = match &told {
                 Some(told) => sync
                     .sync_telling(&account_id, told)
                     .map(|whole| told.rest_of(whole)),
                 None => sync.sync(&account_id),
             };
+            claim.ended(changed.map(|_| ()));
             drop(claim);
             changed
         })
         .await
-        .ok()?
         .ok()?;
+    let changed = changed.ok()?;
 
     changed.is_anything().then_some(changed)
 }
@@ -1392,6 +1471,180 @@ mod tests {
             started.elapsed()
         );
         assert_eq!(watch.asked.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_watch_whose_password_was_refused_waits_out_the_refusal_before_signing_in_again() {
+        // A sign-in refused every thirty seconds is what a provider answers by shutting the whole
+        // address out, every other mailbox on it included.
+        use crate::infrastructure::refused_sign_ins::FIRST_WAIT;
+
+        let sync = Arc::new(CountingSync::with(1));
+        let watch = ScriptedWatch::saying(vec![
+            Err(AccountSyncError::SignInRefused),
+            Err(AccountSyncError::SignInRefused),
+            Ok(Watched::CannotPush),
+        ]);
+        let watching = tokio::spawn({
+            let (sync, watch) = (Arc::clone(&sync), Arc::clone(&watch));
+            async move {
+                watched(
+                    "acc-0",
+                    &sync,
+                    &watch,
+                    InFlight::default(),
+                    Arc::new(|_, _| {}),
+                )
+                .await
+            }
+        });
+        let asked = || watch.asked.load(Ordering::SeqCst);
+
+        tokio::time::sleep(FIRST_WAIT - Duration::from_secs(60)).await;
+        assert_eq!(
+            asked(),
+            1,
+            "signed in again before the refusal's wait was over"
+        );
+        tokio::time::sleep(Duration::from_secs(120)).await;
+        assert_eq!(asked(), 2, "not asked again once the wait was over");
+
+        // Refused again: twice as long before the next.
+        tokio::time::sleep(FIRST_WAIT * 2 - Duration::from_secs(180)).await;
+        assert_eq!(asked(), 2);
+        tokio::time::timeout(Duration::from_secs(240), watching)
+            .await
+            .expect("the watch went on")
+            .expect("the watcher's task");
+        assert_eq!(asked(), 3);
+    }
+
+    #[tokio::test]
+    async fn an_account_whose_password_was_refused_is_left_to_a_person() {
+        let in_flight = InFlight::default();
+        let refuse = |in_flight: &InFlight| {
+            let ticket = in_flight.refused().ticket("acc-1");
+            in_flight
+                .refused()
+                .ended("acc-1", ticket, Err(AccountSyncError::SignInRefused));
+        };
+        refuse(&in_flight);
+
+        for why in [Why::Background, Why::Arrival] {
+            assert!(
+                in_flight.claim_waiting("acc-1", why).await.is_none(),
+                "{why:?} asked a refused password again"
+            );
+        }
+        // A push takes the account all the same, and hands over only the outbox.
+        assert!(in_flight.claim_waiting("acc-1", Why::Push).await.is_some());
+        // Another account is not held back by it.
+        assert!(in_flight
+            .claim_waiting("acc-2", Why::Background)
+            .await
+            .is_some());
+
+        // A person asking reads it, and the timer may read it again from then on.
+        assert!(in_flight
+            .claim_waiting("acc-1", Why::Person)
+            .await
+            .is_some());
+        assert!(in_flight
+            .claim_waiting("acc-1", Why::Background)
+            .await
+            .is_some());
+
+        // New settings do the same.
+        refuse(&in_flight);
+        in_flight.refused().lift("acc-1");
+        assert!(in_flight
+            .claim_waiting("acc-1", Why::Background)
+            .await
+            .is_some());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_watcher_whose_watches_keep_failing_asks_less_and_less_often() {
+        // A server that takes the connection and fails every session: thirty seconds, then a
+        // minute, two, four, and five minutes from then on, rather than every thirty seconds.
+        let sync = Arc::new(CountingSync::with(1));
+        let watch =
+            ScriptedWatch::saying((0..100).map(|_| Err(AccountSyncError::Failed)).collect());
+        let watching = tokio::spawn({
+            let (sync, watch) = (Arc::clone(&sync), Arc::clone(&watch));
+            async move {
+                watched(
+                    "acc-0",
+                    &sync,
+                    &watch,
+                    InFlight::default(),
+                    Arc::new(|_, _| {}),
+                )
+                .await
+            }
+        });
+
+        tokio::time::sleep(Duration::from_secs(3600)).await;
+        watching.abort();
+
+        // 0, 30 s, 1.5 min, 3.5 min, 7.5 min, then every 5 min: 14 in the hour, not 120.
+        let asked = watch.asked.load(Ordering::SeqCst);
+        assert!((13..=15).contains(&asked), "{asked} watches in an hour");
+        assert_eq!(after_failed_watches(1), AFTER_A_FAILED_WATCH);
+        assert_eq!(after_failed_watches(2), AFTER_A_FAILED_WATCH * 2);
+        assert_eq!(after_failed_watches(30), AFTER_FAILED_WATCHES_AT_MOST);
+    }
+
+    /// A server that refuses the one account's password, counting how often it is asked.
+    struct RefusingSync {
+        passes: AtomicUsize,
+    }
+
+    impl AccountSync for RefusingSync {
+        fn sync(&self, _account_id: &str) -> Result<AccountChanged, AccountSyncError> {
+            self.passes.fetch_add(1, Ordering::SeqCst);
+            Err(AccountSyncError::SignInRefused)
+        }
+
+        fn accounts(&self) -> Result<Vec<String>, AccountSyncError> {
+            Ok(vec!["acc-1".to_owned()])
+        }
+    }
+
+    #[test]
+    fn a_round_does_not_ask_a_refused_password_again_until_a_person_does() {
+        let runtime = runtime();
+        let sync = Arc::new(RefusingSync {
+            passes: AtomicUsize::new(0),
+        });
+        let in_flight = InFlight::default();
+        let round = || {
+            runtime.block_on(one_round(
+                Arc::clone(&sync),
+                in_flight.clone(),
+                runtime.handle().clone(),
+                Arc::new(Semaphore::new(AT_ONCE)),
+            ))
+        };
+
+        for _ in 0..3 {
+            round();
+        }
+        assert_eq!(
+            sync.passes.load(Ordering::SeqCst),
+            1,
+            "the timer asked a refused password again"
+        );
+
+        // A person reading the account asks the server again, once, and the next round leaves it.
+        runtime.block_on(the_round_at_launch(
+            Arc::clone(&sync),
+            in_flight.clone(),
+            runtime.handle().clone(),
+            Arc::new(Semaphore::new(AT_ONCE)),
+        ));
+        round();
+        assert_eq!(sync.passes.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test(start_paused = true)]

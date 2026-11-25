@@ -10,7 +10,8 @@ use crate::ports::credential::Credential;
 use crate::ports::credential_store::{CredentialPurpose, CredentialRef, CredentialStore};
 use crate::ports::mail_index::{AppliedSummary, MailIndex, Reading, UidScope};
 use crate::ports::mail_provider::{
-    MailFetch, MailProviderError, MailSync, ProviderFactory, SyncIntent, SyncRequest, Unread,
+    MailFetch, MailPass, MailProviderError, MailSync, ProviderFactory, SyncIntent, SyncRequest,
+    Unread,
 };
 use crate::ports::message_bodies::MessageBodies;
 use crate::ports::op_log::{OperationLog, OwedRead, WentTo};
@@ -332,12 +333,16 @@ where
             CredentialPurpose::ImapPassword,
         ))?;
 
-        let recorded = SyncMailboxes::new(
-            self.providers
-                .discovery(&account, &Credential::password(password.clone()))?,
-            self.index.clone(),
-        )
-        .execute(number)?;
+        // One provider for the whole pass, because a provider keeps its session: the listing, every
+        // folder and every message read whole are one conversation with the server, where three
+        // providers would be three. A provider's firewall counts every connection this machine
+        // opens, whichever mailbox it is for.
+        let for_the_pass = self
+            .providers
+            .pass(&account, &Credential::password(password))?;
+        let provider: &dyn MailPass = &*for_the_pass;
+
+        let recorded = SyncMailboxes::new(provider, self.index.clone()).execute(number)?;
 
         let mut pass = AccountPass {
             folders: recorded.folders.len() as u32,
@@ -401,23 +406,6 @@ where
         let mut ordered: Vec<_> = recorded.folders.iter().map(|(_, folder)| *folder).collect();
         ordered.sort_by_key(|folder| Some(*folder) != recorded.inbox);
 
-        // One provider for every folder, because a provider keeps its session: built inside the
-        // loop it was a connection and a sign-in per mailbox, and against a server a second away
-        // that was seven of them in a twelve-second pass.
-        let reading = self
-            .providers
-            .sync(&account, &Credential::password(password.clone()))?;
-
-        // The same again for reading messages whole, and it is a third connection rather than a
-        // second: `MailSync` and `MailFetch` are two boxes even when they are one provider
-        // underneath, and joining them is a change to the port rather than to this loop. It opens
-        // nothing where nothing is waiting to be read whole — a provider signs in on its first use
-        // — so a quiet account pays for two and an account with mail to fetch pays for three.
-        let reading_bodies = self
-            .providers
-            .reading(&account, &Credential::password(password.clone()))
-            .ok();
-
         // Every folder once, and one that fails once more at the end. What fails a reading is most
         // often a server that went quiet or a connection that broke, and a second reading on a
         // fresh connection a few seconds later goes through; left for the next round, mail that
@@ -426,7 +414,7 @@ where
             ordered.iter().map(|folder| (*folder, false)).collect();
 
         while let Some((folder, again)) = queue.pop_front() {
-            match SyncFolder::new(&reading, self.index.clone()).execute(folder) {
+            match SyncFolder::new(provider, self.index.clone()).execute(folder) {
                 Ok(outcome) => {
                     // Read to its end, or only as far as one window of new mail. A folder that
                     // stopped short may hold, past where it stopped, exactly the message another
@@ -522,7 +510,7 @@ where
 
             // One round of older mail per folder per pass. Reading a whole mailbox in one go would
             // hold everything else for as long as the mailbox is large.
-            match BackfillFolder::new(&reading, self.index.clone()).execute(folder) {
+            match BackfillFolder::new(provider, self.index.clone()).execute(folder) {
                 Ok(round) => {
                     pass.arrived += round.summary.added as u32;
                     if !round.complete {
@@ -538,23 +526,21 @@ where
             // each message and its opening; this is the message. Last of the three because it is
             // the one nothing waits for: mail that has arrived is on the screen either way, and
             // this is what makes it open without a network and findable by what it says.
-            if let Some(fetching) = reading_bodies.as_ref() {
-                match FetchBodies::new(fetching, self.index.clone(), self.bodies.clone())
-                    .execute(folder)
-                {
-                    Ok(round) => {
-                        pass.bodies_read += round.fetched;
-                        // Counted too. A pass that tried fifty times and got nothing looked
-                        // exactly like a pass that had nothing to try, and the two are opposite
-                        // things: one is a quiet account, the other is fifty conversations with a
-                        // server that ended in nothing.
-                        pass.bodies_failed += round.failed;
-                        if !round.complete {
-                            pass.folders_incomplete += 1;
-                        }
+            match FetchBodies::new(provider, self.index.clone(), self.bodies.clone())
+                .execute(folder)
+            {
+                Ok(round) => {
+                    pass.bodies_read += round.fetched;
+                    // Counted too. A pass that tried fifty times and got nothing looked exactly
+                    // like a pass that had nothing to try, and the two are opposite things: one is
+                    // a quiet account, the other is fifty conversations with a server that ended
+                    // in nothing.
+                    pass.bodies_failed += round.failed;
+                    if !round.complete {
+                        pass.folders_incomplete += 1;
                     }
-                    Err(_) => pass.folders_failed += 1,
                 }
+                Err(_) => pass.folders_failed += 1,
             }
             spent.bodies += took(&mut clock);
             opened.bodies += since_mark(&mut mark);
@@ -1519,11 +1505,11 @@ mod tests {
         struct Factory {
             generation: UidValidity,
             named: Vec<String>,
-            /// How many providers this pass asked for, by kind.
+            /// Which providers the pass asked for: `pass` once, then the three this factory builds
+            /// it from.
             ///
-            /// A provider keeps its connection, so this is how many connections the pass costs:
-            /// asked for inside the folder loop it was one per mailbox, and against a server a
-            /// second away that was most of a twelve-second pass spent saying hello.
+            /// A provider keeps its connection, so a provider asked for inside the folder loop is a
+            /// connection and a sign-in per mailbox.
             built: std::sync::Arc<Mutex<Vec<&'static str>>>,
             refusing: Vec<FolderId>,
             failing_once: Vec<FolderId>,
@@ -1574,6 +1560,17 @@ mod tests {
                 _p: &Credential,
             ) -> Result<Box<dyn MailWatch>, MailProviderError> {
                 unreachable!("a pass watches nothing")
+            }
+
+            /// Recorded as `pass`, then built from the three separate providers, as the default
+            /// does.
+            fn pass(
+                &self,
+                a: &MailAccount,
+                p: &Credential,
+            ) -> Result<Box<dyn MailPass>, MailProviderError> {
+                self.built.lock().expect("not poisoned").push("pass");
+                crate::ports::mail_provider::three_providers(self, a, p)
             }
         }
 
@@ -2636,9 +2633,10 @@ mod tests {
 
         #[test]
         fn a_pass_asks_for_one_provider_however_many_mailboxes_it_reads() {
-            // A provider keeps its connection, so this is the number of times the pass says hello.
-            // Asked for inside the folder loop it was one per mailbox: measured against a real
-            // server, seven connections at about a second each, in a twelve-second pass.
+            // A provider keeps its connection, so this is the number of times the pass says hello:
+            // once, where the factory has one provider for all of it, as the one speaking IMAP
+            // does. A provider asked for inside the folder loop is a connection and a sign-in per
+            // mailbox, about a second each against a server across a network.
             let (_, _, _, built, _) = pass_over_mailboxes(
                 7,
                 7,
@@ -2648,9 +2646,9 @@ mod tests {
 
             assert_eq!(
                 built,
-                vec!["discovery", "sync", "reading"],
-                "one for the mailbox listing, one for reading them and one for the messages — \
-                 and six mailboxes did not add six more"
+                vec!["pass", "discovery", "sync", "reading"],
+                "one provider for the whole pass, which this factory builds from three — and six \
+                 mailboxes did not add six more"
             );
         }
 

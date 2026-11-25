@@ -1840,10 +1840,8 @@ fn asking_for_no_messages_opens_nothing() {
 
 #[test]
 fn what_one_thread_opens_is_not_what_another_opens() {
-    // The instrument this replaced was a count across the process, and it was wrong in exactly the
-    // way that is hardest to see: with nine accounts read side by side, every pass reported the
-    // whole round. One pass over six folders looked like sixty-three conversations. It opens
-    // seven, and sixty-three was nine accounts times seven.
+    // A count across the process is wrong in exactly the way that is hardest to see: with nine
+    // accounts read side by side, every pass reports the whole round's conversations as its own.
     if !server_is_running() {
         eprintln!("the development mail server is not running; skipping");
         return;
@@ -1985,4 +1983,102 @@ fn a_provider_whose_session_broke_gives_its_next_session_longer() {
         after, patient,
         "a provider whose session broke was not given longer"
     );
+}
+
+#[test]
+fn a_person_waits_for_what_the_account_screen_the_reader_and_a_refresh_ask_for() {
+    // A person asks now and then; the timer is what floods.
+    let runtime = shared_runtime().handle().clone();
+    let timer = ImapProviderFactory::new(runtime.clone());
+    let refresh = ImapProviderFactory::for_a_refresh(runtime);
+
+    for (work, waiting) in [
+        (Work::Listing, net::Waiting::Person),
+        (Work::Messages, net::Waiting::Person),
+        (Work::Pass, net::Waiting::Nobody),
+        (Work::Folders, net::Waiting::Nobody),
+        (Work::Watch, net::Waiting::Nobody),
+    ] {
+        assert_eq!(timer.waiting_for(work), waiting, "{work:?}");
+        assert_eq!(refresh.waiting_for(work), net::Waiting::Person, "{work:?}");
+    }
+
+    // And the provider built carries it.
+    let account = configured_account("imap.example.com", 993, Encryption::Tls);
+    let password = Credential::password(SecretString::from("lyonoyl".to_owned()));
+    assert_eq!(
+        timer
+            .provider(&account, &password, Work::Messages)
+            .expect("builds")
+            .waiting(),
+        net::Waiting::Person
+    );
+    assert_eq!(
+        timer
+            .provider(&account, &password, Work::Pass)
+            .expect("builds")
+            .waiting(),
+        net::Waiting::Nobody
+    );
+}
+
+#[test]
+fn a_pass_and_a_watch_on_the_timer_wait_out_a_paused_server() {
+    // Through the factory's own methods, at a documentation address no other test pauses: the
+    // limiter is one for the whole process.
+    use crate::infrastructure::net::connection_limiter::{
+        connection_limiter, Decision, Outcome, Server,
+    };
+    use crate::ports::mail_provider::ProviderFactory;
+
+    let paused = Server::at(&["192.0.2.79:993".parse().expect("an address")]);
+    let now = std::time::SystemTime::now();
+    connection_limiter().record(&paused, Decision::Open(now), Outcome::FailedThere, now);
+    let before = connection_limiter().refusals_of(&paused);
+
+    let factory = ImapProviderFactory::new(shared_runtime().handle().clone());
+    let account = configured_account("192.0.2.79", 993, Encryption::Tls);
+    let password = Credential::password(SecretString::from("lyonoyl".to_owned()));
+
+    let listed = factory
+        .pass(&account, &password)
+        .expect("builds")
+        .list_mailboxes();
+    assert!(
+        matches!(listed, Err(MailProviderError::Offline)),
+        "{listed:?}"
+    );
+    let watched = factory.watch(&account, &password).expect("builds").watch(
+        "INBOX",
+        None,
+        Duration::from_secs(1),
+    );
+    assert!(
+        matches!(watched, Err(MailProviderError::Offline)),
+        "{watched:?}"
+    );
+
+    // Three tries each, every one refused before anything was sent.
+    assert_eq!(connection_limiter().refusals_of(&paused) - before, 6);
+}
+
+#[test]
+fn every_transport_failure_reaches_a_pass_as_offline_or_as_a_protocol_failure() {
+    for (failed, reached) in [
+        (TransportError::Unreachable, MailProviderError::Offline),
+        (TransportError::NoRoute, MailProviderError::Offline),
+        (TransportError::Timeout, MailProviderError::Offline),
+        (TransportError::CutOff, MailProviderError::Protocol),
+        (TransportError::Tls, MailProviderError::Protocol),
+        (
+            TransportError::PlaintextRefused,
+            MailProviderError::Protocol,
+        ),
+        (
+            TransportError::UnsupportedEncryption,
+            MailProviderError::Protocol,
+        ),
+    ] {
+        assert_eq!(transport_failed(failed), reached, "{failed:?}");
+    }
 }

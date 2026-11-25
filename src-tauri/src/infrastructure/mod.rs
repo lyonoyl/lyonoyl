@@ -22,6 +22,7 @@ pub mod open_files;
 pub mod opening;
 pub mod progress;
 pub mod pushes;
+pub mod refused_sign_ins;
 /// A made-up mailbox for the build made for screenshots, and for the tests of it. Compiled out of
 /// every other build.
 #[cfg(any(test, feature = "screenshots"))]

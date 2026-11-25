@@ -28,6 +28,8 @@ struct Counting {
     filings: AtomicUsize,
     /// How many read-backs there had been when the copies were filed.
     read_backs_at_filing: AtomicUsize,
+    /// How many pushes handed over the outbox alone.
+    handovers: AtomicUsize,
 }
 
 impl AccountPush for Counting {
@@ -46,6 +48,15 @@ impl AccountPush for Counting {
         Ok(Pushed {
             moved: self.moved.load(Ordering::SeqCst),
             more: done < self.more_until.load(Ordering::SeqCst),
+            sent: self.sends.load(Ordering::SeqCst),
+        })
+    }
+
+    fn hand_over(&self, _account_id: &str) -> Result<Pushed, AccountSyncError> {
+        self.handovers.fetch_add(1, Ordering::SeqCst);
+        Ok(Pushed {
+            moved: false,
+            more: false,
             sent: self.sends.load(Ordering::SeqCst),
         })
     }
@@ -125,6 +136,33 @@ async fn until(what: impl Fn() -> bool) {
     while !what() && began.elapsed() < SETTLED * 5 {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_password_leaves_the_outbox_to_go_and_signs_in_to_nothing() {
+    // A message written from an account whose server refused the password still goes to the
+    // sending server, which answers for it; the reading server is not signed in to at all.
+    let push = Arc::new(Counting::default());
+    push.sends.store(true, Ordering::SeqCst);
+    let in_flight = InFlight::default();
+    let ticket = in_flight.refused().ticket("acc-1");
+    in_flight
+        .refused()
+        .ended("acc-1", ticket, Err(AccountSyncError::SignInRefused));
+    let (pushes, _) = pushing(&push, in_flight);
+
+    pushes.please_push("acc-1");
+    until(|| push.handovers.load(Ordering::SeqCst) == 1).await;
+    tokio::time::sleep(SETTLED).await;
+
+    assert_eq!(
+        push.handovers.load(Ordering::SeqCst),
+        1,
+        "the outbox did not go"
+    );
+    assert_eq!(push.pushes(), 0, "the reading server was signed in to");
+    assert_eq!(push.filings.load(Ordering::SeqCst), 0);
+    assert_eq!(push.read_backs(), 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]

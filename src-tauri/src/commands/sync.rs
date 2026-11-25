@@ -97,7 +97,7 @@ pub async fn sync_account(
     let how_far = state.how_far.clone();
 
     let pass = tauri::async_runtime::spawn_blocking(move || {
-        let _claim = claim;
+        let claim = claim;
         let written_to = profile.clone();
 
         let number = MailboxReadModel::new(profile.clone(), index.clone())
@@ -129,13 +129,20 @@ pub async fn sync_account(
         let pass = SyncAccount::new(
             adapters::accounts(profile.clone()),
             &state_credentials,
-            crate::bootstrap::mail_servers(runtime),
+            crate::bootstrap::mail_servers_for_a_refresh(runtime),
             adapters::mail_index(index.clone()),
             adapters::operation_log(profile),
             adapters::message_bodies(index, sealing),
             &how_far,
         )
         .execute(&account_id, number);
+        // How the sign-in went, for the timer: a password that works lifts a refusal, and one the
+        // server refused is left for a while.
+        claim.ended(
+            pass.as_ref()
+                .map(|_| ())
+                .map_err(crate::bootstrap::workspace_sync::for_the_schedule),
+        );
         crate::bootstrap::workspace_sync::a_pass_ended(
             &written_to,
             &account_id,

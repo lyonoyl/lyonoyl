@@ -25,12 +25,22 @@ use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
 
+pub mod connection_limiter;
+
+#[cfg(test)]
+mod connection_limiter_tests;
+
+pub use connection_limiter::Waiting;
+use connection_limiter::{ConnectionLimiter, Server};
+
 /// The certificate check for every connection but mail: a picture, server discovery, the update
 /// check. Only macOS has one of its own: the policy's constructor says why.
 #[cfg(target_os = "macos")]
 mod judged_as_sent;
 
-/// How long a connection attempt may take before it is treated as unreachable.
+/// How long a connection attempt, or its TLS handshake, may take before it is given up as unanswered
+/// (`TransportError::Timeout`), which pauses a mail server. A name lookup that runs out of time is a
+/// timeout too, and pauses nothing: it comes before there is any address to pause.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long a server may stay silent mid-conversation.
@@ -73,7 +83,8 @@ const BEFORE_THE_NEXT: Duration = Duration::from_millis(250);
 ///
 /// Three, not more: what is behind a temporary failure is usually a network coming back, and a
 /// round comes again in two minutes anyway. Trying for longer than that turns one unreachable
-/// server into an account that never finishes a pass.
+/// server into an account that never finishes a pass. To a mail server that did not answer the
+/// first, the other two are refused by the connection limiter before anything is sent.
 const ATTEMPTS: u32 = 3;
 
 /// The ceiling of the first wait, doubled for each attempt after it.
@@ -84,10 +95,18 @@ const MAX_BACKOFF: Duration = Duration::from_secs(8);
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub enum TransportError {
+    /// Nothing to connect to: the name did not resolve, the address policy left no address, or the
+    /// connection limiter refused the connection.
     #[error("the server could not be reached")]
     Unreachable,
+    /// Every attempt failed on this machine before anything was sent: no network, no route out.
+    #[error("this machine has no way to reach the server")]
+    NoRoute,
     #[error("the connection timed out")]
     Timeout,
+    /// The other end closed the connection or reset it in the middle of the handshake.
+    #[error("the connection was cut off before it was secured")]
+    CutOff,
     #[error("the secure connection could not be established")]
     Tls,
     #[error("an unencrypted connection is only allowed to this machine")]
@@ -104,8 +123,10 @@ impl TransportError {
     /// Retrying either of those quietly is how a downgrade ends up looking normal.
     pub fn is_temporary(&self) -> bool {
         match self {
-            Self::Unreachable | Self::Timeout => true,
-            Self::Tls | Self::PlaintextRefused | Self::UnsupportedEncryption => false,
+            Self::Unreachable | Self::NoRoute | Self::Timeout => true,
+            Self::CutOff | Self::Tls | Self::PlaintextRefused | Self::UnsupportedEncryption => {
+                false
+            }
         }
     }
 }
@@ -560,9 +581,20 @@ impl TransportPolicy {
 
     /// Opens a connection, trying again while the reason for failing is one that passes.
     ///
-    /// What every caller should use. `connect` itself is the single attempt underneath.
+    /// What every caller should use. Each try is one attempt through `opening_and_judging`, as
+    /// `connect` is.
     pub async fn connect_retrying(&self, endpoint: &Endpoint) -> Result<Stream, TransportError> {
-        retrying(|| self.connect(endpoint)).await
+        self.connect_retrying_for(endpoint, Waiting::Nobody).await
+    }
+
+    /// The same, saying whether a person is waiting for the connection: one goes as the probe of a
+    /// paused server rather than wait for its pause to end.
+    pub async fn connect_retrying_for(
+        &self,
+        endpoint: &Endpoint,
+        waiting: Waiting,
+    ) -> Result<Stream, TransportError> {
+        retrying(|| self.opening_and_judging(endpoint, true, false, waiting)).await
     }
 
     /// Opens a connection for everything that is not mail: a picture a message points at, server
@@ -582,7 +614,8 @@ impl TransportPolicy {
         &self,
         endpoint: &Endpoint,
     ) -> Result<Stream, TransportError> {
-        self.opening(endpoint, false).await
+        self.opening_and_judging(endpoint, false, true, Waiting::Nobody)
+            .await
     }
 
     /// The same, for a test whose host is on this machine.
@@ -594,16 +627,14 @@ impl TransportPolicy {
         &self,
         endpoint: &Endpoint,
     ) -> Result<Stream, TransportError> {
-        self.opening_and_judging(endpoint, false, false).await
+        self.opening_and_judging(endpoint, false, false, Waiting::Nobody)
+            .await
     }
 
     /// Opens a connection, refusing to send anything in the clear off this machine.
     pub async fn connect(&self, endpoint: &Endpoint) -> Result<Stream, TransportError> {
-        self.opening(endpoint, true).await
-    }
-
-    async fn opening(&self, endpoint: &Endpoint, mail: bool) -> Result<Stream, TransportError> {
-        self.opening_and_judging(endpoint, mail, !mail).await
+        self.opening_and_judging(endpoint, true, false, Waiting::Nobody)
+            .await
     }
 
     /// Where every connection this application makes is actually opened.
@@ -616,6 +647,7 @@ impl TransportPolicy {
         endpoint: &Endpoint,
         mail: bool,
         judging: bool,
+        waiting: Waiting,
     ) -> Result<Stream, TransportError> {
         let addresses = resolve(&endpoint.host, endpoint.port).await?;
 
@@ -638,6 +670,25 @@ impl TransportPolicy {
             return Err(TransportError::UnsupportedEncryption);
         }
 
+        match limiter_for(mail, &addresses) {
+            Some(limiter) => {
+                let server = Server::at(&addresses);
+                limiter
+                    .open(&server, waiting, self.opened(endpoint, addresses, mail))
+                    .await
+            }
+            None => self.opened(endpoint, addresses, mail).await,
+        }
+    }
+
+    /// The connection itself: to whichever of `addresses` answers first, protected as `endpoint`
+    /// says.
+    async fn opened(
+        &self,
+        endpoint: &Endpoint,
+        addresses: Vec<SocketAddr>,
+        mail: bool,
+    ) -> Result<Stream, TransportError> {
         let stream = tokio::time::timeout(
             CONNECT_TIMEOUT,
             whichever_answers_first(&ordered_for_connecting(addresses)),
@@ -663,12 +714,32 @@ impl TransportPolicy {
                     tokio::time::timeout(CONNECT_TIMEOUT, connector.connect(name, stream))
                         .await
                         .map_err(|_| TransportError::Timeout)?
-                        .map_err(|_| TransportError::Tls)?;
+                        .map_err(|failed| handshake_failed(&failed))?;
                 Ok(Stream::Tls(Box::new(encrypted)))
             }
             Encryption::StartTls => Err(TransportError::UnsupportedEncryption),
         }
     }
+}
+
+/// How a TLS handshake that did not finish failed: refused here over what the server sent — a
+/// certificate, a name, an alert, which rustls reports as invalid data — which is a server that
+/// answered; or anything else, the connection closed, reset or broken under it, which is a
+/// handshake cut off and pauses a mail server.
+fn handshake_failed(failed: &io::Error) -> TransportError {
+    match failed.kind() {
+        io::ErrorKind::InvalidData => TransportError::Tls,
+        _ => TransportError::CutOff,
+    }
+}
+
+/// The connection limiter a connection goes through, if any: mail to another machine.
+///
+/// A picture's host is whoever wrote the message chose, and server discovery and the update check
+/// are not mail; a server on this machine — the development server, a bridge — needs no
+/// protecting.
+fn limiter_for(mail: bool, addresses: &[SocketAddr]) -> Option<&'static ConnectionLimiter> {
+    (mail && !is_this_machine(addresses)).then(connection_limiter::connection_limiter)
 }
 
 /// Which family last carried a connection off this machine.
@@ -787,6 +858,10 @@ fn interleaved(addresses: Vec<SocketAddr>, prefer_v6: Option<bool>) -> Vec<Socke
 /// Every address is tried, and no address waits for the one before it to fail: a new attempt
 /// starts every `BEFORE_THE_NEXT` and the earlier ones keep running. The first to connect is the
 /// one that is used and the rest are dropped where they stand.
+///
+/// When none connects, the answer says whose doing it was: `Timeout` when anything was sent and
+/// nothing useful came back, `NoRoute` when every attempt failed on this machine and nothing left
+/// it. The connection limiter pauses a server for the first and not for the second.
 async fn whichever_answers_first(addresses: &[SocketAddr]) -> Result<TcpStream, TransportError> {
     use futures::stream::{FuturesUnordered, StreamExt};
 
@@ -802,29 +877,71 @@ async fn whichever_answers_first(addresses: &[SocketAddr]) -> Result<TcpStream, 
             async move {
                 tokio::time::sleep(BEFORE_THE_NEXT * place as u32).await;
                 match tokio::time::timeout(ONE_ADDRESS, TcpStream::connect(address)).await {
-                    Ok(Ok(stream)) => Some((address, stream)),
-                    _ => None,
+                    Ok(Ok(stream)) => Ok((address, stream)),
+                    Ok(Err(failed)) => Err(where_it_failed(Some(&failed))),
+                    Err(_) => Err(where_it_failed(None)),
                 }
             }
         })
         .collect();
 
-    let mut timed_out = false;
+    let mut sent = false;
     while let Some(answered) = attempts.next().await {
         match answered {
-            Some((address, stream)) => {
+            Ok((address, stream)) => {
                 note_the_family_that_answered(&address);
                 kept_alive(&stream);
                 return Ok(stream);
             }
-            None => timed_out = true,
+            Err(Failed::There) => sent = true,
+            Err(Failed::Here) => {}
         }
     }
 
-    match timed_out {
-        true => Err(TransportError::Timeout),
-        false => Err(TransportError::Unreachable),
+    Err(none_connected(sent))
+}
+
+/// What a connection that no address took ends in: whether anything went out decides whose doing
+/// it was.
+fn none_connected(anything_went_out: bool) -> TransportError {
+    match anything_went_out {
+        true => TransportError::Timeout,
+        false => TransportError::NoRoute,
     }
+}
+
+/// Where an attempt to connect failed.
+enum Failed {
+    /// On this machine, before anything was sent.
+    Here,
+    /// Out there: nothing came back, or the connection was turned away.
+    There,
+}
+
+/// Where one attempt failed, from its error, or from none when it was given up on after
+/// [`ONE_ADDRESS`].
+fn where_it_failed(failed: Option<&io::Error>) -> Failed {
+    match failed {
+        Some(failed) if failed_here(failed) => Failed::Here,
+        _ => Failed::There,
+    }
+}
+
+/// Whether a connection failed on this machine before anything was sent: no network, no route
+/// out, no address of its own to send from, or something here that forbids it.
+///
+/// Everything else is the other end's doing — no answer, or a connection turned away — and a server
+/// that does that is paused for a while. "No route to host" counts as the other end's: a router or
+/// a firewall out there answers with it as often as this machine does.
+fn failed_here(failed: &io::Error) -> bool {
+    matches!(
+        failed.kind(),
+        io::ErrorKind::NetworkUnreachable
+            | io::ErrorKind::NetworkDown
+            | io::ErrorKind::AddrNotAvailable
+            | io::ErrorKind::AddrInUse
+            | io::ErrorKind::PermissionDenied
+    )
 }
 
 /// Has the system ask whether the other end of a quiet connection is still there, at
@@ -1073,10 +1190,13 @@ mod tests {
     #[test]
     fn what_is_worth_trying_again_is_what_passes_on_its_own() {
         assert!(TransportError::Unreachable.is_temporary());
+        assert!(TransportError::NoRoute.is_temporary());
         assert!(TransportError::Timeout.is_temporary());
 
         // A certificate does not verify on the second ask, and an unencrypted connection off this
-        // machine is a refusal. Retrying either would make a downgrade look like a hiccup.
+        // machine is a refusal. Retrying either would make a downgrade look like a hiccup. A
+        // handshake cut off is not tried again at once either: the next round asks.
+        assert!(!TransportError::CutOff.is_temporary());
         assert!(!TransportError::Tls.is_temporary());
         assert!(!TransportError::PlaintextRefused.is_temporary());
         assert!(!TransportError::UnsupportedEncryption.is_temporary());
