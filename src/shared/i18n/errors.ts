@@ -1,5 +1,5 @@
 import type { TranslationKey } from "./catalog";
-import type { Translator } from "./translate";
+import type { TranslationValues, Translator } from "./translate";
 
 import { secretStoreName } from "@/shared/platform";
 
@@ -39,6 +39,9 @@ export const ERROR_MESSAGE_KEYS: Record<ErrorCode, TranslationKey> = {
   fileNotWritten: "error.fileNotWritten",
   fileTooLarge: "error.fileTooLarge",
   fileNotRead: "error.fileNotRead",
+  fileNotOpened: "error.fileNotOpened",
+  fileNotThere: "error.fileNotThere",
+  messageNotReadNow: "error.messageNotReadNow",
 };
 
 /**
@@ -53,11 +56,15 @@ export const ERROR_MESSAGE_KEYS: Record<ErrorCode, TranslationKey> = {
  * about it is a sentence of its own rather than another `{store}`. The account screens pass it:
  * they are where secrets are written, and an open file answers every read, so they are where the
  * refusal meets a device that has one.
+ *
+ * `values` are what a place knows that the failure does not: the row of a message's files names
+ * the file that did not open.
  */
 export function describeError(
   error: CommandError,
   t: Translator,
   secretsInAFile = false,
+  values: TranslationValues = {},
 ): string {
   if (secretsInAFile && error.code === "credentialsUnavailable") {
     return t("error.credentialsUnavailableFile");
@@ -69,5 +76,6 @@ export function describeError(
   // no sentence shows.
   return t(ERROR_MESSAGE_KEYS[error.code] ?? "error.unknown", {
     store: t(secretStoreName()),
+    ...values,
   });
 }

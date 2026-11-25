@@ -9,44 +9,49 @@
 //! message is written by whoever sent it.
 
 use crate::application::error::UseCaseError;
+use crate::application::whole_message::WholeMessage;
 use crate::ports::account_repository::AccountRepository;
-use crate::ports::credential::Credential;
-use crate::ports::credential_store::{CredentialPurpose, CredentialRef, CredentialStore};
+use crate::ports::credential_store::CredentialStore;
 use crate::ports::file_export::{FileExport, FileToSave, SavedFile};
 use crate::ports::mail_provider::ProviderFactory;
+use crate::ports::message_bodies::MessageBodies;
 use crate::ports::message_parts::MessageParts;
-use lyonoyl_domain::message::{Uid, UidValidity};
+use lyonoyl_domain::message::{MessageId, Uid, UidValidity};
 
-pub struct SaveAttachment<R, C, F, E, P>
+pub struct SaveAttachment<R, C, F, S, P, E>
 where
     R: AccountRepository,
     C: CredentialStore,
     F: ProviderFactory,
-    E: FileExport,
+    S: MessageBodies,
     P: MessageParts,
+    E: FileExport,
 {
     accounts: R,
     credentials: C,
     providers: F,
-    files: E,
+    kept: S,
     parts: P,
+    files: E,
 }
 
-impl<R, C, F, E, P> SaveAttachment<R, C, F, E, P>
+impl<R, C, F, S, P, E> SaveAttachment<R, C, F, S, P, E>
 where
     R: AccountRepository,
     C: CredentialStore,
     F: ProviderFactory,
-    E: FileExport,
+    S: MessageBodies,
     P: MessageParts,
+    E: FileExport,
 {
-    pub fn new(accounts: R, credentials: C, providers: F, files: E, parts: P) -> Self {
+    pub fn new(accounts: R, credentials: C, providers: F, kept: S, parts: P, files: E) -> Self {
         Self {
             accounts,
             credentials,
             providers,
-            files,
+            kept,
             parts,
+            files,
         }
     }
 
@@ -56,44 +61,41 @@ where
     /// a message can be fetched again between the listing and the asking, and what was third a
     /// moment ago may be second now. The person is told, and looks again.
     ///
-    /// `uid_validity` is the generation `uid` was stored in. Without one the number cannot be
-    /// checked against the mailbox, and is refused rather than read by.
+    /// The message is read as the reader reads it, from the copy this device keeps and from its
+    /// server only where it keeps none, so a file of a message this device keeps is saved with no
+    /// network, as it is opened; one past the size a copy is kept of is read from its server each
+    /// time. `uid_validity` is the generation `uid` was stored in; where the message has to be
+    /// fetched, a number without one cannot be checked against the mailbox, and is refused rather
+    /// than read by.
     pub fn execute(
         &self,
         account_id: &str,
+        message: MessageId,
         mailbox: &str,
         uid_validity: Option<UidValidity>,
         uid: Uid,
         at: u32,
     ) -> Result<Option<SavedFile>, UseCaseError> {
-        let uid_validity = uid_validity.ok_or(UseCaseError::StorageCorrupted)?;
-
-        let account = self
-            .accounts
-            .find(account_id)?
-            .ok_or(UseCaseError::UnknownAccount)?;
-
-        let password = self.credentials.read(&CredentialRef::new(
-            account_id.to_owned(),
-            CredentialPurpose::ImapPassword,
-        ))?;
-
         // The whole message, because a part is only a part of one: IMAP can fetch a section on its
         // own, and doing so would mean trusting the numbering the listing used across two
-        // connections. One fetch, one parse, one answer.
-        let raw = self
-            .providers
-            .reading(&account, &Credential::password(password))?
-            .whole_message(mailbox, uid_validity, uid)?;
+        // connections. One read, one parse, one answer.
+        let raw = WholeMessage {
+            accounts: &self.accounts,
+            credentials: &self.credentials,
+            providers: &self.providers,
+            kept: &self.kept,
+        }
+        .read(account_id, message, mailbox, uid_validity, uid)?;
 
-        let (name, bytes) = self
+        let file = self
             .parts
             .file_at(&raw, at)
+            .map_err(|_| UseCaseError::TooBusyToRead)?
             .ok_or(UseCaseError::NoSuchPart)?;
 
         Ok(self.files.save(FileToSave {
-            suggested_name: &name,
-            bytes: &bytes,
+            suggested_name: &file.name,
+            bytes: &file.bytes,
         })?)
     }
 }

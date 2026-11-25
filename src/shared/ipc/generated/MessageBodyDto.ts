@@ -43,8 +43,8 @@ truncated: boolean,
 /**
  * The files the message carried beside its body.
  *
- * Names and sizes only. The bytes stay in the message until somebody asks to save one, and
- * what is asked for is a position rather than a name: two files may share a name, and a
- * message is free to give none.
+ * Names, sizes and whether each opens, only. The bytes stay in the message until somebody
+ * asks to save or open one, and what is asked for is a position rather than a name: two files
+ * may share a name, and a message is free to give none.
  */
 attachments: Array<AttachedDto>, };

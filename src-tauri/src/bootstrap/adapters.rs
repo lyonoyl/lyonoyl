@@ -5,6 +5,7 @@
 //! pool is made when a command asks rather than once at the start, because on some devices the
 //! databases open after it; making one is wrapping a pool.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::ThreadId;
 
@@ -16,6 +17,7 @@ use crate::infrastructure::http::autoconfig::PublishedByTheDomain;
 use crate::infrastructure::http::pictures::RemotePictures;
 use crate::infrastructure::http::HttpClient;
 use crate::infrastructure::net::{TransportError, TransportPolicy};
+use crate::infrastructure::opening::SystemOpening;
 use crate::infrastructure::secure_storage::message_key::MessageKey;
 use crate::infrastructure::sqlite::account_groups::SqliteAccountGroups;
 use crate::infrastructure::sqlite::account_repository::SqliteAccountRepository;
@@ -114,4 +116,9 @@ pub fn save_dialog<R: Runtime>(app: AppHandle<R>, event_loop: ThreadId) -> Syste
 /// The system's own panel for choosing files to attach.
 pub fn open_dialog<R: Runtime>(app: AppHandle<R>, event_loop: ThreadId) -> SystemOpenDialog<R> {
     SystemOpenDialog::new(app, event_loop)
+}
+
+/// The system's own way of opening a file, given its copy in `folder`.
+pub fn system_opening(folder: PathBuf) -> SystemOpening {
+    SystemOpening::new(folder)
 }

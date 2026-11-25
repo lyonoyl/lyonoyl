@@ -12,6 +12,7 @@ pub mod credential_store;
 pub mod drafts;
 pub mod file_export;
 pub mod file_import;
+pub mod file_opening;
 pub mod journal;
 pub mod mail_actions;
 pub mod mail_files;

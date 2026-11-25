@@ -3,6 +3,7 @@ use thiserror::Error;
 use crate::ports::account_repository::AccountRepositoryError;
 use crate::ports::credential_store::CredentialError;
 use crate::ports::file_export::FileExportError;
+use crate::ports::file_opening::FileOpeningError;
 use crate::ports::mail_index::MailIndexError;
 use crate::ports::mail_provider::MailProviderError;
 use crate::ports::op_log::OperationLogError;
@@ -60,6 +61,12 @@ pub enum UseCaseError {
     NoPlaceToSave,
     #[error("the file could not be written where it was asked to go")]
     FileNotWritten,
+    /// A file asked to be opened that is not opened: its bytes are not one of the kinds that open,
+    /// it is a message carried inside another, its copy could not be written or marked, or the
+    /// system would not open it. One answer for all of them, because what the person can do is the
+    /// same — save it, which every file allows.
+    #[error("the file was not opened")]
+    FileNotOpened,
     /// Something else changed the queue while this instruction was being folded into it.
     #[error("the operation log changed while this was being decided")]
     OperationRaced,
@@ -129,6 +136,12 @@ impl From<FileExportError> for UseCaseError {
             FileExportError::CannotAsk => Self::NoPlaceToSave,
             FileExportError::NotWritten => Self::FileNotWritten,
         }
+    }
+}
+
+impl From<FileOpeningError> for UseCaseError {
+    fn from(_error: FileOpeningError) -> Self {
+        Self::FileNotOpened
     }
 }
 

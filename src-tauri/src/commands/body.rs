@@ -66,29 +66,33 @@ pub struct MessageBodyDto {
     pub truncated: bool,
     /// The files the message carried beside its body.
     ///
-    /// Names and sizes only. The bytes stay in the message until somebody asks to save one, and
-    /// what is asked for is a position rather than a name: two files may share a name, and a
-    /// message is free to give none.
+    /// Names, sizes and whether each opens, only. The bytes stay in the message until somebody
+    /// asks to save or open one, and what is asked for is a position rather than a name: two files
+    /// may share a name, and a message is free to give none.
     pub attachments: Vec<AttachedDto>,
 }
 
 /// A file a message carried.
 ///
-/// Where it sits, what it is called and how large it is, and nothing more. Not the type the message
-/// declares for it: the window names a file's kind by its name, which is what the system goes by
-/// once the file is saved, and a declared type beside the name is the sender's claim handed to the
-/// one place that could repeat it.
+/// Where it sits, what it is called, how large it is and whether it opens, and nothing more. Not
+/// the type the message declares for it: the window names a file's kind by its name, which is what
+/// the system goes by once the file is saved, and a declared type beside the name is the sender's
+/// claim handed to the one place that could repeat it. Whether it opens is decided by the core,
+/// from its bytes, and crosses as that decision.
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/shared/ipc/generated/")]
 pub struct AttachedDto {
-    /// Where it sits in the message, and what is sent back to save it.
+    /// Where it sits in the message, and what is sent back to save or open it.
     pub at: u32,
     /// Already made safe to show and to hand to a save panel — never the string the message
     /// carried.
     pub name: String,
     /// Bytes, as text: a file can be larger than a JavaScript number holds exactly.
     pub bytes: String,
+    /// Whether pressing it opens it, because its bytes are a document of pages or a picture.
+    /// Every other file is saved.
+    pub opens: bool,
 }
 
 impl AttachedDto {
@@ -97,6 +101,7 @@ impl AttachedDto {
             at: file.at,
             name: file.name.clone(),
             bytes: file.bytes.to_string(),
+            opens: file.opens,
         }
     }
 }
@@ -464,15 +469,17 @@ mod tests {
     }
 
     #[test]
-    fn a_file_crosses_as_where_it_sits_what_it_is_called_and_how_large_it_is() {
+    fn a_file_crosses_as_where_it_sits_what_it_is_called_how_large_it_is_and_whether_it_opens() {
         // And as nothing else. A field that crosses is one the window may show, and the type a
         // message declares for a file is the sender's word for it: a message calls an application
-        // a PDF, and the window names a file's kind by its name. The size is a number past what a
-        // JavaScript number holds exactly, so it is seen to cross as text.
+        // a PDF, and the window names a file's kind by its name. Whether it opens crosses as the
+        // decision the core made from its bytes, never as what it was made from. The size is a
+        // number past what a JavaScript number holds exactly, so it is seen to cross as text.
         let crossed = serde_json::to_value(AttachedDto::of(&Attached {
             at: 2,
             name: "Statement.pdf.app".to_owned(),
             bytes: 9_007_199_254_740_993,
+            opens: false,
         }))
         .expect("written out");
 
@@ -482,6 +489,7 @@ mod tests {
                 "at": 2,
                 "name": "Statement.pdf.app",
                 "bytes": "9007199254740993",
+                "opens": false,
             })
         );
     }

@@ -38,8 +38,8 @@ pub struct InlinePart {
 /// A file the message carried, as it is listed before anybody asks for it.
 ///
 /// Not the type the message declares for it, which nothing reads: the window names a file's kind
-/// by its name, which is what the system goes by once it is saved, and nothing is opened here,
-/// only saved.
+/// by its name, which is what the system goes by once it is saved, and whether it opens is read
+/// from its own bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attached {
     /// Where it sits in the message, so it can be found again without holding it.
@@ -51,6 +51,9 @@ pub struct Attached {
     /// message carried.
     pub name: String,
     pub bytes: u64,
+    /// Whether its bytes are a kind this application asks the system to open, a document of pages
+    /// or a picture. Asked again of the bytes when somebody opens it.
+    pub opens: bool,
 }
 
 /// A link the message carried, kept out of the body and behind a name.
@@ -71,9 +74,9 @@ pub struct RenderedBody {
     pub parts: Vec<InlinePart>,
     /// The files the message carried that the body does not refer to.
     ///
-    /// Listed rather than held: what is here is a name and a size, and the bytes are fetched only
-    /// when somebody asks to save one. A message with four photographs in it is four photographs
-    /// nobody has asked for yet.
+    /// Listed rather than held: what is here is a name, a size and whether it opens, and the bytes
+    /// are fetched only when somebody asks to save or open one. A message with four photographs in
+    /// it is four photographs nobody has asked for yet.
     pub attachments: Vec<Attached>,
     /// The links the body offers, each behind a name.
     pub links: Vec<Link>,

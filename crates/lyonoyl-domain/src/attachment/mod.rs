@@ -239,5 +239,10 @@ pub fn reserved_on_windows(stem: &str) -> bool {
             Some(number) if port(number))
 }
 
+pub mod opens;
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod opens_tests;

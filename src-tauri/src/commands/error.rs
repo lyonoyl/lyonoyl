@@ -98,6 +98,17 @@ pub enum ErrorCode {
     FileTooLarge,
     /// The file chosen could not be read: gone, not permitted, or not a file.
     FileNotRead,
+    /// A file asked to be opened was not: its bytes are not one of the kinds that open, it is a
+    /// message carried inside another, its copy could not be written or marked, there was no
+    /// folder for copies, or the system would not open it. Saving it is what is left, and it is
+    /// always there.
+    FileNotOpened,
+    /// The message no longer holds a file at the place asked about: it was read again and its
+    /// parts moved. Opening the message again lists its files as they are now.
+    FileNotThere,
+    /// The message was not read this time: every place a message is read in was taken, or reading
+    /// it ran past what this build allows. Asking again in a moment is a different question.
+    MessageNotReadNow,
 }
 
 impl CommandError {
@@ -196,14 +207,14 @@ impl From<UseCaseError> for CommandError {
             // The message was fetched again and its parts moved. Ordinary enough to say plainly
             // and ask them to look again, rather than to report as a fault.
             UseCaseError::NoSuchPart => Self::new(
-                ErrorCode::InvalidRequest,
+                ErrorCode::FileNotThere,
                 "That message no longer has that file in it.",
             ),
             // Reached only while other messages take every place one is read in, which is a
             // machine under a load nobody reading their mail makes.
             UseCaseError::TooBusyToRead => Self::new(
-                ErrorCode::Internal,
-                "Every place a message is read in is taken.",
+                ErrorCode::MessageNotReadNow,
+                "The message was not read this time.",
             ),
             UseCaseError::UnknownGroup => Self::new(
                 ErrorCode::InvalidRequest,
@@ -224,6 +235,9 @@ impl From<UseCaseError> for CommandError {
             ),
             UseCaseError::FileNotWritten => {
                 Self::new(ErrorCode::FileNotWritten, "The file could not be written.")
+            }
+            UseCaseError::FileNotOpened => {
+                Self::new(ErrorCode::FileNotOpened, "The file was not opened.")
             }
             UseCaseError::AccountAlreadyAdded => Self::new(
                 ErrorCode::AccountAlreadyAdded,

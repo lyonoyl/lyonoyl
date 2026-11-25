@@ -91,26 +91,42 @@ impl<R: Runtime> FileExport for SystemSaveDialog<R> {
     }
 }
 
-/// Writes a file saved out of a message, and marks it as one that came from outside.
+/// Writes a file saved out of a message where the person chose, and marks it as one that came
+/// from outside. A file already there is the one the panel's *Replace* asked to write over.
+fn written_from_outside(path: &Path, bytes: &[u8]) -> Result<(), FileExportError> {
+    written_and_marked(path, bytes, "saved.notMarked")
+        .map(|_| ())
+        .map_err(|_| FileExportError::NotWritten)
+}
+
+/// Writes a file out of a message, marks it as one that came from outside, and answers whether the
+/// mark is on it: every file a message puts on the disk, one saved where the person chose and the
+/// copy of one being opened. `unmarked` is what the journal writes down when the disk refuses the
+/// mark.
 ///
 /// The mark is what a browser puts on a download. On macOS it is what Gatekeeper reads before an
 /// application, a script or an installer runs — one saved out of a message, or carried in an
 /// archive or a disk image saved out of one — and what a disk image mounted from such a file is
-/// marked with in turn. It goes on through the open file, so it is on the file that holds the bytes.
+/// marked with in turn; it goes on through the open file, so it is on the file that holds the
+/// bytes. On Windows it is the zone the file came from, in a second stream beside its bytes, which
+/// SmartScreen and the programs that show documents read before they trust one. Linux has none.
 ///
-/// A symbolic link under the chosen name is removed and a file made in its place, never written
-/// through: a link left there — by an archive, say, pointing out of the folder — would otherwise take
-/// the bytes somewhere the person never chose, unmarked. A file already there is written over in
-/// place, which is what the panel's *Replace* asked for and what works wherever a file can be
-/// written at all — a network share that refuses a second name, or a folder that refuses a new
-/// entry, included.
-fn written_from_outside(path: &Path, bytes: &[u8]) -> Result<(), FileExportError> {
+/// A symbolic link under the name is removed and a file made in its place, never written through:
+/// a link left there — by an archive, say, pointing out of the folder — would otherwise take the
+/// bytes somewhere the person never chose, unmarked. A file already there is written over in
+/// place, which works wherever a file can be written at all — a network share that refuses a
+/// second name, or a folder that refuses a new entry, included.
+pub(crate) fn written_and_marked(
+    path: &Path,
+    bytes: &[u8],
+    unmarked: &'static str,
+) -> std::io::Result<bool> {
     let mut options = File::options();
     options.write(true);
 
     match std::fs::symlink_metadata(path) {
         Ok(entry) if entry.file_type().is_symlink() => {
-            std::fs::remove_file(path).map_err(|_| FileExportError::NotWritten)?;
+            std::fs::remove_file(path)?;
             options.create_new(true);
         }
         Ok(_) => {
@@ -123,26 +139,24 @@ fn written_from_outside(path: &Path, bytes: &[u8]) -> Result<(), FileExportError
         }
     }
 
-    let mut file = options
-        .open(path)
-        .map_err(|_| FileExportError::NotWritten)?;
+    let mut file = options.open(path)?;
 
-    if !marked_as_from_outside(&file) {
+    let marked = marked_as_from_outside(path, &file);
+    if !marked {
         // A disk that refuses extended attributes, and the `._` file macOS keeps them in where a
         // disk has none — a name too long for one, some network shares — takes the file without
         // the mark, as it would from a browser. The file is the person's either way, and refusing
         // it would leave them nothing safer than a copy made by hand. Written down at the level
         // everything about one message is.
-        crate::infrastructure::journal::journal().write_down(Note::Detail, "saved.notMarked", &[]);
+        crate::infrastructure::journal::journal().write_down(Note::Detail, unmarked, &[]);
     }
 
-    file.write_all(bytes)
-        .map_err(|_| FileExportError::NotWritten)
+    file.write_all(bytes).map(|()| marked)
 }
 
 /// What macOS calls the mark.
 #[cfg(target_os = "macos")]
-const QUARANTINE: &str = "com.apple.quarantine";
+pub(crate) const QUARANTINE: &str = "com.apple.quarantine";
 
 /// Marks the file, and answers whether the mark is on it.
 ///
@@ -151,7 +165,7 @@ const QUARANTINE: &str = "com.apple.quarantine";
 /// person — and no event identifier, as a sandboxed application writes it: the database of those
 /// events is the system's.
 #[cfg(target_os = "macos")]
-fn marked_as_from_outside(file: &File) -> bool {
+fn marked_as_from_outside(_path: &Path, file: &File) -> bool {
     use xattr::FileExt;
 
     let at = std::time::SystemTime::now()
@@ -166,10 +180,38 @@ fn marked_as_from_outside(file: &File) -> bool {
     .is_ok()
 }
 
-/// Windows and Linux are built from source, and nothing here marks a file on either: Linux has no
-/// such mark, and the one Windows keeps in a second stream is code nobody here has built or run.
-#[cfg(not(target_os = "macos"))]
-fn marked_as_from_outside(_file: &File) -> bool {
+/// The second stream Windows keeps the mark in, beside the file's own bytes.
+#[cfg(windows)]
+const ZONE: &str = "Zone.Identifier";
+
+/// What a browser writes there on a download: the zone the file came from, the internet. What
+/// Windows reads before it runs the file, and what SmartScreen, Protected View and the programs that
+/// show documents read before they trust one.
+#[cfg(windows)]
+const FROM_THE_INTERNET: &[u8] = b"[ZoneTransfer]\r\nZoneId=3\r\n";
+
+/// Marks the file, and answers whether the mark is on it.
+///
+/// Written by name, to the file's second stream: a stream is not reached through the open file. A
+/// disk with no second streams — FAT, exFAT, a share that refuses them — takes the file without
+/// the mark, as it would from a browser.
+#[cfg(windows)]
+fn marked_as_from_outside(path: &Path, _file: &File) -> bool {
+    std::fs::write(stream_of(path), FROM_THE_INTERNET).is_ok()
+}
+
+/// The name a file's mark is written under: the file's own, a colon, and the stream's.
+#[cfg(windows)]
+fn stream_of(path: &Path) -> PathBuf {
+    let mut named = path.as_os_str().to_owned();
+    named.push(":");
+    named.push(ZONE);
+    PathBuf::from(named)
+}
+
+/// Linux, built from source, has no such mark.
+#[cfg(not(any(target_os = "macos", windows)))]
+fn marked_as_from_outside(_path: &Path, _file: &File) -> bool {
     true
 }
 
@@ -515,5 +557,29 @@ mod tests {
 
         std::fs::remove_dir_all(&folder).ok();
         std::fs::remove_dir_all(&elsewhere).ok();
+    }
+}
+
+/// Windows is built from source, and these run only there: nothing on this Mac compiles them.
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn a_file_saved_out_of_a_message_carries_the_mark_of_the_internet_on_windows() {
+        let folder = std::env::temp_dir().join(format!("lyonoyl-zone-{}", std::process::id()));
+        std::fs::remove_dir_all(&folder).ok();
+        std::fs::create_dir_all(&folder).expect("a folder");
+        let path = folder.join("invoice.docm");
+
+        written_from_outside(&path, b"PK\x03\x04").expect("written");
+
+        assert_eq!(std::fs::read(&path).expect("readable"), b"PK\x03\x04");
+        assert_eq!(
+            std::fs::read(stream_of(&path)).expect("the mark is on the file"),
+            FROM_THE_INTERNET
+        );
+
+        std::fs::remove_dir_all(&folder).ok();
     }
 }

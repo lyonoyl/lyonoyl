@@ -147,6 +147,7 @@ fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         commands::message::get_message,
         commands::message::save_message,
         commands::message::save_attachment,
+        commands::message::open_attachment,
         commands::act::mark_message_read,
         commands::act::move_message,
         commands::act::archive_message,
@@ -312,6 +313,12 @@ pub fn run() {
             // answer those notices' buttons. The system keeps each application's notices apart, so
             // the build made for screenshots, under an identifier of its own, touches only its own.
             infrastructure::notification::clear_what_an_earlier_run_left();
+
+            // The copies of files an earlier run opened, which the programs showing them have had
+            // for as long as that run lasted. Before the window is up, so before this run opens any.
+            if let Ok(opened) = bootstrap::opened_files(app.handle()) {
+                infrastructure::opening::clear_what_an_earlier_run_opened(&opened);
+            }
 
             // The menu's own items, once the window has named them: the settings item, which the
             // window opens the way its own keys do, and Undo, which the window answers as it
