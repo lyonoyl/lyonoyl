@@ -35,13 +35,23 @@ has committed under before, or LYONOYL_COMMIT_ADDRESS where that is set outside 
 
 The gate's own three files are outside this, and they have to be: they hold the shapes, and what is
 planted to prove the shapes bite. Neither the shapes nor the probes name anybody all the same.
+
+What reading a file found is kept for the next run, in `target/`, which git ignores, under everything
+the finding depends on: this checker's own source, the Python reading it, the file's path, which copy
+of it, and every byte. A file read before with all of those the same is not read again, and what it
+found is said again in the same words; a file of which any byte changed is read afresh, and so is
+every file once any byte of this checker changed. The gate's self-test runs the gate once for every
+few probes, over a tree that is the same but for them, so what is read again there is the probes.
+Whoever can write that memory can write this checker as well, so it is trusted as the tree is.
 """
 
 import base64
 import binascii
 import email
 import email.policy
+import hashlib
 import html
+import json
 import os
 import quopri
 import re
@@ -56,6 +66,14 @@ GATE = {
     "scripts/check-layering.sh",
     "scripts/check-layering.test.sh",
 }
+
+# Where what each file was found to hold is kept, from the root of the repository.
+MEMORY = "target/check-anonymity.json"
+
+# This checker as it is now, read before anything moves the working directory: what it finds
+# depends on every line of it.
+with open(os.path.abspath(__file__), "rb") as _source:
+    SOURCE = _source.read()
 
 # The licence lists, which are exempt from the address rule and the only exemption: a permissive
 # licence asks for exactly one thing, that the notice travels with the code, and a notice names the
@@ -639,13 +657,75 @@ def near(said, lowered, words, shape, before=48, after=256):
         looked_to = end
 
 
+class Remembered:
+    """What reading each file found, from the last run, and what this run found to keep for the next.
+
+    Kept by a key that holds everything a finding depends on, so a file whose key is found holds
+    what was found in it before, word for word. What the last run kept and this one did not use is
+    let go, so the memory holds the tree as it is and the probes of the last run, and no more. Kept
+    memory that cannot be read is no memory: every file is then read afresh.
+    """
+
+    def __init__(self, at):
+        self.at = at
+        self.used = {}
+        self.kept = {}
+        self.salt = hashlib.sha256(
+            b"\0".join((SOURCE, sys.version.encode(), unicodedata.unidata_version.encode()))
+        ).digest()
+        try:
+            with open(at, encoding="utf-8") as file:
+                kept = json.load(file)
+        except (OSError, ValueError):
+            return
+        if isinstance(kept, dict):
+            self.kept = kept
+
+    def key(self, path, copy, data):
+        hashed = hashlib.sha256(self.salt)
+        for part in (path.encode("utf-8", "surrogateescape"), copy.encode("utf-8")):
+            hashed.update(len(part).to_bytes(8, "big"))
+            hashed.update(part)
+        hashed.update(data)
+        return hashed.hexdigest()
+
+    def recall(self, key):
+        found = self.kept.get(key)
+        whole = isinstance(found, list) and all(
+            isinstance(one, list) and len(one) == 3 and all(isinstance(part, str) for part in one)
+            for one in found
+        )
+        if not whole:
+            return None
+        self.used[key] = found
+        return found
+
+    def remember(self, key, found):
+        self.used[key] = found
+
+    def keep(self):
+        writing = f"{self.at}.{os.getpid()}"
+        try:
+            os.makedirs(os.path.dirname(self.at), exist_ok=True)
+            with open(writing, "w", encoding="utf-8") as file:
+                json.dump(self.used, file)
+            os.replace(writing, self.at)
+        except OSError:
+            # Unkept, the next run reads every file afresh, which is slower and no less right.
+            try:
+                os.remove(writing)
+            except OSError:
+                pass
+
+
 class Judge:
     """What one file says, and everything in it that names somebody, each said once."""
 
-    def __init__(self, path):
+    def __init__(self, path, remembered=None):
         self.path = path
         self.said = set()
         self.refused = False
+        self.remembered = remembered
 
     def refuse(self, what, where, found):
         if (what, found) in self.said:
@@ -729,6 +809,24 @@ class Judge:
                     self.refuse("an identifier a real system minted", where(found), found.group(0))
 
     def read_bytes(self, copy, data):
+        """Everything in one copy of the file that names somebody: what was found in it before,
+        where it is the same copy, and otherwise what reading it now finds, kept for the next run.
+
+        Every finding is said through `refuse`, in the order it was found, so what is said once
+        for the file is said once whether the copy was read now or before."""
+        key = self.remembered.key(self.path, copy, data) if self.remembered else None
+        found = self.remembered.recall(key) if key else None
+        if found is None:
+            found = []
+            reading = Judge(self.path)
+            reading.refuse = lambda what, where, said: found.append([what, where, said])
+            reading.read_afresh(copy, data)
+            if key:
+                self.remembered.remember(key, found)
+        for what, where, said in found:
+            self.refuse(what, where, said)
+
+    def read_afresh(self, copy, data):
         text = as_text(self.path, data)
         if text is None:
             self.read(copy, printable_runs(data), ("strings",))
@@ -838,13 +936,14 @@ def main():
         differs = set(listed("diff", "--cached", "--name-only"))
         differs &= set(listed("diff", "--name-only"))
 
+        remembered = Remembered(MEMORY)
         refused = False
         for name in names:
             path = name.decode("utf-8", "surrogateescape")
             if path in GATE:
                 continue
 
-            judge = Judge(path)
+            judge = Judge(path, remembered)
             judge.read(" (its name)", path, ())
             if os.path.islink(name):
                 link = os.readlink(name).decode("utf-8", "surrogateescape")
@@ -861,6 +960,7 @@ def main():
                     judge.read_bytes(" (staged)", copy)
             refused = refused or judge.refused
 
+        remembered.keep()
         refused = who_commits() or refused
     except Unreadable as reason:
         print(f"LAYERING: the anonymity check could not read the repository -> {reason}")

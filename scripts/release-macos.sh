@@ -24,19 +24,58 @@
 #         APPLE_API_KEY_PATH       where the `.p8` file is, also outside this tree
 #
 # Nothing here ever prints a value. What it prints is whether a thing is there.
+#
+# It says where it is as it goes: which stage of how many, how long it has taken, and how long it has
+# left, from what each stage took the last time it got through on this machine, which
+# `scripts/progress.sh` keeps. While the application is built a line at the bottom says how long it has
+# been going, and while the notary has the disk image, what the notary says.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# shellcheck source=scripts/progress.sh
+. scripts/progress.sh
+# shellcheck source=scripts/notarize.sh
+. scripts/notarize.sh
+trap 'progress_end $?' EXIT
+
 say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
-say "The signing identity"
+STAGE_IDENTITY="The signing identity"
+STAGE_FINDER="Finder, which arranges the disk image's window"
+STAGE_CHECK="Everything that must be true before a release leaves this machine"
+STAGE_BUILD="Building, signing and notarizing"
+STAGE_GATEKEEPER="What Gatekeeper makes of it"
+STAGE_IMAGE="Notarizing the disk image"
+progress_begin release Stage "$STAGE_IDENTITY
+$STAGE_FINDER
+$STAGE_CHECK
+$STAGE_BUILD
+$STAGE_GATEKEEPER
+$STAGE_IMAGE"
+
+# The check takes minutes for a tree it checks whole and seconds for one that already passed it as it
+# stands, so its estimate is what the preflight itself took the last time it ran that way here, where
+# it has run that way here, and otherwise what the check took in the last release.
+if node scripts/tree-fingerprint.mjs --passed target/preflight/passed >/dev/null 2>&1; then
+  progress_total_of preflight-passed-before
+else
+  progress_total_of preflight
+fi
+if [ -n "$progress_total" ]; then progress_expect "$STAGE_CHECK" "$progress_total"; fi
+
+progress_step "$STAGE_IDENTITY"
+# Asked now, in a shell of its own, and read into this one only for the build. The check below
+# builds the application as `npm run app:build` does, and with the identity in its environment Tauri
+# would sign that build, send it to the notary, and wait for the answer: a second release, made for
+# nothing. The update key would reach the check as well, and the application's own crate, which
+# compiles the key in, would be compiled again at every step of the check that compiles it.
 # shellcheck disable=SC1091
-. scripts/signing-identity.sh notarizing
+(. scripts/signing-identity.sh notarizing)
 echo "certificate in the keychain, notarization key present and readable only by you"
 
-say "Finder, which arranges the disk image's window"
+progress_step "$STAGE_FINDER"
 # Tauri lays out the window the disk image opens in by asking Finder, through AppleScript, while it
 # builds the image. macOS lets the terminal running this do that only once it has been allowed, and
 # a terminal that may not fails that step at the end of the build, where Tauri says only that its
@@ -48,10 +87,14 @@ if ! osascript -e 'tell application "Finder" to get name' >/dev/null 2>&1; then
 fi
 echo "Finder answers this terminal"
 
-say "Everything that must be true before a release leaves this machine"
-npm run preflight
+progress_step "$STAGE_CHECK"
+# Checked whole, unless the preflight already passed this tree as it stands: then it asks again only
+# what changes while a tree stands still.
+npm run preflight -- --if-changed
 
-say "Building, signing and notarizing"
+progress_step "$STAGE_BUILD"
+# shellcheck disable=SC1091
+. scripts/signing-identity.sh notarizing
 
 # Where this was built is taken out of what ships. A Rust binary carries the absolute path of every
 # source file compiled into it -- measured on a release build of this application: seven hundred and
@@ -75,10 +118,16 @@ export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$HOME/.cargo=/cargo --remap
 #
 # Replaced rather than dropped, so the line still says signing happened. `pipefail` is set, so a
 # build that fails still fails here.
-npx tauri build 2>&1 | sed -E \
-  's/(Developer ID Application:)[^"]*/\1 <this team>/g; s/(TeamIdentifier=)[A-Z0-9]*/\1<this team>/g'
+#
+# A line at a time, `-l`, so each line is on the screen as soon as the build says it: Tauri then waits
+# minutes on the notary without a word, and the line at the bottom says how long it has been.
+progress_ticker_start
+npx tauri build 2>&1 | sed -l -E \
+  's/(Developer ID Application:)[^"]*/\1 <this team>/g; s/(TeamIdentifier=)[A-Z0-9]*/\1<this team>/g' \
+  | progress_relay
+progress_ticker_stop
 
-say "What Gatekeeper makes of it"
+progress_step "$STAGE_GATEKEEPER"
 
 # Found, not assumed. A universal build writes under `target/universal-apple-darwin/` and an
 # ordinary one under `target/release/`, so a hard-coded path points at whichever an earlier build
@@ -101,7 +150,7 @@ codesign --verify --strict --verbose=2 "$image"
 
 mounted=$(mktemp -d)
 hdiutil attach -nobrowse -quiet -mountpoint "$mounted" "$image"
-trap 'hdiutil detach -quiet "$mounted" 2>/dev/null; rmdir "$mounted" 2>/dev/null' EXIT
+trap 'progress_end $?; hdiutil detach -quiet "$mounted" 2>/dev/null; rmdir "$mounted" 2>/dev/null' EXIT
 
 app="$mounted/Lyonoyl Mail.app"
 if [ ! -d "$app" ]; then
@@ -177,7 +226,7 @@ xcrun stapler validate "$app"
 
 spctl --assess --type execute --verbose=4 "$app"
 
-say "Notarizing the disk image"
+progress_step "$STAGE_IMAGE"
 
 # The image goes to the notary as well. A Mac that downloaded the image asks Gatekeeper about the
 # image's own signature before it opens it, and refuses a signed image the notary never saw,
@@ -187,18 +236,18 @@ say "Notarizing the disk image"
 # Stapling writes into the image, so it is let go of first.
 hdiutil detach -quiet "$mounted"
 rmdir "$mounted"
-trap - EXIT
+trap 'progress_end $?' EXIT
 
 notary=(--key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER")
-# The status the notary gives the image is what decides, so it is read from the answer, and anything
-# but Accepted stops the release with the notary's own account of why. A submission that fails on
-# the way falls through to the same refusal rather than stopping before it, which would swallow the
-# answer it was given.
-answer=$(xcrun notarytool submit "$image" "${notary[@]}" --wait --output-format json) || true
-status=$(plutil -extract status raw -o - - <<<"$answer" 2>/dev/null || true)
-if [ "$status" != "Accepted" ]; then
-  printf '\033[31m%s\033[0m\n' "The notary did not accept the disk image: ${status:-no answer}." >&2
-  submission=$(plutil -extract id raw -o - - <<<"$answer" 2>/dev/null || true)
+# The status the notary gives the image is what decides, so it is read from the notary's answer, and
+# anything but Accepted stops the release with the notary's own account of why. An upload that fails,
+# and a notary that stops answering, fall through to the same refusal rather than stopping before it,
+# which would swallow the answer that was given.
+progress_ticker_start
+notarize "$image" "${notary[@]}"
+progress_ticker_stop
+if [ "$notarized" != "Accepted" ]; then
+  printf '\033[31m%s\033[0m\n' "The notary did not accept the disk image: ${notarized:-no answer}." >&2
   [ -z "$submission" ] || xcrun notarytool log "$submission" "${notary[@]}" >&2 || true
   exit 1
 fi
@@ -231,5 +280,7 @@ else
   echo "  new download. scripts/make-update-key.sh makes the key and sets it, once."
 fi
 
-say "Done"
+progress_end
+progress_span "$SECONDS"
+say "Done in $progress_span_said"
 echo "$image"

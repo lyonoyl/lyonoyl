@@ -939,55 +939,76 @@ LONGEST=1171
 # and it cannot be composed, because a domain is either in it or it is not.
 LEDGERS="src-tauri/src/infrastructure/sqlite/migrations/mod.rs crates/lyonoyl-domain/src/provider/table.rs"
 
-# Physical lines with every `#[cfg(test)] mod … { … }` block removed. The closing brace is matched
-# at column 0 rather than by counting braces: a top-level module's is always there after rustfmt,
-# and counting would need to know which braces are inside a string. This deliberately does not fire
-# on `#[cfg(test)]` in front of anything else — cutting at the first attribute instead reported a
-# 3775-line file as 479 lines of code.
-lines_outside_tests() {
-  awk '
-    skip     { if ($0 == "}") skip = 0; next }
-    pending  { pending = 0
-               if ($0 ~ /^(pub[^ ]* )?mod [A-Za-z0-9_]+ \{/) { skip = 1; next }
-               code += 2; next }
-    $0 == "#[cfg(test)]" { pending = 1; next }
-               { code++ }
-    END      { print code + pending }
-  ' "$1"
-}
-
-# Modules compiled only into a test build. The whole file is a test module, so measuring it would be
-# measuring tests. Found rather than listed, so a new one needs no edit here.
-test_only=$(find src-tauri/src crates -name '*.rs' | while read -r file; do
-  awk -v dir="$(dirname "$file")" '
-    /^[[:space:]]*#\[cfg\(test\)\][[:space:]]*$/ { armed = 1; next }
-    armed && /^[[:space:]]*(pub[^ ]* )?mod [A-Za-z0-9_]+;/ {
-      name = $0; sub(/;.*/, "", name); sub(/.* /, "", name)
-      print dir "/" name ".rs"; print dir "/" name "/"
+# Every Rust file, in one awk rather than two processes and a loop of its own for each: the gate's
+# self-test runs the gate dozens of times, and a process for each file is seconds of every one of
+# them. Each file is read by `getline` rather than handed to awk as input, so one with nothing in it
+# is measured too, at nothing.
+#
+# - Modules compiled only into a test build are found first, in every file: the whole of such a file
+#   is a test module, so measuring it would be measuring tests, and so is everything in a folder of
+#   its name. Found rather than listed, so a new one needs no edit here.
+# - Every other file is measured as its physical lines with every `#[cfg(test)] mod … { … }` block
+#   removed. The closing brace is matched at column 0 rather than by counting braces: a top-level
+#   module's is always there after rustfmt, and counting would need to know which braces are inside a
+#   string. This deliberately does not fire on `#[cfg(test)]` in front of anything else — cutting at
+#   the first attribute instead reported a 3775-line file as 479 lines of code.
+while IFS= read -r said; do
+  violation "$said"
+done < <(find src-tauri/src crates -name '*.rs' | sort | awk -v longest="$LONGEST" -v ledgers="$LEDGERS" '
+  { files[++count] = $0 }
+  END {
+    for (f = 1; f <= count; f++) {
+      file = files[f]
+      dir = file
+      sub(/\/[^\/]*$/, "", dir)
+      armed = 0
+      while ((getline line < file) > 0) {
+        if (line ~ /^[[:space:]]*#\[cfg\(test\)\][[:space:]]*$/) { armed = 1; continue }
+        if (armed && line ~ /^[[:space:]]*(pub[^ ]* )?mod [A-Za-z0-9_]+;/) {
+          name = line
+          sub(/;.*/, "", name)
+          sub(/.* /, "", name)
+          test_only[dir "/" name ".rs"] = 1
+          test_only[dir "/" name "/"] = 1
+        }
+        armed = 0
+      }
+      close(file)
     }
-    { armed = 0 }
-  ' "$file"
-done | sort -u)
 
-while IFS= read -r file; do
-  skip=0
-  while IFS= read -r only; do
-    case "$file" in "$only"|"$only"*) skip=1 ;; esac
-  done <<< "$test_only"
-  [ "$skip" -eq 1 ] && continue
+    split(ledgers, listed, " ")
+    for (l in listed) ledger[listed[l]] = 1
 
-  size=$(lines_outside_tests "$file")
-  case " $LEDGERS " in
-    *" $file "*)
-      if [ "$size" -le "$LONGEST" ]; then
-        violation "listed as a ledger but is only $size lines; take it off the list -> $file"
-      fi
-      continue ;;
-  esac
-  if [ "$size" -gt "$LONGEST" ]; then
-    violation "$size lines outside its test modules, over $LONGEST (AGENTS.md section 6) -> $file"
-  fi
-done < <(find src-tauri/src crates -name '*.rs' | sort)
+    for (f = 1; f <= count; f++) {
+      file = files[f]
+      only = 0
+      for (prefix in test_only) if (index(file, prefix) == 1) { only = 1; break }
+      if (only) continue
+
+      code = 0
+      pending = 0
+      skip = 0
+      while ((getline line < file) > 0) {
+        if (skip) { if (line == "}") skip = 0; continue }
+        if (pending) {
+          pending = 0
+          if (line ~ /^(pub[^ ]* )?mod [A-Za-z0-9_]+ \{/) { skip = 1; continue }
+          code += 2
+          continue
+        }
+        if (line == "#[cfg(test)]") { pending = 1; continue }
+        code++
+      }
+      close(file)
+      size = code + pending
+
+      if (file in ledger) {
+        if (size <= longest) print "listed as a ledger but is only " size " lines; take it off the list -> " file
+        continue
+      }
+      if (size > longest) print size " lines outside its test modules, over " longest " (AGENTS.md section 6) -> " file
+    }
+  }')
 
 # The same limit on the frontend, where a test lives in its own file rather than in a module: the
 # name says which, so there is nothing to strip and the whole file is counted.
