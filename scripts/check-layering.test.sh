@@ -888,6 +888,15 @@ printf 'Write to user@nothing.zz or noreply@nothing.zz.\n' > "$PROBE_MD"
 refuses_each "user@nothing.zz" "noreply@nothing.zz"
 rm -f "$PROBE_MD"
 
+# What reading a file found is kept for the next run, by every byte of the file: a file read before
+# is refused again from what was kept, and one byte changed is a file read again.
+printf 'Kept by r1m3m@nothing.zz.\n' > "$PROBE_MD"
+refuses "r1m3m@nothing.zz" "an address"
+refuses "r1m3m@nothing.zz" "the same address again, from what the last run kept"
+printf 'Kept by r1m3n@nothing.zz.\n' > "$PROBE_MD"
+refuses "r1m3n@nothing.zz" "the address with one byte changed"
+rm -f "$PROBE_MD"
+
 # A message kept as a fixture, through its encodings: base64, and a quoted-printable soft break in
 # the middle of an address, each hide it from anything that reads bytes.
 {

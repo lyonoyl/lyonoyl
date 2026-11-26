@@ -127,7 +127,7 @@ A field nothing reads, an address that is not one, an answer to nothing, and a f
 | `cargo clippy --features screenshots` | The same over the build for screenshots, which no other step compiles. |
 | `cargo test --workspace` | Everything, including the tests that talk to that server. |
 | `cargo check --release` | That the release profile still compiles, which the debug one does not prove. |
-| `scripts/check-layering.sh` and its self-test | The boundaries, the permanent prohibitions, the content policy, and the anonymity rules—and then whether the gate would still refuse each of them. |
+| `scripts/check-layering.sh` and its self-test | The boundaries, the permanent prohibitions, the content policy, and the anonymity rules—and then whether the gate would still refuse each of them. The anonymity rules read every file through everything that hides an address from a reader of bytes, so what each file was found to hold is kept in `target/check-anonymity.json`, under every byte of the file and of the check, and a run reads again only what changed. |
 | `npm run typecheck`, `npm test` | The types and the component suite. |
 | The generated bindings | Regenerated and compared, so a DTO that drifted cannot be committed. |
 | The license list | Rebuilt from the tree and compared with what is committed: a dependency arrives with its license rather than announcing it. Then the window is built in memory and every package in it must have a notice in the list. A package that publishes no license file stops the collector; its project's notice goes in `src-tauri/licences-copied/` and is named in `scripts/collect-npm-licences.mjs`. |
