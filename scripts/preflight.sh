@@ -11,17 +11,42 @@
 # `LYONOYL_MAIL_SERVER_REQUIRED=1` below is how it refuses. Every one of those tests reads it, and
 # where it is set a server that is not answering fails the run at the test that was about to skip.
 #
-# Run before building anything anyone else will install. `npm run app:build` and `npm run app:release`
-# run it for you.
+# Run before building anything anyone else will install. `npm run app:release` runs it, with
+# `--if-changed`.
 #
 # It starts with what this machine has, `scripts/check-machine.mjs`, and stops where the run needs
-# something it lacks. It ends with every step passed or failed, and under a failed test step every
-# failed test with where it stopped and what it said. What the tests printed stays in
-# `target/preflight/`.
+# something it lacks. It ends with every step passed or failed and how long each took, and under a
+# failed test step every failed test with where it stopped and what it said. What the tests printed
+# stays in `target/preflight/`.
+#
+# Every step says which it is of how many and how long the run has left, from what each step took the
+# last time it passed on this machine, which `scripts/progress.sh` keeps. A step whose output goes to
+# a log keeps a line at the bottom saying it is still going, and the gate's self-test how many of its
+# probes it has asked so far.
+#
+# A run that passes writes down which tree it passed, in `target/preflight/passed`, as
+# `scripts/tree-fingerprint.mjs` takes a tree: every file git would carry, as it stands, and what npm
+# installed. With `--if-changed`, a tree that is still that one, byte for byte, is not checked again.
+# Only what changes while a tree stands still is asked again, the advisories, together with what a
+# build needs of this machine. Every other tree is checked whole, and so is every tree without
+# `--if-changed`. A whole run takes the record away before its first step, so a run that fails or is
+# stopped leaves no pass behind.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+
+# shellcheck source=scripts/progress.sh
+. scripts/progress.sh
+
+case "${1:-}" in
+  "") if_changed=0 ;;
+  --if-changed) if_changed=1 ;;
+  *)
+    printf '\033[31m%s\033[0m\n' "Not something this run knows: $1. It takes nothing, or --if-changed." >&2
+    exit 1
+    ;;
+esac
 
 fail=0
 # Each step as "<1 where it failed, else 0><TAB><name>"; each failure and each test summary as
@@ -31,23 +56,39 @@ failures=()
 summaries=()
 current=""
 failed_here=0
-closed() { if [ -n "$current" ]; then steps+=("$failed_here"$'\t'"$current"); fi; }
+closed() {
+  if [ -n "$current" ]; then steps+=("$failed_here"$'\t'"$current"); fi
+  current=""
+  progress_close
+}
 step() {
   closed
   current=$1
   failed_here=0
-  printf '\n\033[1m%s\033[0m\n' "$1"
+  progress_step "$1"
 }
 bad() {
   printf '\033[31m%s\033[0m\n' "$1" >&2
   fail=1
   failed_here=1
   failures+=("$current"$'\t'"$1")
+  progress_failed
 }
 summary() { summaries+=("$current"$'\t'"$1"); }
 stopped() {
+  progress_failed
   printf '\n\033[31mPreflight stopped: %s\033[0m\n' "$1" >&2
   exit 1
+}
+
+# Runs a command whose output goes to a log, with the line at the bottom saying it is still going.
+quietly() {
+  local log=$1 status=0
+  shift
+  progress_ticker_start
+  "$@" >"$log" 2>&1 || status=$?
+  progress_ticker_stop
+  return "$status"
 }
 
 scratch=$(mktemp -d)
@@ -67,7 +108,7 @@ if ! mkdir "$lock" 2>/dev/null; then
   mkdir "$lock"
 fi
 echo $$ >"$lock/pid"
-trap 'rm -rf "$scratch" "$lock"' EXIT
+trap 'progress_end $?; rm -rf "$scratch" "$lock"' EXIT
 mkdir -p target/preflight
 
 # Awake for as long as this runs. A Mac that sleeps in the middle of a run suspends it, and a test
@@ -111,13 +152,86 @@ within() {
   wait "$running"
 }
 
+# What changes while a tree stands still: an advisory published against something already here.
+# Nothing in the tree changed and the answer still changes, which is the whole reason to ask again
+# rather than to ask once, and why it is asked again of a tree that passed. cargo-audit is there: the
+# first step of a whole run stops without it, and only a whole run passes a tree.
+advisories() {
+  # `--deny yanked` as well as the advisories: a crate pulled from the registry is one nobody can
+  # build against again, and it fails the run rather than being mentioned in passing.
+  cargo audit --deny yanked || bad "cargo audit"
+  npm audit --audit-level=high || bad "npm audit"
+}
+
+# Every step, and under each that failed, what failed and what its summary says, and then the
+# verdict, with <what a pass says> under it. The run ends here, either way.
+the_end() {
+  closed
+  printf '\n\033[1mSummary\033[0m\n'
+  local failed_steps=0 entry name each
+  for entry in ${steps[@]+"${steps[@]}"}; do
+    name=${entry#*$'\t'}
+    progress_time_of "$name"
+    if [ "${entry%%$'\t'*}" = 0 ]; then
+      printf '  \033[32m✓\033[0m %s  \033[2m%s\033[0m\n' "$name" "$progress_span_said"
+      continue
+    fi
+    failed_steps=$((failed_steps + 1))
+    printf '  \033[31m✗ %s\033[0m  \033[2m%s\033[0m\n' "$name" "$progress_span_said"
+    for each in ${failures[@]+"${failures[@]}"}; do
+      if [ "${each%%$'\t'*}" = "$name" ]; then printf '      %s\n' "${each#*$'\t'}"; fi
+    done
+    for each in ${summaries[@]+"${summaries[@]}"}; do
+      if [ "${each%%$'\t'*}" = "$name" ]; then printf '%s\n' "${each#*$'\t'}" | sed 's/^/      /'; fi
+    done
+  done
+
+  progress_span $((SECONDS - progress_run_began))
+  if [ "$fail" -ne 0 ]; then
+    printf '\n\033[31mPreflight failed at %s of %s steps, in %s. Nothing above may be waved through for a release.\033[0m\n' \
+      "$failed_steps" "${#steps[@]}" "$progress_span_said" >&2
+    exit 1
+  fi
+  printf '\n\033[32mPreflight passed in %s.\033[0m\n' "$progress_span_said"
+  if [ -n "$1" ]; then printf '%s\n' "$1"; fi
+  exit 0
+}
+
+# Which tree this run checks, taken before its first step: a pass is written down for this tree and
+# no other, and only where it is still this tree when the run ends.
+if ! command -v node >/dev/null 2>&1; then
+  stopped "Node.js is not installed, and this run needs it: an LTS release from https://nodejs.org, then run this again."
+fi
+PASSED=target/preflight/passed
+tree=$(node scripts/tree-fingerprint.mjs 2>"$scratch/tree.log") || tree=""
+
+if [ "$if_changed" -eq 1 ] && ago=$(node scripts/tree-fingerprint.mjs --passed "$PASSED" 2>/dev/null); then
+  progress_span "$ago"
+  since=$progress_span_said
+  progress_begin preflight-passed-before Step "This machine
+Advisories"
+  printf '\n%s\n' "This tree passed every step $since ago, and not a byte of it has changed since, so only what changes while a tree stands still is asked again: the advisories, and what a build needs of this machine."
+
+  step "This machine"
+  node scripts/check-machine.mjs --build || stopped "this machine is not ready for a build. The list above says what stands in the way, and what to do."
+
+  step "Advisories"
+  advisories
+
+  the_end "Every other step passed on this tree $since ago, and nothing in it has changed since."
+fi
+
+# A pass recorded earlier is of another tree, or of this one by another run: either way it says
+# nothing about this run, and it goes before the first step.
+rm -f "$PASSED"
+# The whole run's steps are the lines of this file that begin with `step`, in the order they run, so
+# the count cannot drift from what runs.
+progress_begin preflight Step "$(grep -E '^step "' scripts/preflight.sh | cut -d '"' -f 2)"
+
 step "This machine"
 # Everything the steps below call, asked at once, each missing thing with how to get it: the
 # compiler the tree pins, rustup's own `rustc` first on PATH, the tools, and on macOS whether closed
 # connections are still cleared. Nothing below is worth running without them.
-if ! command -v node >/dev/null 2>&1; then
-  stopped "Node.js is not installed, and this run needs it: an LTS release from https://nodejs.org, then run this again."
-fi
 node scripts/check-machine.mjs || stopped "this machine is not ready for the run. The list above says what stands in the way, and what to do."
 
 step "The development mail server"
@@ -238,7 +352,15 @@ cargo check --workspace --release --all-targets || bad "cargo check --release"
 
 step "Layer boundaries, forbidden APIs, CSP"
 ./scripts/check-layering.sh || bad "scripts/check-layering.sh"
-if ! ./scripts/check-layering.test.sh >"$scratch/self-test.log" 2>&1; then
+# The self-test runs the gate again for every few probes, which takes minutes, and writes what each
+# answered into a log: the line at the bottom counts the answers so far.
+answered='(refused|allowed|LET THROUGH|REFUSED WRONGLY): '
+progress_ticker_start "$scratch/self-test.log" "$answered" probes
+self_test=0
+./scripts/check-layering.test.sh >"$scratch/self-test.log" 2>&1 || self_test=$?
+progress_ticker_stop
+progress_counted "$(grep -cE "$answered" "$scratch/self-test.log" || true)"
+if [ "$self_test" -ne 0 ]; then
   bad "the gate let a forbidden thing through — scripts/check-layering.test.sh"
   summary "$(grep -E 'LET THROUGH|REFUSED WRONGLY' "$scratch/self-test.log" || tail -n 15 "$scratch/self-test.log")"
 fi
@@ -254,7 +376,7 @@ fi
 
 step "Generated TypeScript bindings"
 bindings=target/preflight/bindings.log
-if ! cargo test -p lyonoyl export_bindings >"$bindings" 2>&1; then
+if ! quietly "$bindings" cargo test -p lyonoyl export_bindings; then
   bad "generating bindings"
   summary "$(node scripts/failed-tests.mjs rust "$bindings")"
 fi
@@ -286,20 +408,14 @@ else
   bad "collecting licences"
 fi
 
-# An advisory published against something already here. Nothing in the tree changed and the answer
-# still changes, which is the whole reason to ask again rather than to ask once. cargo-audit is
-# there: the first step stops a run without it.
 step "Advisories"
-# `--deny yanked` as well as the advisories: a crate pulled from the registry is one nobody can
-# build against again, and it fails the run rather than being mentioned in passing.
-cargo audit --deny yanked || bad "cargo audit"
-npm audit --audit-level=high || bad "npm audit"
+advisories
 
 # The bundle the application ships, built rather than only type-checked. `tsc --noEmit` says the
 # types agree; it says nothing about an import that resolves for the checker and not for the
 # bundler, or an asset that is not where the build expects it.
 step "The frontend bundle"
-if ! npm run build >"$scratch/bundle.log" 2>&1; then
+if ! quietly "$scratch/bundle.log" npm run build; then
   bad "npm run build"
   summary "$(tail -n 20 "$scratch/bundle.log")"
 fi
@@ -313,37 +429,22 @@ case "$(uname -s)" in
   Darwin) build_args=(--bundles app) ;;
   *) build_args=(--no-bundle) ;;
 esac
-if npx tauri build "${build_args[@]}" >"$scratch/application.log" 2>&1; then
+if quietly "$scratch/application.log" npx tauri build "${build_args[@]}"; then
   echo "built with npx tauri build ${build_args[*]}"
 else
   tail -40 "$scratch/application.log"
   bad "npx tauri build ${build_args[*]}"
 fi
 
-# Every step, and under each that failed, what failed and what its summary says.
-closed
-printf '\n\033[1mSummary\033[0m\n'
-failed_steps=0
-for entry in "${steps[@]}"; do
-  name=${entry#*$'\t'}
-  if [ "${entry%%$'\t'*}" = 0 ]; then
-    printf '  \033[32m✓\033[0m %s\n' "$name"
-    continue
+# A pass is written down for the tree the run began with, and only while it is still that tree.
+passed_said=""
+if [ "$fail" -eq 0 ]; then
+  if [ -z "$tree" ]; then
+    passed_said="The pass is not recorded: $(head -n 1 "$scratch/tree.log")"
+  elif node scripts/tree-fingerprint.mjs --record "$PASSED" "$tree"; then
+    passed_said="Recorded as passed: while this tree stays as it is, npm run app:release asks only the advisories and this machine again."
+  else
+    passed_said="The tree changed while this ran, so the pass is not recorded, and npm run app:release checks it whole."
   fi
-  failed_steps=$((failed_steps + 1))
-  printf '  \033[31m✗ %s\033[0m\n' "$name"
-  for each in ${failures[@]+"${failures[@]}"}; do
-    if [ "${each%%$'\t'*}" = "$name" ]; then printf '      %s\n' "${each#*$'\t'}"; fi
-  done
-  for each in ${summaries[@]+"${summaries[@]}"}; do
-    if [ "${each%%$'\t'*}" = "$name" ]; then printf '%s\n' "${each#*$'\t'}" | sed 's/^/      /'; fi
-  done
-done
-
-if [ "$fail" -ne 0 ]; then
-  printf '\n\033[31mPreflight failed at %s of %s steps. Nothing above may be waved through for a release.\033[0m\n' \
-    "$failed_steps" "${#steps[@]}" >&2
-  exit 1
 fi
-
-printf '\n\033[32mPreflight passed.\033[0m\n'
+the_end "$passed_said"
