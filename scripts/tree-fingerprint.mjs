@@ -1,24 +1,15 @@
-// One number for everything in this tree a check reads, so that a run can tell the tree in front of
-// it from the one the preflight last passed.
-//
-// What goes in is every file git would carry: each one it tracks, as it stands on disk rather than
-// as it was last committed, and each one it would add, which leaves out only what `.gitignore` leaves
-// out. Each goes in with its path, whether it may be run, and every byte, so a file renamed, made
-// runnable, or changed by one byte makes another tree, and so does one added or taken away. Two files
-// git does not carry go in as well, because a run reads them: what npm installed,
-// `node_modules/.package-lock.json`, and the Cargo settings kept for this tree alone,
-// `.cargo/local.toml`.
+// One number for everything in this tree a check reads: every file git would carry, by path, whether
+// it may be run, and every byte as it stands on disk, with what npm installed and the local Cargo
+// settings, which git does not carry.
 //
 //     node scripts/tree-fingerprint.mjs                         prints it
-//     node scripts/tree-fingerprint.mjs --record <file> <it>    writes into <file> that this tree passed,
-//                                                               where it is still the tree <it> was
-//                                                               taken of, and otherwise removes <file>
-//     node scripts/tree-fingerprint.mjs --passed <file>         whether <file> holds a pass of this tree
+//     node scripts/tree-fingerprint.mjs --record <file> <it>    records a pass of this tree if it is
+//                                                               still <it>, and otherwise removes <file>
+//     node scripts/tree-fingerprint.mjs --passed <file>         status 0 and the seconds since the pass
+//                                                               where <file> holds this tree; status 1
+//                                                               and `changed <seconds>` or `none` where not
 //
-// `--passed` answers on one line: the seconds since the pass where the tree is the one that passed,
-// and the status 0; `changed` and the seconds since the pass where it is another, or `none` where
-// there is no pass to compare with, and the status 1. Anything that stops it from reading the tree
-// is said on one line, with the status 2.
+// A tree it cannot read is said on one line, with status 2.
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -40,11 +31,8 @@ export function filesOf(root) {
 }
 
 /**
- * The fingerprint of `paths` under `root`, whatever order they are given in. A path that is not
- * there is left out, which is what a deleted file is.
- *
- * Each file goes in after its path, what it is, and its length, so where one file ends and the next
- * begins is never in doubt.
+ * The fingerprint of `paths` under `root`, in any order; a missing path is left out. Each file goes in
+ * after its path, kind and length, so where one ends and the next begins is never in doubt.
  */
 export function fingerprint(root, paths) {
   const hash = createHash("sha256");
@@ -89,11 +77,7 @@ export function readRecord(file) {
   return undefined;
 }
 
-/**
- * Writes into `file` that the tree at `root` passed, where it is still the tree `taken` was the
- * fingerprint of, and says whether it did. Where it is not, `file` is removed, so an older pass of
- * another tree is not left standing for this one.
- */
+/** Records in `file` that the tree at `root` passed if it is still `taken`, and otherwise removes `file`. */
 export function record(root, file, taken, now = Date.now()) {
   if (treeFingerprint(root) !== taken) {
     rmSync(file, { force: true });

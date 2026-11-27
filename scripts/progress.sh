@@ -2,28 +2,16 @@
 #
 # How far a long run has got, and how long it has left.
 #
-# Sourced by `scripts/preflight.sh` and `scripts/release-macos.sh`, not run. A run names its steps
-# up front, and each step then says which it is of how many, how long the run has taken so far, and
-# how long it has left: what each step took the last time it passed on this machine, kept in
-# `target/progress/<run>.tsv`, one step a line, with its seconds and, where it counts something, how
-# many it counted. Until every step left has passed here once there is no estimate, and the line says
-# so rather than guessing.
+# Sourced by `scripts/preflight.sh` and `scripts/release-macos.sh`. Each step says which it is of how
+# many and how long is left, by what each step took the last time it passed here, kept in
+# `target/progress/<run>.tsv`. While a step is quiet, a line at the bottom says it is still going, so
+# a quiet screen does not read as a hung run.
 #
-# A step whose output goes to a log shows nothing for as long as it runs, and a screen that shows
-# nothing for minutes is a run that looks stuck. While one runs, `progress_ticker_start` keeps a line
-# at the bottom saying how long it has been going and how long is left: redrawn every few seconds on
-# a terminal, and printed once a minute anywhere else. Output passed through `progress_relay` scrolls
-# above that line, and anywhere but a terminal the line is printed only once the output has been
-# quiet for a minute.
-#
-# Bash 3.2, which macOS ships: no associative arrays, and no empty array expanded under `set -u`. A
-# subshell and a pipeline count `$SECONDS` from the same start as the script, so every measure here
-# is `$SECONDS`. Every function returns 0: a run is never stopped by the account of how it is going.
+# Bash 3.2, which macOS ships: no associative arrays, no empty array expanded under `set -u`, and
+# `$SECONDS` for every measure. Every function returns 0, so progress never stops a run.
 
 progress_word=Step
 progress_titles=()
-# What each step took the last time it passed here, and what it counted; what another run says it
-# will take, where one is given; and what it took in this run, and whether it passed.
 progress_last=()
 progress_last_counts=()
 progress_expected=()
@@ -39,8 +27,7 @@ progress_beat=""
 progress_note_file=""
 progress_ticker=""
 progress_parent=$$
-# How often the bottom line is redrawn on a terminal, and how long output may be quiet anywhere else
-# before a line says the run is still going, in seconds.
+# Seconds between redraws on a terminal, and of quiet before a line anywhere else.
 progress_every=5
 progress_quiet=60
 
@@ -94,8 +81,7 @@ progress_begin() {
   progress_note_file="target/progress/$1.note"
   : 2>/dev/null >"$progress_note_file" || true
 
-  # The last run's times, matched to this run's steps by name. A line that is not a step and a time
-  # is passed over, so a file somebody edited costs an estimate and never the run.
+  # The last run's times, by step name; a line that is not a step and a time is skipped.
   if [ -f "$progress_file" ]; then
     while IFS=$'\t' read -r name seconds count || [ -n "$name" ]; do
       progress_find "$name"
@@ -233,8 +219,7 @@ progress_counted() {
   return 0
 }
 
-# progress_note <text>: a word from whatever the step is waiting on, for the bottom line to carry.
-# Nothing takes it off.
+# progress_note <text>: a word for the bottom line to carry; an empty one clears it.
 progress_note() {
   if [ -n "$progress_note_file" ]; then
     printf '%s\n' "${1:-}" 2>/dev/null >"$progress_note_file" || true
@@ -263,9 +248,8 @@ progress_time_of() {
   return 0
 }
 
-# progress_end [<the run's exit status>]: the run has ended, however it ended. The step going now
-# ends, as failed where the status is not 0, and the time of every step that passed is kept for the
-# next run, beside the last time of every one that did not.
+# progress_end [<exit status>]: closes the step going now, as failed if the status is not 0, and keeps
+# the time of every step that passed.
 progress_end() {
   if [ -z "$progress_file" ]; then return 0; fi
   if [ "${1:-0}" != 0 ]; then progress_failed; fi
@@ -292,10 +276,8 @@ progress_end() {
   return 0
 }
 
-# progress_ticker_start [<log> <pattern> <what the pattern counts>]: a line at the bottom for as long
-# as the step goes on or until `progress_ticker_stop`, saying how long the step has been going, how
-# many lines of <log> match <pattern> of how many matched the last time, whatever `progress_note`
-# said last, and how long the run has left. Short enough for a terminal eighty columns wide.
+# progress_ticker_start [<log> <pattern> <noun>]: a line at the bottom until `progress_ticker_stop`,
+# with the step's time, how many lines of <log> match <pattern>, the last note, and the time left.
 progress_ticker_start() {
   progress_ticker_stop
   local log=${1:-} pattern=${2:-} noun=${3:-} expected=""
@@ -309,20 +291,18 @@ progress_ticker_start() {
   return 0
 }
 
-# The ticker itself, in a subshell of its own, until it is stopped or the run it belongs to is gone.
+# The ticker, in a subshell, until it is stopped or its run is gone.
 progress_tick() {
   local log=$1 pattern=$2 noun=$3 expected=$4
   local beat count note line terminal=0 width=80 sleeping=""
-  # Asked of the terminal itself: inside `$(…)` the output of `tput` is a pipe, and it would answer
-  # for that rather than for the window.
+  # Asked of the terminal itself: inside `$(…)`, `tput` would answer for the pipe.
   if [ -t 1 ]; then
     terminal=1
     width=$(stty size 2>/dev/null </dev/tty | cut -d ' ' -f 2) || width=80
     # A terminal that has no size to give says 0.
     if ! progress_is_count "$width" || [ "$width" -lt 20 ]; then width=80; fi
   fi
-  # Stopped while it sleeps, it takes its sleep with it: a sleep left running holds the output open,
-  # and whatever reads that output would wait for it.
+  # A sleep left running would hold the output open, so stopping the ticker stops its sleep too.
   trap 'if [ -n "$sleeping" ]; then kill "$sleeping" 2>/dev/null; fi; exit 0' TERM
   while kill -0 "$progress_parent" 2>/dev/null; do
     sleep "$progress_every" &
@@ -362,7 +342,7 @@ progress_tick() {
   return 0
 }
 
-# The bottom line goes, and the step's own output carries on from the start of a clean line.
+# Stops the ticker and clears the bottom line.
 progress_ticker_stop() {
   if [ -n "$progress_ticker" ]; then
     kill "$progress_ticker" 2>/dev/null || true
@@ -373,8 +353,7 @@ progress_ticker_stop() {
   return 0
 }
 
-# Passes its input through a line at a time, noting when each went past, so the bottom line is
-# printed only into a quiet stretch. On a terminal each line first clears the bottom line away.
+# Passes its input through, noting when each line went past, so the bottom line comes only when quiet.
 progress_relay() {
   local line terminal=0
   if [ -t 1 ]; then terminal=1; fi

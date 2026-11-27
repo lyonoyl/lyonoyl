@@ -36,13 +36,9 @@ has committed under before, or LYONOYL_COMMIT_ADDRESS where that is set outside 
 The gate's own three files are outside this, and they have to be: they hold the shapes, and what is
 planted to prove the shapes bite. Neither the shapes nor the probes name anybody all the same.
 
-What reading a file found is kept for the next run, in `target/`, which git ignores, under everything
-the finding depends on: this checker's own source, the Python reading it, the file's path, which copy
-of it, and every byte. A file read before with all of those the same is not read again, and what it
-found is said again in the same words; a file of which any byte changed is read afresh, and so is
-every file once any byte of this checker changed. The gate's self-test runs the gate once for every
-few probes, over a tree that is the same but for them, so what is read again there is the probes.
-Whoever can write that memory can write this checker as well, so it is trusted as the tree is.
+What reading a file found is kept in `target/` for the next run, under this checker's source, the
+Python running it, the file's path and copy, and every byte: a file is read again only when one of
+those changed, which in the gate's self-test is the probes.
 """
 
 import base64
@@ -70,8 +66,7 @@ GATE = {
 # Where what each file was found to hold is kept, from the root of the repository.
 MEMORY = "target/check-anonymity.json"
 
-# This checker as it is now, read before anything moves the working directory: what it finds
-# depends on every line of it.
+# Read before anything moves the working directory: every finding depends on it.
 with open(os.path.abspath(__file__), "rb") as _source:
     SOURCE = _source.read()
 
@@ -658,13 +653,8 @@ def near(said, lowered, words, shape, before=48, after=256):
 
 
 class Remembered:
-    """What reading each file found, from the last run, and what this run found to keep for the next.
-
-    Kept by a key that holds everything a finding depends on, so a file whose key is found holds
-    what was found in it before, word for word. What the last run kept and this one did not use is
-    let go, so the memory holds the tree as it is and the probes of the last run, and no more. Kept
-    memory that cannot be read is no memory: every file is then read afresh.
-    """
+    """What each file was found to hold, by a key of everything the finding depends on. Only what
+    this run used is kept, and a memory that cannot be read is no memory."""
 
     def __init__(self, at):
         self.at = at
@@ -711,7 +701,7 @@ class Remembered:
                 json.dump(self.used, file)
             os.replace(writing, self.at)
         except OSError:
-            # Unkept, the next run reads every file afresh, which is slower and no less right.
+            # Unkept, the next run reads every file afresh: slower, and no less right.
             try:
                 os.remove(writing)
             except OSError:
@@ -809,11 +799,8 @@ class Judge:
                     self.refuse("an identifier a real system minted", where(found), found.group(0))
 
     def read_bytes(self, copy, data):
-        """Everything in one copy of the file that names somebody: what was found in it before,
-        where it is the same copy, and otherwise what reading it now finds, kept for the next run.
-
-        Every finding is said through `refuse`, in the order it was found, so what is said once
-        for the file is said once whether the copy was read now or before."""
+        """What one copy of the file names, remembered or read afresh, said through `refuse` in the
+        order it was found, so the report is the same either way."""
         key = self.remembered.key(self.path, copy, data) if self.remembered else None
         found = self.remembered.recall(key) if key else None
         if found is None:
