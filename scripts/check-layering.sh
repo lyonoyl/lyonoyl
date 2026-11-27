@@ -939,10 +939,8 @@ LONGEST=1171
 # and it cannot be composed, because a domain is either in it or it is not.
 LEDGERS="src-tauri/src/infrastructure/sqlite/migrations/mod.rs crates/lyonoyl-domain/src/provider/table.rs"
 
-# Every Rust file, in one awk rather than two processes and a loop of its own for each: the gate's
-# self-test runs the gate dozens of times, and a process for each file is seconds of every one of
-# them. Each file is read by `getline` rather than handed to awk as input, so one with nothing in it
-# is measured too, at nothing.
+# Every Rust file in one awk, since the self-test runs the gate dozens of times. Each file is read by
+# `getline`, so an empty one is measured too.
 #
 # - Modules compiled only into a test build are found first, in every file: the whole of such a file
 #   is a test module, so measuring it would be measuring tests, and so is everything in a folder of

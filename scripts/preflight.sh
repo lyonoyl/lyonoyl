@@ -19,18 +19,8 @@
 # failed test step every failed test with where it stopped and what it said. What the tests printed
 # stays in `target/preflight/`.
 #
-# Every step says which it is of how many and how long the run has left, from what each step took the
-# last time it passed on this machine, which `scripts/progress.sh` keeps. A step whose output goes to
-# a log keeps a line at the bottom saying it is still going, and the gate's self-test how many of its
-# probes it has asked so far.
-#
-# A run that passes writes down which tree it passed, in `target/preflight/passed`, as
-# `scripts/tree-fingerprint.mjs` takes a tree: every file git would carry, as it stands, and what npm
-# installed. With `--if-changed`, a tree that is still that one, byte for byte, is not checked again.
-# Only what changes while a tree stands still is asked again, the advisories, together with what a
-# build needs of this machine. Every other tree is checked whole, and so is every tree without
-# `--if-changed`. A whole run takes the record away before its first step, so a run that fails or is
-# stopped leaves no pass behind.
+# A run that passes records the tree it checked, in `target/preflight/passed`. With `--if-changed`, a
+# tree unchanged since then is asked again only the advisories and what a build needs of this machine.
 
 set -euo pipefail
 
@@ -152,10 +142,9 @@ within() {
   wait "$running"
 }
 
-# What changes while a tree stands still: an advisory published against something already here.
-# Nothing in the tree changed and the answer still changes, which is the whole reason to ask again
-# rather than to ask once, and why it is asked again of a tree that passed. cargo-audit is there: the
-# first step of a whole run stops without it, and only a whole run passes a tree.
+# An advisory published against something already here. Nothing in the tree changed and the answer
+# still changes, which is the whole reason to ask again rather than to ask once. cargo-audit is
+# there: the first step stops a run without it.
 advisories() {
   # `--deny yanked` as well as the advisories: a crate pulled from the registry is one nobody can
   # build against again, and it fails the run rather than being mentioned in passing.
@@ -197,8 +186,7 @@ the_end() {
   exit 0
 }
 
-# Which tree this run checks, taken before its first step: a pass is written down for this tree and
-# no other, and only where it is still this tree when the run ends.
+# The tree this run checks, taken before its first step and recorded only if it is the same at the end.
 if ! command -v node >/dev/null 2>&1; then
   stopped "Node.js is not installed, and this run needs it: an LTS release from https://nodejs.org, then run this again."
 fi
@@ -210,7 +198,7 @@ if [ "$if_changed" -eq 1 ] && ago=$(node scripts/tree-fingerprint.mjs --passed "
   since=$progress_span_said
   progress_begin preflight-passed-before Step "This machine
 Advisories"
-  printf '\n%s\n' "This tree passed every step $since ago, and not a byte of it has changed since, so only what changes while a tree stands still is asked again: the advisories, and what a build needs of this machine."
+  printf '\n%s\n' "This tree passed every step $since ago and has not changed since: only the advisories and this machine are asked again."
 
   step "This machine"
   node scripts/check-machine.mjs --build || stopped "this machine is not ready for a build. The list above says what stands in the way, and what to do."
@@ -221,11 +209,9 @@ Advisories"
   the_end "Every other step passed on this tree $since ago, and nothing in it has changed since."
 fi
 
-# A pass recorded earlier is of another tree, or of this one by another run: either way it says
-# nothing about this run, and it goes before the first step.
+# A failed or stopped run leaves no pass behind.
 rm -f "$PASSED"
-# The whole run's steps are the lines of this file that begin with `step`, in the order they run, so
-# the count cannot drift from what runs.
+# The steps are the lines of this file that begin with `step`, so the count cannot drift.
 progress_begin preflight Step "$(grep -E '^step "' scripts/preflight.sh | cut -d '"' -f 2)"
 
 step "This machine"
@@ -352,8 +338,7 @@ cargo check --workspace --release --all-targets || bad "cargo check --release"
 
 step "Layer boundaries, forbidden APIs, CSP"
 ./scripts/check-layering.sh || bad "scripts/check-layering.sh"
-# The self-test runs the gate again for every few probes, which takes minutes, and writes what each
-# answered into a log: the line at the bottom counts the answers so far.
+# The self-test writes into a log, and the line at the bottom counts its answers.
 answered='(refused|allowed|LET THROUGH|REFUSED WRONGLY): '
 progress_ticker_start "$scratch/self-test.log" "$answered" probes
 self_test=0
@@ -442,9 +427,9 @@ if [ "$fail" -eq 0 ]; then
   if [ -z "$tree" ]; then
     passed_said="The pass is not recorded: $(head -n 1 "$scratch/tree.log")"
   elif node scripts/tree-fingerprint.mjs --record "$PASSED" "$tree"; then
-    passed_said="Recorded as passed: while this tree stays as it is, npm run app:release asks only the advisories and this machine again."
+    passed_said="Recorded as passed: a release from this tree asks only the advisories and this machine again."
   else
-    passed_said="The tree changed while this ran, so the pass is not recorded, and npm run app:release checks it whole."
+    passed_said="The tree changed while this ran, so the pass is not recorded."
   fi
 fi
 the_end "$passed_said"

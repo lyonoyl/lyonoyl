@@ -1,20 +1,14 @@
 #!/usr/bin/env bash
 #
-# Hands a file to Apple's notary and asks after it until it answers, saying meanwhile what it says.
-#
-# Sourced by `scripts/release-macos.sh`, after `scripts/progress.sh`, not run. `notarytool submit
-# --wait` asks the same, and prints nothing at all until the answer, which takes anything from a
-# minute to an hour: a release that has said nothing for twenty minutes reads as one that has stopped.
-# Asked every half minute instead, the notary's own word for where the file stands goes on the line
-# `scripts/progress.sh` keeps at the bottom.
+# Hands a file to Apple's notary and asks after it until it answers, putting what it says on the
+# bottom line: `notarytool submit --wait` prints nothing until the end, which can be an hour away.
 #
 #     notarize <file> <how notarytool signs in...>
 #
-# Sets `notarized` to the status the notary gave the file, or to nothing where it never answered, and
-# `submission` to what the notary calls the upload, or to nothing where the upload never went.
+# Sourced by `scripts/release-macos.sh`, after `scripts/progress.sh`. Sets `notarized` to the status
+# the notary gave, and `submission` to the upload's identifier; each is empty where there was none.
 
-# Seconds between two questions, and how many questions in a row may go unanswered before it stops
-# asking: five minutes without a word from the notary is a network that is gone.
+# Seconds between questions, and unanswered questions in a row before it gives up.
 notary_every=30
 notary_unanswered=10
 

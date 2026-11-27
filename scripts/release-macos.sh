@@ -24,11 +24,6 @@
 #         APPLE_API_KEY_PATH       where the `.p8` file is, also outside this tree
 #
 # Nothing here ever prints a value. What it prints is whether a thing is there.
-#
-# It says where it is as it goes: which stage of how many, how long it has taken, and how long it has
-# left, from what each stage took the last time it got through on this machine, which
-# `scripts/progress.sh` keeps. While the application is built a line at the bottom says how long it has
-# been going, and while the notary has the disk image, what the notary says.
 
 set -euo pipefail
 
@@ -55,9 +50,7 @@ $STAGE_BUILD
 $STAGE_GATEKEEPER
 $STAGE_IMAGE"
 
-# The check takes minutes for a tree it checks whole and seconds for one that already passed it as it
-# stands, so its estimate is what the preflight itself took the last time it ran that way here, where
-# it has run that way here, and otherwise what the check took in the last release.
+# The check's estimate is the preflight's own last time on the path it is about to take.
 if node scripts/tree-fingerprint.mjs --passed target/preflight/passed >/dev/null 2>&1; then
   progress_total_of preflight-passed-before
 else
@@ -66,11 +59,8 @@ fi
 if [ -n "$progress_total" ]; then progress_expect "$STAGE_CHECK" "$progress_total"; fi
 
 progress_step "$STAGE_IDENTITY"
-# Asked now, in a shell of its own, and read into this one only for the build. The check below
-# builds the application as `npm run app:build` does, and with the identity in its environment Tauri
-# would sign that build, send it to the notary, and wait for the answer: a second release, made for
-# nothing. The update key would reach the check as well, and the application's own crate, which
-# compiles the key in, would be compiled again at every step of the check that compiles it.
+# Checked in a subshell and loaded only for the build: in the check's environment, Tauri would sign
+# and notarize the check's own build, and the update key would recompile the application's crate.
 # shellcheck disable=SC1091
 (. scripts/signing-identity.sh notarizing)
 echo "certificate in the keychain, notarization key present and readable only by you"
@@ -86,6 +76,31 @@ if ! osascript -e 'tell application "Finder" to get name' >/dev/null 2>&1; then
   exit 1
 fi
 echo "Finder answers this terminal"
+
+# A second volume named after the application leaves Tauri unable to let go of its own image at the
+# last step: "Resource busy". One this tree's build left mounted is let go of; any other is refused.
+while IFS= read -r device; do
+  if ! hdiutil detach -quiet "$device" 2>/dev/null; then
+    printf '\033[31m%s\033[0m\n' "A disk image an earlier build left mounted cannot be let go of. Eject it in Finder, then run this again." >&2
+    exit 1
+  fi
+  echo "let go of a disk image an earlier build left mounted"
+done < <(hdiutil info 2>/dev/null | awk -v here="$PWD/target/" '
+  /^image-path/ {
+    path = substr($0, index($0, ": ") + 2)
+    ours = index(path, here) == 1 && path ~ /\/bundle\/macos\/rw\.[0-9]+\.[^\/]*\.dmg$/
+    next
+  }
+  ours && /^\/dev\/disk[0-9]+[ \t]/ { print $1; ours = 0 }
+')
+mounts=$(mount)
+case "$mounts" in
+  *" on /Volumes/Lyonoyl Mail ("* | *" on /Volumes/Lyonoyl Mail "[0-9]*)
+    printf '\033[31m%s\033[0m\n' "A disk image of Lyonoyl Mail is open, and the one this builds takes the same name. Eject it in Finder, then run this again." >&2
+    exit 1
+    ;;
+esac
+echo "no disk image of Lyonoyl Mail is open"
 
 progress_step "$STAGE_CHECK"
 # Checked whole, unless the preflight already passed this tree as it stands: then it asks again only
@@ -119,8 +134,11 @@ export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$HOME/.cargo=/cargo --remap
 # Replaced rather than dropped, so the line still says signing happened. `pipefail` is set, so a
 # build that fails still fails here.
 #
-# A line at a time, `-l`, so each line is on the screen as soon as the build says it: Tauri then waits
-# minutes on the notary without a word, and the line at the bottom says how long it has been.
+# `-l` passes each line on as it comes, so the line at the bottom knows when the build went quiet.
+#
+# The window Finder opens to lay the image out looks finished, and dragging the application out of it
+# keeps the volume busy, which fails the build at its last step.
+echo "Near the end Finder opens the disk image's window by itself, to lay it out. Leave it alone until this says Done."
 progress_ticker_start
 npx tauri build 2>&1 | sed -l -E \
   's/(Developer ID Application:)[^"]*/\1 <this team>/g; s/(TeamIdentifier=)[A-Z0-9]*/\1<this team>/g' \

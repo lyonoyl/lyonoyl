@@ -888,8 +888,7 @@ printf 'Write to user@nothing.zz or noreply@nothing.zz.\n' > "$PROBE_MD"
 refuses_each "user@nothing.zz" "noreply@nothing.zz"
 rm -f "$PROBE_MD"
 
-# What reading a file found is kept for the next run, by every byte of the file: a file read before
-# is refused again from what was kept, and one byte changed is a file read again.
+# What the anonymity check found in a file is kept for the next run, and one byte changed is read again.
 printf 'Kept by r1m3m@nothing.zz.\n' > "$PROBE_MD"
 refuses "r1m3m@nothing.zz" "an address"
 refuses "r1m3m@nothing.zz" "the same address again, from what the last run kept"
