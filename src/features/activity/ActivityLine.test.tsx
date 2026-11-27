@@ -36,11 +36,15 @@ const FINE: HowThingsAreDto = {
   sending: 0,
 };
 
-function show(how: Partial<HowThingsAreDto> = {}, className?: string) {
+function show(
+  how: Partial<HowThingsAreDto> = {},
+  className?: string,
+  roundClassName?: string,
+) {
   asking.mockResolvedValue({ ...FINE, ...how });
   render(
     <I18nProvider initial="en">
-      <ActivityLine className={className} />
+      <ActivityLine className={className} roundClassName={roundClassName} />
     </I18nProvider>,
   );
 }
@@ -92,6 +96,42 @@ describe("ActivityLine", () => {
     expect(line.className.split(/\s+/)).toEqual(
       expect.arrayContaining(["min-w-0", "flex-1"]),
     );
+  });
+
+  it("says a round apart, in the place the foot gives a round, ahead of what needs saying", async () => {
+    // A round's words are cut short where the room runs out, and beside the gear they ran out
+    // with the foot's whole width to spare: "Checking m…" over twenty-eight mailboxes.
+    beingRead.mockResolvedValue({ done: 23, asked: 28, through: 23000, of: 28000 });
+    show({ stoppedBy: "offline" }, "beside-the-gear", "a-line-of-its-own");
+
+    const bar = await screen.findByRole("progressbar", {}, { timeout: 3000 });
+    await screen.findByText(/No connection/);
+    const said = screen.getAllByRole("status");
+
+    expect(said).toHaveLength(2);
+    const [round, line] = said;
+    // The round first, so the foot draws it above, and on its own.
+    expect(round!.contains(bar)).toBe(true);
+    expect(round!.textContent).toContain("Checking mail");
+    expect(round!.textContent).toContain("23 of 28");
+    expect(round!.textContent).not.toContain("No connection");
+    expect(round!.className.split(/\s+/)).toContain("a-line-of-its-own");
+    expect(round!.className.split(/\s+/)).not.toContain("beside-the-gear");
+    // What needs saying stays beside the gear, without the round.
+    expect(line!.textContent).toContain("No connection");
+    expect(line!.contains(bar)).toBe(false);
+    expect(line!.className.split(/\s+/)).toContain("beside-the-gear");
+  });
+
+  it("gives a round its own place with nothing else to say beside it", async () => {
+    beingRead.mockResolvedValue({ done: 7, asked: 9, through: 7000, of: 9000 });
+    show({}, "beside-the-gear", "a-line-of-its-own");
+
+    const said = await screen.findByRole("status", {}, { timeout: 3000 });
+
+    expect(said.textContent).toContain("7 of 9");
+    expect(said.className.split(/\s+/)).toContain("a-line-of-its-own");
+    expect(said.className.split(/\s+/)).not.toContain("beside-the-gear");
   });
 
   it("says there is no connection, and how stale that leaves things", async () => {

@@ -23,11 +23,14 @@ import type { HowThingsAreDto } from "@/shared/ipc/generated/HowThingsAreDto";
  */
 export function ActivityLine({
   className = "",
+  roundClassName = "",
   folded = false,
   onUnfold,
 }: {
   /** Where it stands in the foot, which the foot decides: beside the gear, taking what is left. */
   className?: string;
+  /** Where a round stands in the open foot, which the foot decides too: a line of its own. */
+  roundClassName?: string;
   /**
    * Drawn in the folded sidebar, which has no room for a sentence: a round is its bar alone, and
    * what needs saying is a mark whose hint says it and whose press opens the sidebar. The words
@@ -193,6 +196,7 @@ export function ActivityLine({
       round={round}
       lines={lines}
       className={className}
+      roundClassName={roundClassName}
       folded={folded}
       onUnfold={onUnfold}
     />
@@ -256,30 +260,35 @@ export function ActivityLine({
  * height only while there is something to say, and what is said is read whole by everybody: a
  * sentence cut off at the column's edge would put its end -- a message that came back to the
  * drafts -- behind a hint that only a pointer ever finds.
+ *
+ * A round's words are cut short where the room runs out, so in the open foot a round is said
+ * apart, on a line of its own: beside the gear they ran out with the foot's width to spare.
  */
 function Foot({
   round,
   lines,
   className,
+  roundClassName,
   folded,
   onUnfold,
 }: {
   round: ReactNode | null;
   lines: string[];
   className: string;
+  roundClassName: string;
   folded: boolean;
   onUnfold: (() => void) | undefined;
 }) {
-  return (
-    <div
-      role="status"
-      className={`flex flex-col gap-1 text-xs leading-snug text-muted-foreground ${
-        folded ? "items-center" : ""
-      } ${className}`}
-    >
-      {round}
-      {lines.length > 0 &&
-        (folded ? (
+  const voice = "text-xs leading-snug text-muted-foreground";
+
+  if (folded)
+    return (
+      <div
+        role="status"
+        className={`flex flex-col items-center gap-1 ${voice} ${className}`}
+      >
+        {round}
+        {lines.length > 0 && (
           <RailButton
             label={lines[0] ?? ""}
             hints={lines.slice(1)}
@@ -287,10 +296,23 @@ function Foot({
           >
             <CircleAlert />
           </RailButton>
-        ) : (
+        )}
+      </div>
+    );
+
+  return (
+    <>
+      {round !== null && (
+        <div role="status" className={`${voice} ${roundClassName}`}>
+          {round}
+        </div>
+      )}
+      {lines.length > 0 && (
+        <div role="status" className={`${voice} ${className}`}>
           <p className="px-1">{lines.join(" · ")}</p>
-        ))}
-    </div>
+        </div>
+      )}
+    </>
   );
 }
 
