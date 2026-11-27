@@ -1251,6 +1251,35 @@ describe("App, the side column", () => {
     expect(foot).not.toContain("items-center");
   });
 
+  it("gives a round a line of its own across the foot, above the line and the buttons", async () => {
+    // A round's words are cut short where the room runs out. Beside the gear they ran out with the
+    // foot's whole width to spare, up to the edge of the fold.
+    howThings.mockResolvedValue({ ...QUIET, stoppedBy: "offline" });
+    beingRead.mockResolvedValue({ done: 23, asked: 28, through: 23000, of: 28000 });
+    renderApp();
+
+    const bar = await screen.findByRole(
+      "progressbar",
+      { name: "Mail is being checked" },
+      { timeout: 3000 },
+    );
+    const line = (await screen.findByText(/no connection/i)).closest(
+      "[role=status]",
+    )!;
+    const round = bar.closest("[role=status]")!;
+    const fold = screen.getByRole("button", { name: "Collapse the sidebar" });
+    const foot = fold.parentElement!.parentElement!;
+
+    expect(round).not.toBe(line);
+    expect(line.contains(bar)).toBe(false);
+    // A row of the foot's own, the whole of its width, ahead of the line and the buttons.
+    expect(round.parentElement).toBe(foot);
+    expect(round.className.split(/\s+/)).toContain("basis-full");
+    expect(foot.className.split(/\s+/)).toContain("flex-wrap");
+    const order = [...foot.children];
+    expect(order.indexOf(round)).toBeLessThan(order.indexOf(line));
+  });
+
   it("leaves nothing at the foot while the settings are in front and nothing is reported", async () => {
     // The gear goes with the settings in front, there is nothing to fold beside their parts, and the
     // line says nothing when all is well. A foot kept for none of them is a gap under the list.

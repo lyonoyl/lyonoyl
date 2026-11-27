@@ -195,8 +195,8 @@ export function Sidebar({
         {/* One foot. The line answers the two questions a background process creates -- is this
             current, and did what I asked for land -- and takes the width the buttons leave it,
             wrapping when it has more to say than one line holds; an update, when there is one,
-            takes a line of its own above them. Every piece draws nothing when it has nothing to
-            say.
+            takes a line of its own above them, and so does a round being read, whose words are cut
+            short where the room runs out. Every piece draws nothing when it has nothing to say.
 
             Along the bottom, so the gear and the button beside it stay at the column's foot
             however many lines stand beside them, one button tall: the foot's height is taken from
@@ -214,6 +214,7 @@ export function Sidebar({
           />
           <ActivityLine
             className={drawnFolded ? "w-full px-3" : "min-w-0 flex-1 pb-1.5"}
+            roundClassName="basis-full"
             folded={drawnFolded}
             onUnfold={unfold}
           />
