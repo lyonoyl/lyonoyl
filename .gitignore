@@ -8,7 +8,6 @@ node_modules/
 __pycache__/
 
 ### Prepared for a release, and published with it
-/release-notes
 /publish/
 
 ### Written by a run, about one machine

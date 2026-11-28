@@ -336,21 +336,20 @@ A release command names the system, then the processor as Apple, Microsoft and N
 
 The version is the tree's own: `[workspace.package] version` in `Cargo.toml`, repeated in `package.json` and `tauri.conf.json`, which `src/app/release.test.ts` holds equal. A release says the version and the processor first. A processor other than this Mac's own needs Rust's library for it, and the release names the one to add before it starts.
 
-1. **The notes**, in `release-notes/` at the root of the tree, which git leaves out: `<version>.json`, a non-empty text under the name of every catalog in `src/shared/i18n/locales/`, which a copy shows in the language its user chose, and `<version>.md`, the text of the GitHub release, in English. Notes that leave a catalog out or name a language without one are refused.
-2. **The release**, from the commit to publish, with `:notes`. Before anything is built it refuses a tree with changes not committed and a missing note, and asks for the update key's password once, trying it on a throwaway file. It ends with *Updates: on*; one made without the key ends with *Updates: off*, and nothing made from it is ever updated in place. Everything of the version is then in `publish/<version>/` at the root of the tree, which git leaves out:
+1. **The notes**, in `publish/<version>/` at the root of the tree, which git leaves out: `notes.json`, a non-empty text under the name of every catalog in `src/shared/i18n/locales/`, which a copy shows in the language its user chose, and `release.md`, the text of the GitHub release, in English. Notes that leave a catalog out or name a language without one are refused.
+2. **The release**, from the commit to publish, with `:notes`. Before anything is built it refuses a tree with changes not committed and a missing note, and asks for the update key's password once, trying it on a throwaway file. It ends with *Updates: on*; one made without the key ends with *Updates: off*, and nothing made from it is ever updated in place. Everything of the version is then in `publish/<version>/`:
 
    | Path | What it is |
    | --- | --- |
    | `files/lyonoyl-mail-<version>-macos-<processor>.dmg` | What a person downloads |
    | `files/lyonoyl-mail-<version>-macos-<processor>.app.tar.gz` | What a copy takes, with nothing of this machine in it |
-   | `files/lyonoyl-mail-<version>-source.tar.gz` | The commit it was built from, as git holds it |
-   | `files/notes.json` | What changed, in every catalog language |
    | `files/SHA256SUMS`, `files/SHA256SUMS.minisig` | Every file's digest, sealed with the update key |
-   | `release.md` | The text of the GitHub release |
-   | `manifest/latest.json`, `manifest/latest.json.minisig` | The manifest, sealed |
+   | `notes.json` | What changed, in every catalog language, written before the release |
+   | `release.md` | The text of the GitHub release, written before the release |
+   | `manifest/latest.json`, `manifest/latest.json.minisig` | The manifest, sealed, with what changed in every catalog language |
 
    Once it is laid out, the code every copy runs reads all of it back: the seals, the manifest, the sums and every file they name, and the application inside each archive, its signature, its version and the processors it holds code for.
-3. **The GitHub release**, by hand: tagged `v<version>` at the commit it was built from and titled `Lyonoyl Mail <version>`, with `release.md` as its text and every file in `files/`.
+3. **The GitHub release**, by hand: tagged `v<version>` at the commit it was built from and titled `Lyonoyl Mail <version>`, with `release.md` as its text and every file in `files/`. GitHub archives the tag's source itself.
 4. **`scripts/release-check.sh <version>`**, which brings every file back through the site, the way a copy asks, and holds each to the sums sealed here.
 5. **The manifest, last**: the site answering for `updates/v1/macos/` with what is in `manifest/`, and `scripts/release-check.sh <version>` once more, which says it is out. A manifest out before its files sends every copy after a file that is not there.
 

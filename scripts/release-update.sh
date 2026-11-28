@@ -29,12 +29,11 @@
 #
 #     lyonoyl-mail-<version>-macos-<kind>.dmg          what a person downloads
 #     lyonoyl-mail-<version>-macos-<kind>.app.tar.gz   what a copy takes
-#     lyonoyl-mail-<version>-source.tar.gz             the source it was made from
-#     notes.json                                       what changed, every language
 #     SHA256SUMS, SHA256SUMS.minisig                   every file's digest, sealed
 #
 # and `manifest/` is what the site answers for at `updates/v1/macos/`: `latest.json` and
-# `latest.json.minisig`, the manifest, sealed.
+# `latest.json.minisig`, the manifest, sealed, which carries the notes in every language. The
+# source is the commit the release's tag names, which GitHub archives itself.
 #
 # `<kind>` is `arm64`, `x64`, or `universal` for an image carrying both. The code every copy
 # runs reads all of it back before the run ends. It publishes nothing and commits nothing: what goes
@@ -91,11 +90,11 @@ if [ -n "$notes" ] && [ ! -f "$notes" ]; then
 fi
 
 say "The tree"
-# The source published beside the build is this commit, so the tree must be this commit: anything
-# changed and not committed would be in the build and missing from its source.
+# The release is made from a commit, the one its tag names, so the tree must be that commit:
+# anything changed and not committed would be in the build and missing from what the tag holds.
 changed=$(git status --porcelain 2>/dev/null || echo "git could not say")
 if [ -n "$changed" ]; then
-  no "The tree holds changes that are not committed, so the source would not be what was built:"
+  no "The tree holds changes that are not committed, so the commit would not be what was built:"
   printf '%s\n' "$changed" | head -10 >&2
   exit 1
 fi
@@ -126,8 +125,7 @@ mounted=$(mktemp -d)
 said=$(mktemp)
 # `set +e` first: a detach that fails must not stop the rest of the tidying, or turn a finished run
 # into a failed one.
-made=""
-trap 'set +e; hdiutil detach -quiet "$mounted" 2>/dev/null; rmdir "$mounted" 2>/dev/null; rm -f "$said"; [ -z "$made" ] || rm -f "$made"' EXIT
+trap 'set +e; hdiutil detach -quiet "$mounted" 2>/dev/null; rmdir "$mounted" 2>/dev/null; rm -f "$said"' EXIT
 if ! hdiutil attach -nobrowse -readonly -quiet -mountpoint "$mounted" "$image"; then
   no "The disk image could not be opened. If it is open in the Finder, eject it and run this again."
   exit 1
@@ -232,37 +230,12 @@ sha256=$(shasum -a 256 "$archive" | cut -d' ' -f1)
 echo "$out/$stem.dmg"
 echo "$archive, $bytes bytes"
 
-say "The source"
-# This commit as git holds it, under a folder named for the release. The same commit makes the same
-# file byte for byte, so a second run for the same version must find the one the first made.
-source="$out/lyonoyl-mail-$version-source.tar.gz"
-made=$(mktemp)
-git archive --format=tar.gz --prefix="lyonoyl-mail-$version/" -o "$made" HEAD
-listed=$(tar -tzf "$made")
-case "$listed" in
-  *"lyonoyl-mail-$version/Cargo.toml"*) ;;
-  *)
-    rm -f "$made"
-    no "The source made from this commit holds no Cargo.toml, so it is not this project's source."
-    exit 1
-    ;;
-esac
-unset listed
-if [ -f "$source" ] && ! cmp -s "$made" "$source"; then
-  rm -f "$made"
-  no "The release of $version already holds a source made from another commit. Every image of one"
-  no "release is made from one commit: build this one from the commit the first was made from."
-  exit 1
-fi
-mv "$made" "$source"
-echo "$source"
-
 say "The manifest and the notes"
 # The manifest an earlier run of this version left is what this one adds to: the first image of a
 # release with an image for each kind of Mac.
 LYONOYL_VERSION="$version" LYONOYL_MACHINES="$machines" LYONOYL_FILE="$name" \
   LYONOYL_BYTES="$bytes" LYONOYL_SHA256="$sha256" LYONOYL_NOTES="$notes" \
-  LYONOYL_INTO="$manifests/latest.json" LYONOYL_NOTES_INTO="$out/notes.json" \
+  LYONOYL_INTO="$manifests/latest.json" \
   node --input-type=module - <<'JS'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 
@@ -342,9 +315,6 @@ const written = JSON.stringify(manifest, null, 2).replace(
   (letter) => `\\u${letter.charCodeAt(0).toString(16).padStart(4, "0")}`,
 );
 writeFileSync(env.LYONOYL_INTO, `${written}\n`);
-// The same notes as a file of the release, for whoever reads them outside a copy, written as the
-// letters themselves.
-writeFileSync(env.LYONOYL_NOTES_INTO, `${JSON.stringify(notes, null, 2)}\n`);
 console.log(`for ${Object.keys(manifest.archives).join(" and ")}`);
 JS
 

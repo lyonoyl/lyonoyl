@@ -36,11 +36,10 @@
 # Each stops at the notarized image, a build to try or to keep. `:notes` after the processor, as in
 # `npm run app:release:mac:both:notes`, which adds --notes, makes it the release itself. Before
 # anything is built it asks for a tree that is its commit, the version's notes and the update key's
-# password; then it lays the release out through `scripts/release-update.sh`. The notes are
-# `release-notes/<version>.json` at the root of the tree, a folder git leaves out, beside
-# `<version>.md`, the text of the GitHub release. Everything of the version is then in
-# `publish/<version>/`, at the root of the tree and out of git as well, and publishing is done by
-# hand from there.
+# password; then it lays the release out through `scripts/release-update.sh`. Everything of a
+# version is in `publish/<version>/`, at the root of the tree and out of git: the texts written
+# before the release, `notes.json` for the update window and `release.md` for the GitHub release,
+# and what the release makes beside them. Publishing is done by hand from there.
 
 set -euo pipefail
 
@@ -112,16 +111,16 @@ if [ -z "$version" ]; then
 fi
 
 # What the release itself needs is asked before anything is built, never found missing after the
-# build: a tree that is its commit, since the source published beside it is that commit; the notes
-# of the version; and the update key's password, asked once and tried on a throwaway file.
+# build: a tree that is its commit, since the release's tag names that commit; the notes of the
+# version; and the update key's password, asked once and tried on a throwaway file.
 if [ -n "$with_notes" ]; then
   if [ -n "$(git status --porcelain 2>/dev/null || echo unknown)" ]; then
-    no "The tree holds changes that are not committed. Commit them first: the source published with the release is the commit."
+    no "The tree holds changes that are not committed. Commit them first: the release is made from the commit its tag names."
     exit 1
   fi
-  for file in "$version.json" "$version.md"; do
-    if [ ! -f "release-notes/$file" ]; then
-      no "There are no notes for $version: release-notes/$file, at the root of the tree."
+  for file in notes.json release.md; do
+    if [ ! -f "publish/$version/$file" ]; then
+      no "There are no notes for $version: publish/$version/$file, at the root of the tree."
       exit 1
     fi
   done
@@ -485,9 +484,7 @@ if [ -n "$with_notes" ]; then
   progress_step "$STAGE_LAYOUT"
   # With its own questions of the image, its own prompt for the password, and its own account of
   # what goes where, in which order.
-  LYONOYL_UPDATE_KEY_PASSWORD="$password" scripts/release-update.sh --notes "release-notes/$version.json" "$image"
-  # The text of the GitHub release beside its files, so everything of the version is in one place.
-  cp "release-notes/$version.md" "publish/$version/release.md"
+  LYONOYL_UPDATE_KEY_PASSWORD="$password" scripts/release-update.sh --notes "publish/$version/notes.json" "$image"
   echo "  Everything of $version: publish/$version/ -- files/ and release.md for GitHub,"
   echo "  manifest/ for the site."
 fi
