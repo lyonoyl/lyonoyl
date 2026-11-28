@@ -96,4 +96,4 @@ echo "     from now on can never be updated again."
 echo "  2. Nobody else gets it. An update still has to be signed by the Developer ID before a copy"
 echo "     installs it, so the key alone puts nothing on anybody's Mac -- but it is half of what does."
 echo
-echo "The next npm run app:release builds the public half in, and says so: Updates: on."
+echo "The next npm run app:release:mac builds the public half in, and says so: Updates: on."

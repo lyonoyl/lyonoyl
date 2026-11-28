@@ -7,6 +7,10 @@ node_modules/
 /src-tauri/gen/schemas/
 __pycache__/
 
+### Prepared for a release, and published with it
+/release-notes
+/publish/
+
 ### Written by a run, about one machine
 engine-probe.json
 *.log

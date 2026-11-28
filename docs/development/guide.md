@@ -31,10 +31,10 @@ The preflight needs more than a build:
 | `npm run app` | Work on the code: a debug build with hot reload. Editing the interface updates the open window; editing Rust rebuilds and restarts it. On macOS it signs what it launches—see below for why that is not about distributing anything. |
 | `npm run app:build` | An application to keep and use, unsigned, on any of the three systems: the build the preflight makes as its last step, without the checks before it. It says where it put it and what to do with it, because a path inside `target/` does not look like somewhere to keep things. |
 | `npm run app:dev-build` | macOS. A debug build of the same bundle, signed, at `target/debug/bundle/macos/Lyonoyl Mail.app`, for working against rather than for sending anybody. |
-| `npm run app:release` | macOS. The one thing here another machine opens: signed, notarized, stapled, and then asked what Gatekeeper makes of it. |
+| `npm run app:release:mac` | macOS. The one thing here another machine opens: signed, notarized, stapled, and then asked what Gatekeeper makes of it. The other processors, and the release itself, are in [Every release](#every-release). |
 | `npm run app:screenshots` | macOS. The application over a made-up scene, for taking screenshots: [A build for screenshots](#a-build-for-screenshots). |
 
-**Only `app:release` signs for anybody else.** What `app:build` makes is refused by Gatekeeper on every machine but the one that built it—which is the right answer for a build you made yourself, and the script says so rather than leaving it to be discovered.
+**Only a release signs for anybody else.** What `app:build` makes is refused by Gatekeeper on every machine but the one that built it—which is the right answer for a build you made yourself, and the script says so rather than leaving it to be discovered.
 
 Two commands look like they should run the app but do not: `npm run build` only bundles the frontend, and `npm run dev` serves that frontend in a browser, where the native part is missing and every call into it fails.
 
@@ -42,7 +42,7 @@ Finished builds:
 
 | Platform | Application | Installer |
 | --- | --- | --- |
-| macOS | `target/release/bundle/macos/Lyonoyl Mail.app` | `target/release/bundle/dmg/`, from `app:release` |
+| macOS | `target/release/bundle/macos/Lyonoyl Mail.app` | `target/release/bundle/dmg/lyonoyl-mail-<version>-macos-arm64.dmg`, from `app:release:mac`; for Intel, `lyonoyl-mail-<version>-macos-x64.dmg` under `target/x86_64-apple-darwin/` |
 | Windows | `target/release/lyonoyl.exe` | none: a release carries the source, built there |
 | Linux | `target/release/lyonoyl` | none: a release carries the source, built there |
 
@@ -137,7 +137,7 @@ A field nothing reads, an address that is not one, an answer to nothing, and a f
 
 **One run at a time.** A second run in the same tree stops at once and names the process already running: the gate's self-test plants violations in the tree, and two runs would refuse each other's. A run killed outright leaves its lock and what it planted; the next run takes the lock over and removes those files, unstaging the one the self-test stages.
 
-**A pass is recorded.** A run that passes records the tree it checked in `target/preflight/passed`. With `--if-changed`, which `npm run app:release` passes, a tree unchanged since then is asked again only the advisories and what a build needs of this machine.
+**A pass is recorded.** A run that passes records the tree it checked in `target/preflight/passed`. With `--if-changed`, which `npm run app:release:mac` passes, a tree unchanged since then is asked again only the advisories and what a build needs of this machine.
 
 **A commit for the project is the product's, and the gate checks it.** A clone that commits under the product's name—`git config user.name` set to *Lyonoyl Mail*—has to commit at the address the product has committed under before, with commit signing turned off. The address is the one real thing involved, so it is not written here: the gate reads it from the history, and `LYONOYL_COMMIT_ADDRESS` in the environment names a different one when it has to change. Any other name is a contributor's own, and the gate does not ask about it; a pull request lands as one commit authored by the product.
 
@@ -261,7 +261,7 @@ That runner is a shell script and the keychain it exists for is macOS's, so `scr
 
 **`npm run app:dev-build` is for running the real bundle**, signed the same way. Notarization is what lets *other* machines open the application; this build is for this machine, so there is no App Store Connect key, no network, and no waiting on Apple.
 
-**`npm run app:release` is for a build somebody else opens.** Gatekeeper refuses an application, and a signed disk image, that is not notarized on every machine that did not build it, so this one signs, notarizes, and staples both, and then asks Gatekeeper what it made.
+**`npm run app:release:mac` is for a build somebody else opens.** Gatekeeper refuses an application, and a signed disk image, that is not notarized on every machine that did not build it, so this one signs, notarizes, and staples both, and then asks Gatekeeper what it made.
 
 **Nothing about the identity is in this repository, and that is invariant 21 rather than an oversight.** No certificate, no team, no account, no key. `tauri.conf.json` names no signing identity, so a plain checkout builds unsigned and says so. What the build needs it reads from a file kept outside the tree:
 
@@ -295,7 +295,7 @@ The notary is asked with an App Store Connect key: one file, carrying no account
 
 5. **An App Store Connect key** with the Developer role, downloaded once as a `.p8`. Apple does not offer it a second time. Put it outside this tree and `chmod 600` it.
 6. **Add the other three values** to the same identity file: `APPLE_API_ISSUER`, `APPLE_API_KEY`, and `APPLE_API_KEY_PATH`. No team identifier: the notary is asked with the key, and the key carries the team. It is read only when notarizing as an Apple ID and a password, which this does not do.
-7. **`npm run app:release`.** Same refusals, plus a key that is missing or readable by more than its owner, a terminal that may not control Finder, which arranges the window the disk image opens in—macOS asks once, and the answer is Allow—and an open disk image of the application. Then the preflight with `--if-changed`, the build, the signature, the notarization, and the staple. The Finder window that opens near the end of the build is left alone until the release says Done.
+7. **`npm run app:release:mac`.** Same refusals, plus a key that is missing or readable by more than its owner, a terminal that may not control Finder, which arranges the window the disk image opens in—macOS asks once, and the answer is Allow—and an open disk image of the application. Then the preflight with `--if-changed`, the build, the signature, the notarization, and the staple. The Finder window that opens near the end of the build is left alone until the release says Done.
 8. **It opens what it made and asks Gatekeeper about that**, rather than assuming: the disk image is found wherever the build put it, its own signature verifies, and then it is mounted so every question is asked of the application a person would drag out of it—named by the certificate rather than by a hash, signed, carrying no path of the machine that built it, hardened runtime on, linking nothing but the system's own libraries, a notarization ticket stapled to it, and accepted by `spctl`. Any of those failing fails the run.
 
    The stapled ticket is the one that earns its place. Tauri skips notarization with a warning and exits zero when the credentials are missing, so a forgotten secret otherwise produces a green build and an application every other Mac refuses to open.
@@ -324,29 +324,38 @@ It makes the key outside this tree—`~/.config/lyonoyl/update.key`, locked with
 
 ### Every release
 
-1. **`npm run app:release`**, from a commit, which ends with *Updates: on*. A release made without the key ends with *Updates: off*, and nothing made from it is ever updated in place.
-2. **The notes**: one JSON object holding a non-empty text under the name of every catalog in `src/shared/i18n/locales/`, because a copy shows the one in the language its user chose. The script refuses notes that leave a catalog out or name a language that has none.
-3. **`scripts/release-update.sh --notes <notes.json>`**, against the newest disk image or the one named after it, from the commit the image was built from. It asks the application in the image what Gatekeeper would—signature, stapled ticket, assessment—and that its signing requirement names Apple's authority and a team, that it is this tree's version, and that it carries the update key. Then it lays the release out under `target/site/`, the way the site serves it:
+A release command names the system, then the processor as Apple, Microsoft and Node name it; `:notes` after the processor makes it the release itself rather than a build to try or to keep:
 
-   | File | What it is |
+| Command | What it makes |
+| --- | --- |
+| `npm run app:release:mac` | A notarized image for arm64, Apple silicon, the same as `npm run app:release:mac:arm64` |
+| `npm run app:release:mac:arm64` | A notarized image for arm64, Apple silicon |
+| `npm run app:release:mac:x64` | A notarized image for x64, Intel |
+| `npm run app:release:mac:both` | Both, one full build after the other, each with an image of its own |
+| `npm run app:release:mac:arm64:notes`, `:mac:x64:notes`, `:mac:both:notes` | The release: the same, laid out for publishing with the version's notes |
+
+The version is the tree's own: `[workspace.package] version` in `Cargo.toml`, repeated in `package.json` and `tauri.conf.json`, which `src/app/release.test.ts` holds equal. A release says the version and the processor first. A processor other than this Mac's own needs Rust's library for it, and the release names the one to add before it starts.
+
+1. **The notes**, in `release-notes/` at the root of the tree, which git leaves out: `<version>.json`, a non-empty text under the name of every catalog in `src/shared/i18n/locales/`, which a copy shows in the language its user chose, and `<version>.md`, the text of the GitHub release, in English. Notes that leave a catalog out or name a language without one are refused.
+2. **The release**, from the commit to publish, with `:notes`. Before anything is built it refuses a tree with changes not committed and a missing note, and asks for the update key's password once, trying it on a throwaway file. It ends with *Updates: on*; one made without the key ends with *Updates: off*, and nothing made from it is ever updated in place. Everything of the version is then in `publish/<version>/` at the root of the tree, which git leaves out:
+
+   | Path | What it is |
    | --- | --- |
-   | `releases/<version>/lyonoyl-mail-<version>-macos-<kind>.dmg` | What a person downloads |
-   | `releases/<version>/lyonoyl-mail-<version>-macos-<kind>.app.tar.gz` | What a copy takes, with nothing of this machine in it |
-   | `releases/<version>/lyonoyl-mail-<version>-source.tar.gz` | The commit it was built from, as git holds it |
-   | `releases/<version>/notes.json` | What changed, in every catalog language |
-   | `releases/<version>/SHA256SUMS`, `SHA256SUMS.minisig` | Every file's digest, sealed with the update key |
-   | `updates/v1/macos/latest.json`, `latest.json.minisig` | The manifest, sealed |
+   | `files/lyonoyl-mail-<version>-macos-<processor>.dmg` | What a person downloads |
+   | `files/lyonoyl-mail-<version>-macos-<processor>.app.tar.gz` | What a copy takes, with nothing of this machine in it |
+   | `files/lyonoyl-mail-<version>-source.tar.gz` | The commit it was built from, as git holds it |
+   | `files/notes.json` | What changed, in every catalog language |
+   | `files/SHA256SUMS`, `files/SHA256SUMS.minisig` | Every file's digest, sealed with the update key |
+   | `release.md` | The text of the GitHub release |
+   | `manifest/latest.json`, `manifest/latest.json.minisig` | The manifest, sealed |
 
-   `<kind>` is `aarch64`, `x86_64`, or `universal` for an image carrying both, as Rust names them. The code every copy runs then reads all of it back—the seals, the manifest's shape, the sums and every file they name, what the folder holds besides, each archive's size and digest, the application inside and its signature against the one it was packed from, its version, and the kinds of Mac it holds code for. The key's password is asked for at the terminal, or taken from `LYONOYL_UPDATE_KEY_PASSWORD` where a password manager hands it over, and it leaves the environment before anything else runs.
+   Once it is laid out, the code every copy runs reads all of it back: the seals, the manifest, the sums and every file they name, and the application inside each archive, its signature, its version and the processors it holds code for.
+3. **The GitHub release**, by hand: tagged `v<version>` at the commit it was built from and titled `Lyonoyl Mail <version>`, with `release.md` as its text and every file in `files/`.
+4. **`scripts/release-check.sh <version>`**, which brings every file back through the site, the way a copy asks, and holds each to the sums sealed here.
+5. **The manifest, last**: the site answering for `updates/v1/macos/` with what is in `manifest/`, and `scripts/release-check.sh <version>` once more, which says it is out. A manifest out before its files sends every copy after a file that is not there.
 
-   A release with an image for each kind of Mac is a second run with the second image, from the same commit, which adds its kind to the manifest and the sums of the same version. Whatever is in the release's folder is published and summed, so a file an earlier run left there is refused until it is gone.
-4. **The files**: the site answering for `releases/<version>/` with every file in `target/site/releases/<version>/`, however it does it.
-5. **`scripts/release-check.sh <version>`**, which brings every file back from the site through the client every copy uses and holds each to the sums sealed here. A site that answers a browser and refuses a copy—a redirect chain too long, a challenge in front of the files, a certificate a copy does not take—is found here rather than by every copy.
-6. **The manifest, last**: the site answering for `updates/v1/macos/` with what is in `target/site/updates/v1/macos/`. A manifest out before its files sends every copy after a file that is not there. The manifest and its seal can be cached apart for a few minutes after they change, and a copy that asks in those minutes is told it could not check.
-7. **`scripts/release-check.sh <version>` once more**, which says the manifest is out.
+**What the site must do** is answer for each of those paths over HTTPS, with the file itself or by redirecting the copy, in a chain of at most ten addresses, the first included, and with no bot check or challenge in front of it: a copy is not a browser.
 
-**What the site must do** is answer for each of those paths over HTTPS, with the file itself or by redirecting the copy, in a chain of at most ten addresses, the first included, and with no bot check or challenge in front of it: a copy is not a browser. Whatever publishes to the site—a token, an account—is kept outside the tree, as the signing identity is.
-
-**A version is published once.** No file of a release is replaced or deleted afterwards; a mistake is fixed by the next patch version. Running the script again makes the same archive and the same source byte for byte, so files already uploaded stay valid; what is new is the seals, and they travel with the sums and the manifest.
+**A version is published once.** No file of a release is replaced or deleted afterwards; a mistake is fixed by the next patch version.
 
 **What the read-back cannot ask is the copies already out there.** It holds the application to the requirement of the one it was packed from, so a release signed under another identifier or team passes it, and is refused by every copy installed before it—the paragraph about the team above is the whole of the defense.

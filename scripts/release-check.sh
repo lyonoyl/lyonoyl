@@ -6,7 +6,7 @@
 #     scripts/release-check.sh <version>
 #
 # Run once the places hold the files `scripts/release-update.sh` made under
-# `target/site/releases/<version>/` — lyonoyl.com answering for `releases/<version>/` — and again once
+# `publish/<version>/files/` — lyonoyl.com answering for `releases/<version>/` — and again once
 # they hold the manifest. It brings every file of the release back from each place, holds each to
 # the sums sealed here, and says whether each place hands over the manifest made here yet. A place
 # that answers a browser and refuses a copy — a redirect chain it cannot follow, a challenge in
@@ -28,8 +28,8 @@ fi
 
 cd "$(dirname "$0")/.."
 
-files="target/site/releases/$version"
-manifest="target/site/updates/v1/macos/latest.json"
+files="publish/$version/files"
+manifest="publish/$version/manifest/latest.json"
 if [ ! -f "$files/SHA256SUMS" ]; then
   no "There is no release of $version made here: $files holds no SHA256SUMS."
   no "scripts/release-update.sh makes one."

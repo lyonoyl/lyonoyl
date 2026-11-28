@@ -5,9 +5,9 @@
 #
 #     scripts/release-update.sh --notes <notes.json> [disk image]
 #
-# Run after `npm run app:release`, against the disk image it made — the newest one under `target`
-# unless another is named — from the commit the image was built from. The application in the
-# archive is the one a person drags out of that image, so a copy that updates itself and a copy
+# A release with `:notes` runs this at its end, against each image it made. By hand, it takes the
+# newest image under `target`, or the one named, from the commit the image was built from. The
+# application in the archive is the one a person drags out of that image, so a copy that updates itself and a copy
 # downloaded fresh are the same program. A release with an image for each kind of Mac is two runs,
 # one per image; the second adds its kind to what the first wrote for the same version, and nothing
 # is published until both have run.
@@ -24,17 +24,19 @@
 # hands it over. Never put the password in the identity file: a key with its password beside it is
 # a key with no password.
 #
-# Everything it makes goes under `target/site/`, at the paths every copy asks the project's site
-# for:
+# Everything of one version goes under `publish/<version>/`, at the root of the tree and out of git.
+# `files/` is what its GitHub release holds:
 #
-#     releases/<version>/lyonoyl-mail-<version>-macos-<kind>.dmg          what a person downloads
-#     releases/<version>/lyonoyl-mail-<version>-macos-<kind>.app.tar.gz   what a copy takes
-#     releases/<version>/lyonoyl-mail-<version>-source.tar.gz             the source it was made from
-#     releases/<version>/notes.json                                       what changed, every language
-#     releases/<version>/SHA256SUMS, SHA256SUMS.minisig                   every file's digest, sealed
-#     updates/v1/macos/latest.json, latest.json.minisig                   the manifest, sealed
+#     lyonoyl-mail-<version>-macos-<kind>.dmg          what a person downloads
+#     lyonoyl-mail-<version>-macos-<kind>.app.tar.gz   what a copy takes
+#     lyonoyl-mail-<version>-source.tar.gz             the source it was made from
+#     notes.json                                       what changed, every language
+#     SHA256SUMS, SHA256SUMS.minisig                   every file's digest, sealed
 #
-# `<kind>` is `aarch64`, `x86_64`, or `universal` for an image carrying both. The code every copy
+# and `manifest/` is what the site answers for at `updates/v1/macos/`: `latest.json` and
+# `latest.json.minisig`, the manifest, sealed.
+#
+# `<kind>` is `arm64`, `x64`, or `universal` for an image carrying both. The code every copy
 # runs reads all of it back before the run ends. It publishes nothing and commits nothing: what goes
 # where, and in which order, it says at the end, and `scripts/release-check.sh` asks the site
 # afterwards.
@@ -115,7 +117,7 @@ if [ -z "$image" ]; then
     | xargs -0 ls -t 2>/dev/null | head -1 || true)
 fi
 if [ -z "$image" ] || [ ! -f "$image" ]; then
-  no "There is no disk image to make an update from. npm run app:release makes one."
+  no "There is no disk image to make an update from. npm run app:release:mac makes one."
   exit 1
 fi
 echo "$image"
@@ -196,16 +198,18 @@ for kind in $(lipo -archs "$binary"); do
   esac
 done
 machines="${machines# }"
+# A file's name carries the processor as Apple, Microsoft and Node name it, which is how people know
+# it; the manifest's keys stay as a copy asks with them.
 case "$machines" in
   *" "*) label="universal" ;;
-  *) label="$machines" ;;
+  aarch64) label="arm64" ;;
+  x86_64) label="x64" ;;
 esac
 echo "for $machines"
 
 say "The disk image and the archive"
-site="target/site"
-out="$site/releases/$version"
-manifests="$site/updates/v1/macos"
+out="publish/$version/files"
+manifests="publish/$version/manifest"
 mkdir -p "$out" "$manifests"
 stem="lyonoyl-mail-$version-macos-$label"
 name="$stem.app.tar.gz"
@@ -254,8 +258,8 @@ mv "$made" "$source"
 echo "$source"
 
 say "The manifest and the notes"
-# The manifest an earlier run left under target/site is what this one adds to: the first image of a
-# release with an image for each kind of Mac, or the release before this one.
+# The manifest an earlier run of this version left is what this one adds to: the first image of a
+# release with an image for each kind of Mac.
 LYONOYL_VERSION="$version" LYONOYL_MACHINES="$machines" LYONOYL_FILE="$name" \
   LYONOYL_BYTES="$bytes" LYONOYL_SHA256="$sha256" LYONOYL_NOTES="$notes" \
   LYONOYL_INTO="$manifests/latest.json" LYONOYL_NOTES_INTO="$out/notes.json" \
@@ -424,8 +428,7 @@ say "Ready, and nothing is published"
 echo "  Every image of $version first: a release for both kinds of Mac is a second run, with the"
 echo "  second image, before anything below. In this order, then:"
 echo
-echo "  1. The files of the release, so that lyonoyl.com answers for releases/$version/ with"
-echo "     every file in"
+echo "  1. The files of the release: a GitHub release of v$version holding every file in"
 echo "       $out/"
 echo "  2. scripts/release-check.sh $version, which brings every file back from the site and holds"
 echo "     it to the sums made here."
