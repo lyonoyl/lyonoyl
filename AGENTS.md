@@ -68,7 +68,11 @@ npm install                       # frontend dependencies
 npm start                         # asks what you want and runs it — the one command worth remembering
 npm run app                       # work on the code: Tauri dev, hot reload
 npm run app:build                 # an application to keep and use, unsigned
-npm run app:release               # macOS: signed, notarized, stapled — the one another machine opens
+npm run app:release:mac           # macOS: signed, notarized, stapled — the one another machine opens; arm64, as :mac:arm64
+npm run app:release:mac:arm64     # the same, for arm64, Apple silicon
+npm run app:release:mac:x64       # the same, for x64, Intel
+npm run app:release:mac:both      # the same for arm64, then for x64
+npm run app:release:mac:arm64:notes  # the release itself, laid out with the version's notes; :x64:notes and :both:notes too
 npm run app:screenshots           # macOS: the application over a made-up scene, for screenshots
 npm run typecheck                 # tsc --noEmit
 npm run build                     # tsc && vite build — the frontend only, no app

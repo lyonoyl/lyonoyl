@@ -47,7 +47,7 @@ if (canSign) {
   doors.push({
     say: "Release it",
     then: "macOS only. Signs, notarizes, staples, and then asks Gatekeeper what it made. For whoever publishes this.",
-    run: "app:release",
+    run: "app:release:mac",
   });
 }
 

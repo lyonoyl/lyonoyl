@@ -24,10 +24,160 @@
 #         APPLE_API_KEY_PATH       where the `.p8` file is, also outside this tree
 #
 # Nothing here ever prints a value. What it prints is whether a thing is there.
+#
+# Which Macs it is for is asked, and Apple silicon is the answer when nothing is. A release command
+# names the system, then the processor as Apple, Microsoft and Node name it:
+#
+#     npm run app:release:mac            arm64, Apple silicon, the same as :mac:arm64
+#     npm run app:release:mac:arm64      arm64, Apple silicon, which runs this with --arm64
+#     npm run app:release:mac:x64        x64, Intel, with --x64
+#     npm run app:release:mac:both       both, with --both: a full release for each, one after the other
+#
+# Each stops at the notarized image, a build to try or to keep. `:notes` after the processor, as in
+# `npm run app:release:mac:both:notes`, which adds --notes, makes it the release itself. Before
+# anything is built it asks for a tree that is its commit, the version's notes and the update key's
+# password; then it lays the release out through `scripts/release-update.sh`. Everything of a
+# version is in `publish/<version>/`, at the root of the tree and out of git: the texts written
+# before the release, `notes.json` for the update window and `release.md` for the GitHub release,
+# and what the release makes beside them. Publishing is done by hand from there.
 
 set -euo pipefail
 
+# The update key's password, taken out of the environment before anything else runs, as
+# scripts/release-update.sh takes it: left there, every program below would inherit it.
+password="${LYONOYL_UPDATE_KEY_PASSWORD:-}"
+unset LYONOYL_UPDATE_KEY_PASSWORD
+
+no() { printf '\033[31m%s\033[0m\n' "$1" >&2; }
+say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
+
+kind=""
+with_notes=""
+for word in "$@"; do
+  case "$word" in
+    --arm64 | --x64 | --both)
+      # One choice a run: two would be a release of whichever was named last.
+      if [ -n "$kind" ] && [ "$kind" != "${word#--}" ]; then
+        no "One of --arm64, --x64 or --both, not two."
+        exit 1
+      fi
+      kind="${word#--}"
+      ;;
+    --notes) with_notes=yes ;;
+    *)
+      no "Not something this takes: $word. It takes --arm64, --x64 or --both, and --notes."
+      exit 1
+      ;;
+  esac
+done
+kind="${kind:-arm64}"
+
 cd "$(dirname "$0")/.."
+
+version=$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' Cargo.toml)
+
+# The kind of Mac this one is, as Rust names it. A terminal running under Rosetta answers x86_64 on
+# Apple silicon, and building for Apple silicon there is building for another kind, which is what it is.
+case "$(uname -m)" in
+  arm64) here=aarch64-apple-darwin ;;
+  x86_64) here=x86_64-apple-darwin ;;
+  *) here="" ;;
+esac
+
+# A kind other than this Mac's own needs Rust's library for that kind: asked for here, before
+# anything is built, rather than found missing after the check and half a build.
+case "$kind" in
+  arm64) asked_for="aarch64-apple-darwin" ;;
+  x64) asked_for="x86_64-apple-darwin" ;;
+  both) asked_for="aarch64-apple-darwin x86_64-apple-darwin" ;;
+esac
+missing=""
+for target in $asked_for; do
+  if [ "$target" = "$here" ]; then continue; fi
+  installed=" $(rustup target list --installed 2>/dev/null | tr '\n' ' ')"
+  case "$installed" in
+    *" $target "*) ;;
+    *) missing="$missing $target" ;;
+  esac
+done
+if [ -n "$missing" ]; then
+  no "A release for $kind needs Rust's library for${missing}. Add it once with: rustup target add${missing}"
+  exit 1
+fi
+
+if [ -z "$version" ]; then
+  no "Cargo.toml names no version under [workspace.package], so there is nothing to call this build."
+  exit 1
+fi
+
+# What the release itself needs is asked before anything is built, never found missing after the
+# build: a tree that is its commit, since the release's tag names that commit; the notes of the
+# version; and the update key's password, asked once and tried on a throwaway file.
+if [ -n "$with_notes" ]; then
+  if [ -n "$(git status --porcelain 2>/dev/null || echo unknown)" ]; then
+    no "The tree holds changes that are not committed. Commit them first: the release is made from the commit its tag names."
+    exit 1
+  fi
+  for file in notes.json release.md; do
+    if [ ! -f "publish/$version/$file" ]; then
+      no "There are no notes for $version: publish/$version/$file, at the root of the tree."
+      exit 1
+    fi
+  done
+  # shellcheck disable=SC1091
+  (. scripts/signing-identity.sh sealing) >/dev/null
+  if [ -z "$password" ]; then
+    # `IFS=` so a passphrase that starts or ends with a space is read as it was typed.
+    if ! IFS= read -rsp "The update key's password: " password </dev/tty; then
+      no "There is no terminal to ask for the update key's password at."
+      exit 1
+    fi
+    echo >&2
+  fi
+  probe=$(mktemp)
+  if ! (
+    # shellcheck disable=SC1091
+    . scripts/signing-identity.sh sealing >/dev/null
+    env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PATH \
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$password" \
+      npx tauri signer sign -f "$LYONOYL_UPDATE_KEY_PATH" "$probe" >/dev/null 2>&1
+  ); then
+    rm -f "$probe" "$probe.sig"
+    no "The update key does not open with that password, so nothing was built."
+    exit 1
+  fi
+  rm -f "$probe" "$probe.sig"
+fi
+
+# Both is the release for each kind, one after the other: each its own build, its own checks and its
+# own notarized image, and with the notes each lays its own image out, the second adding its kind
+# to what the first wrote. Nothing of one is mixed into the other, and the password is asked once.
+if [ "$kind" = both ]; then
+  LYONOYL_UPDATE_KEY_PASSWORD="$password" LYONOYL_RELEASE_PART="1 of 2" \
+    scripts/release-macos.sh --arm64 ${with_notes:+--notes}
+  LYONOYL_UPDATE_KEY_PASSWORD="$password" LYONOYL_RELEASE_PART="2 of 2" \
+    scripts/release-macos.sh --x64 ${with_notes:+--notes}
+  exit 0
+fi
+
+# What is made, said first: the version is the tree's own, from Cargo.toml, and the processor the
+# one asked for.
+say "Lyonoyl Mail $version, macOS $kind${LYONOYL_RELEASE_PART:+, $LYONOYL_RELEASE_PART}"
+
+case "$kind" in
+  arm64) triple=aarch64-apple-darwin wanted="arm64" ;;
+  x64) triple=x86_64-apple-darwin wanted="x86_64" ;;
+esac
+
+# This Mac's own kind builds where every other build here does, `target/release`; another kind is
+# built under its own name, where Tauri writes it.
+if [ "$triple" = "$here" ]; then
+  target_flags=()
+  bundles="target/release/bundle"
+else
+  target_flags=(--target "$triple")
+  bundles="target/$triple/release/bundle"
+fi
 
 # shellcheck source=scripts/progress.sh
 . scripts/progress.sh
@@ -35,20 +185,27 @@ cd "$(dirname "$0")/.."
 . scripts/notarize.sh
 trap 'progress_end $?' EXIT
 
-say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
-
 STAGE_IDENTITY="The signing identity"
 STAGE_FINDER="Finder, which arranges the disk image's window"
 STAGE_CHECK="Everything that must be true before a release leaves this machine"
 STAGE_BUILD="Building, signing and notarizing"
 STAGE_GATEKEEPER="What Gatekeeper makes of it"
 STAGE_IMAGE="Notarizing the disk image"
-progress_begin release Stage "$STAGE_IDENTITY
+STAGE_LAYOUT="The release laid out for publishing"
+stages="$STAGE_IDENTITY
 $STAGE_FINDER
 $STAGE_CHECK
 $STAGE_BUILD
 $STAGE_GATEKEEPER
 $STAGE_IMAGE"
+if [ -n "$with_notes" ]; then
+  stages="$stages
+$STAGE_LAYOUT"
+fi
+# Each kind keeps its own times.
+run=release
+if [ "$kind" != arm64 ]; then run="release-$kind"; fi
+progress_begin "$run" Stage "$stages"
 
 # The check's estimate is the preflight's own last time on the path it is about to take.
 if node scripts/tree-fingerprint.mjs --passed target/preflight/passed >/dev/null 2>&1; then
@@ -140,18 +297,19 @@ export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$HOME/.cargo=/cargo --remap
 # keeps the volume busy, which fails the build at its last step.
 echo "Near the end Finder opens the disk image's window by itself, to lay it out. Leave it alone until this says Done."
 progress_ticker_start
-npx tauri build 2>&1 | sed -l -E \
+npx tauri build ${target_flags[@]+"${target_flags[@]}"} 2>&1 | sed -l -E \
   's/(Developer ID Application:)[^"]*/\1 <this team>/g; s/(TeamIdentifier=)[A-Z0-9]*/\1<this team>/g' \
   | progress_relay
 progress_ticker_stop
 
 progress_step "$STAGE_GATEKEEPER"
 
-# Found, not assumed. A universal build writes under `target/universal-apple-darwin/` and an
-# ordinary one under `target/release/`, so a hard-coded path points at whichever an earlier build
+# Found where this kind of build writes, not assumed: this Mac's own kind under `target/release/` and
+# another under its own name, so one path for every kind points at whichever an earlier build
 # happened to leave behind -- a check that passes on a stale artifact while the new one goes out
-# unexamined. The newest is the one this run just made, because this run is what built it.
-image=$(find target -type f -name '*.dmg' -print0 2>/dev/null \
+# unexamined. The newest there is the one this run just made, because this run is what built it, and
+# the code it holds is asked about below as well.
+image=$(find "$bundles" -type f -name '*.dmg' -print0 2>/dev/null \
   | xargs -0 ls -t 2>/dev/null | head -1)
 
 if [ -z "$image" ]; then
@@ -178,6 +336,20 @@ fi
 
 # Everything below is asked of the copy a person would drag out of the image, which is the only
 # artifact any of this is about.
+
+# The kinds of Mac it holds code for, held to the kind asked for: an image of another kind is
+# refused here rather than published as this one. lipo reading nothing is an answer that matches
+# no kind, so it does not pass.
+executable="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+held=$({ lipo -archs "$executable" 2>/dev/null || true; } | tr ' ' '\n' | { grep . || true; } \
+  | LC_ALL=C sort | tr '\n' ' ')
+asked=$(printf '%s' "$wanted" | tr ' ' '\n' | LC_ALL=C sort | tr '\n' ' ')
+if [ "$held" != "$asked" ]; then
+  said="${held% }"
+  no "The application holds code for ${said:-nothing lipo could read}, and this release is for ${asked% }."
+  exit 1
+fi
+echo "code for ${held% }"
 scripts/holds-still.sh "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 
@@ -280,6 +452,13 @@ codesign --verify --strict "$image"
 xcrun stapler validate "$image"
 spctl --assess --type open --context context:primary-signature --verbose "$image"
 
+# Named the way every file of a release is: the product, the version, the system and the processor.
+# Tauri names it after the application, with a space in it. The name is no part of what is signed
+# or stapled, so the image is the same one under it.
+named="$(dirname "$image")/lyonoyl-mail-$version-macos-$kind.dmg"
+mv -f "$image" "$named"
+image="$named"
+
 # What this build will and will not do about updates, said out loud rather than discovered later.
 #
 # The key is compiled in through `option_env!`, so a build made without it is not a build with a
@@ -289,8 +468,11 @@ spctl --assess --type open --context context:primary-signature --verbose "$image
 if [ -n "${LYONOYL_UPDATE_PUBKEY:-}" ]; then
   say "Updates: on"
   echo "  This build takes an update sealed by the key that was set when it was built, and asks its"
-  echo "  person before it looks for one. The update for the copies already out there is made from"
-  echo "  this image: scripts/release-update.sh --notes <notes.json>."
+  echo "  person before it looks for one."
+  if [ -z "$with_notes" ]; then
+    echo "  The release itself, laid out with its notes, is the same with :notes after the kind:"
+    echo "  npm run app:release:mac:arm64:notes, :mac:x64:notes or :mac:both:notes."
+  fi
 else
   say "Updates: off"
   echo "  LYONOYL_UPDATE_PUBKEY was not set, so this build never checks for an update and never"
@@ -298,7 +480,17 @@ else
   echo "  new download. scripts/make-update-key.sh makes the key and sets it, once."
 fi
 
+if [ -n "$with_notes" ]; then
+  progress_step "$STAGE_LAYOUT"
+  # With its own questions of the image, its own prompt for the password, and its own account of
+  # what goes where, in which order.
+  LYONOYL_UPDATE_KEY_PASSWORD="$password" scripts/release-update.sh --notes "publish/$version/notes.json" "$image"
+  echo "  Everything of $version: publish/$version/ -- files/ and release.md for GitHub,"
+  echo "  manifest/ for the site."
+fi
+
 progress_end
 progress_span "$SECONDS"
 say "Done in $progress_span_said"
 echo "$image"
+

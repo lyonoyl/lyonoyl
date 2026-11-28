@@ -33,13 +33,10 @@ use super::staging;
 use super::the_manifest::{self, a_plain_name, LARGEST, LONGEST};
 use super::the_seal::{what_the_seal_says, TheKey};
 use crate::infrastructure::net::TransportPolicy;
-use crate::ports::updates::{Notes, Offered, Staged, Token, UpdateError};
+use crate::ports::updates::{Offered, Staged, Token, UpdateError};
 
 /// The file every other file of a release is named in, with what it hashes to.
 const SUMS: &str = "SHA256SUMS";
-
-/// What changed, in every language, as a file of the release.
-const NOTES: &str = "notes.json";
 
 /// What the release script set, or a failure naming what it did not.
 fn given(name: &str) -> String {
@@ -122,15 +119,6 @@ fn every_copy_takes_the_release_on_this_disk() {
     // What the folder holds, and nothing besides it: whatever is in it is published.
     let archives: BTreeSet<String> = offers.iter().map(|(_, _, name)| name.clone()).collect();
     the_release_is(&on_disk, version, &archives).unwrap_or_else(|why| panic!("{why}"));
-    let written: Notes =
-        serde_json::from_slice(&std::fs::read(files.join(NOTES)).expect("the notes"))
-            .expect("the notes are a text for each language");
-    assert!(
-        offers
-            .iter()
-            .all(|(_, offered, _)| offered.notes == written),
-        "{NOTES} says something other than the manifest"
-    );
 
     for (machine, offered, name) in &offers {
         let at = files.join(name);
@@ -280,11 +268,21 @@ fn the_kind_in(name: &str, version: Version) -> Option<&str> {
         .strip_suffix(".app.tar.gz")
 }
 
+/// The name a release's file gives the processor a copy asks with: Apple's, Microsoft's and Node's,
+/// which is how a person knows it, where a copy asks with Rust's.
+fn named_in_a_file(machine: &str) -> &str {
+    match machine {
+        "aarch64" => "arm64",
+        "x86_64" => "x64",
+        other => other,
+    }
+}
+
 /// Whether `name` is an archive of `version` for `machine`: named for that kind of Mac, or for
 /// both kinds in one.
 fn an_archive_for(name: &str, version: Version, machine: &str) -> Result<(), String> {
     match the_kind_in(name, version) {
-        Some(kind) if kind == machine || kind == "universal" => Ok(()),
+        Some(kind) if kind == named_in_a_file(machine) || kind == "universal" => Ok(()),
         _ => Err(format!(
             "{machine} is offered {name}, which is not named as an archive of {version} for it"
         )),
@@ -292,17 +290,13 @@ fn an_archive_for(name: &str, version: Version, machine: &str) -> Result<(), Str
 }
 
 /// Whether the folder holds the release of `version` and nothing else: each archive the manifest
-/// names with the disk image of the same kind beside it, the source, and the notes.
+/// names, with the disk image of the same kind beside it.
 fn the_release_is(
     on_disk: &BTreeSet<String>,
     version: Version,
     archives: &BTreeSet<String>,
 ) -> Result<(), String> {
-    let mut wanted: BTreeSet<String> = [
-        format!("lyonoyl-mail-{version}-source.tar.gz"),
-        NOTES.to_owned(),
-    ]
-    .into();
+    let mut wanted: BTreeSet<String> = BTreeSet::new();
     for archive in archives {
         wanted.insert(archive.clone());
         if let Some(stem) = archive.strip_suffix(".app.tar.gz") {
@@ -598,10 +592,8 @@ mod rules {
     fn an_archive_is_named_for_its_kind_of_mac_or_for_both() {
         let v = version();
 
-        assert!(
-            an_archive_for("lyonoyl-mail-1.2.0-macos-aarch64.app.tar.gz", v, "aarch64").is_ok()
-        );
-        assert!(an_archive_for("lyonoyl-mail-1.2.0-macos-x86_64.app.tar.gz", v, "x86_64").is_ok());
+        assert!(an_archive_for("lyonoyl-mail-1.2.0-macos-arm64.app.tar.gz", v, "aarch64").is_ok());
+        assert!(an_archive_for("lyonoyl-mail-1.2.0-macos-x64.app.tar.gz", v, "x86_64").is_ok());
         for machine in ["aarch64", "x86_64"] {
             assert!(
                 an_archive_for("lyonoyl-mail-1.2.0-macos-universal.app.tar.gz", v, machine).is_ok(),
@@ -610,12 +602,16 @@ mod rules {
         }
 
         for (name, machine) in [
-            ("lyonoyl-mail-1.2.0-macos-x86_64.app.tar.gz", "aarch64"),
-            ("lyonoyl-mail-1.1.0-macos-aarch64.app.tar.gz", "aarch64"),
-            ("lyonoyl-mail-1.2.0-linux-aarch64.app.tar.gz", "aarch64"),
-            ("Lyonoyl-Mail-1.2.0-aarch64.app.tar.gz", "aarch64"),
-            ("lyonoyl-mail-1.2.0-macos-aarch64.dmg", "aarch64"),
+            ("lyonoyl-mail-1.2.0-macos-x64.app.tar.gz", "aarch64"),
+            ("lyonoyl-mail-1.2.0-macos-arm64.app.tar.gz", "x86_64"),
+            ("lyonoyl-mail-1.1.0-macos-arm64.app.tar.gz", "aarch64"),
+            ("lyonoyl-mail-1.2.0-linux-arm64.app.tar.gz", "aarch64"),
+            ("Lyonoyl-Mail-1.2.0-arm64.app.tar.gz", "aarch64"),
+            ("lyonoyl-mail-1.2.0-macos-arm64.dmg", "aarch64"),
             ("lyonoyl-mail-1.2.0-macos-.app.tar.gz", "aarch64"),
+            // Rust's own name for it, which a copy asks with and a release's file does not carry.
+            ("lyonoyl-mail-1.2.0-macos-aarch64.app.tar.gz", "aarch64"),
+            ("lyonoyl-mail-1.2.0-macos-x86_64.app.tar.gz", "x86_64"),
         ] {
             assert!(
                 an_archive_for(name, v, machine).is_err(),
@@ -631,8 +627,6 @@ mod rules {
         let whole = [
             "lyonoyl-mail-1.2.0-macos-universal.app.tar.gz",
             "lyonoyl-mail-1.2.0-macos-universal.dmg",
-            "lyonoyl-mail-1.2.0-source.tar.gz",
-            "notes.json",
         ];
 
         assert!(the_release_is(&names(&whole), v, &archives).is_ok());
@@ -648,11 +642,21 @@ mod rules {
         // An archive and an image from an earlier run of another kind, which the manifest no
         // longer names and the folder would still publish.
         let mut stale = whole.to_vec();
-        stale.push("lyonoyl-mail-1.2.0-macos-aarch64.app.tar.gz");
+        stale.push("lyonoyl-mail-1.2.0-macos-arm64.app.tar.gz");
         assert!(the_release_is(&names(&stale), v, &archives).is_err());
         let mut stale = whole.to_vec();
-        stale.push("lyonoyl-mail-1.2.0-macos-aarch64.dmg");
+        stale.push("lyonoyl-mail-1.2.0-macos-arm64.dmg");
         assert!(the_release_is(&names(&stale), v, &archives).is_err());
+
+        // A source or a notes file an older layout put there, which the release no longer carries.
+        for left_behind in ["lyonoyl-mail-1.2.0-source.tar.gz", "notes.json"] {
+            let mut stale = whole.to_vec();
+            stale.push(left_behind);
+            assert!(
+                the_release_is(&names(&stale), v, &archives).is_err(),
+                "{left_behind}"
+            );
+        }
     }
 
     /// Files by their names.

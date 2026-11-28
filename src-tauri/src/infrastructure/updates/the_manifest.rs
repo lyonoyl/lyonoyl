@@ -302,7 +302,7 @@ mod tests {
     fn a_file_that_is_not_a_plain_name_in_the_releases_folder_is_refused() {
         assert!(
             what_it_offers(
-                &manifest("1.1.0", 1000, "lyonoyl-mail-1.1.0-macos-aarch64.app.tar.gz"),
+                &manifest("1.1.0", 1000, "lyonoyl-mail-1.1.0-macos-arm64.app.tar.gz"),
                 running(),
                 "aarch64"
             )

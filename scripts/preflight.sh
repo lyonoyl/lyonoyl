@@ -11,7 +11,7 @@
 # `LYONOYL_MAIL_SERVER_REQUIRED=1` below is how it refuses. Every one of those tests reads it, and
 # where it is set a server that is not answering fails the run at the test that was about to skip.
 #
-# Run before building anything anyone else will install. `npm run app:release` runs it, with
+# Run before building anything anyone else will install. `npm run app:release:mac` runs it, with
 # `--if-changed`.
 #
 # It starts with what this machine has, `scripts/check-machine.mjs`, and stops where the run needs
